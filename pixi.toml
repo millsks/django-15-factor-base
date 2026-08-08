@@ -38,6 +38,12 @@ whitenoise = ">=6.12,<7"
 fido2 = "*"             # django-allauth[mfa]
 qrcode = "*"            # django-allauth[mfa]
 uvicorn-standard = "*"  # uvicorn[standard]
+# Build backend for the editable install below. It lives here rather than in
+# the dev feature because [pypi-options] no-build-isolation requires the
+# backend to be present in whichever environment installs the package -- which
+# includes the runtime-only default environment.
+hatchling = ">=1.27,<2"
+hatch-vcs = ">=0.5,<1"   # derives the version from git tags
 
 # gunicorn is POSIX-only and has no conda-forge win-64 build; uvicorn-worker is
 # its worker class, so both are scoped to the platforms that can run them.
@@ -62,8 +68,6 @@ no-build-isolation = ["django-15-factor-base"]
 
 [feature.dev.dependencies]
 python-build = ">=1.3,<2"
-hatchling = ">=1.27,<2"      # build backend
-hatch-vcs = ">=0.5,<1"       # derives the version from git tags
 conventional-commit-hook = ">=0.1,<1"   # commit-msg hook
 coverage = ">=7.15,<8"
 django_coverage_plugin = ">=3.2,<4"
@@ -90,8 +94,16 @@ watchdog = "*"          # werkzeug[watchdog]
 watchfiles = ">=1.2,<2"
 werkzeug = ">=3.1,<4"
 
+# `default` is runtime only -- it is what a production image would install.
+# `dev` layers the toolchain on top. Both share a solve-group so the packages
+# they have in common resolve to identical versions.
+#
+# Tasks resolve to the environment that defines them: runtime tasks live in
+# [tasks], development tasks in [feature.dev.tasks], so `pixi run test` selects
+# the dev environment on its own and needs no -e flag.
 [environments]
-default = { features = ["dev"], solve-group = "default" }
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
 
 [activation.env]
 # django_coverage_plugin is a dynamic file tracer, which needs sys.settrace.
@@ -100,40 +112,58 @@ default = { features = ["dev"], solve-group = "default" }
 # silently report 0%. Force the C trace core so template coverage is real.
 COVERAGE_CORE = "ctrace"
 
+[feature.dev.activation.env]
+# Turns on django-debug-toolbar and django-extensions in
+# config/settings/local.py. They ship only in this feature, so the runtime
+# environment leaves the flag off and Django starts without them.
+DJANGO_DEBUG_APPS = "True"
+
+# ---------------------------------------------------------------------------
+# Tasks. Every task carries an explicit `default-environment`, so `pixi run
+# <task>` never has to be given -e and never prompts to choose -- tasks in
+# [tasks] belong to the default feature and are therefore visible from both
+# environments, which is exactly the ambiguity this removes.
+#
+# `description` is what `pixi task list` shows.
+# ---------------------------------------------------------------------------
+
+# ---- Django (runtime environment) ----
+# Operational commands a deployment also runs, so they belong to the runtime
+# environment. They work there because config/settings/local.py gates
+# debug_toolbar and django_extensions behind DJANGO_DEBUG_APPS, which only the
+# dev environment sets.
 [tasks]
-# ---- Django ----
-manage = "python manage.py"
-runserver = "python manage.py runserver"
-# Production-like ASGI server. uvicorn runs on all three platforms, unlike the
-# gunicorn+uvicorn-worker pairing used in production, which is POSIX-only.
-serve = "uvicorn config.asgi:application --app-dir src"
-serve-reload = "uvicorn config.asgi:application --app-dir src --reload --reload-dir src"
-migrate = "python manage.py migrate"
-makemigrations = "python manage.py makemigrations"
-collectstatic = "python manage.py collectstatic --noinput"
-createsuperuser = "python manage.py createsuperuser"
+manage = { cmd = "python manage.py", default-environment = "default", description = "Run a Django management command" }
+migrate = { cmd = "python manage.py migrate", default-environment = "default", description = "Apply database migrations" }
+collectstatic = { cmd = "python manage.py collectstatic --noinput", default-environment = "default", description = "Collect static files into staticfiles/" }
+createsuperuser = { cmd = "python manage.py createsuperuser", default-environment = "default", description = "Create an admin user" }
+# uvicorn runs on all three platforms, unlike the gunicorn+uvicorn-worker
+# pairing used in production, which is POSIX-only.
+serve = { cmd = "uvicorn config.asgi:application --app-dir src", default-environment = "default", description = "Serve with uvicorn (production-like ASGI)" }
+
+# ---- Development-only Django commands ----
+# The dev server, autoreload and migration authoring. These run with
+# DJANGO_DEBUG_APPS on, so the debug toolbar is available.
+[feature.dev.tasks]
+runserver = { cmd = "python manage.py runserver", default-environment = "dev", description = "Django development server (with debug toolbar)" }
+serve-reload = { cmd = "uvicorn config.asgi:application --app-dir src --reload --reload-dir src", default-environment = "dev", description = "Serve with uvicorn and autoreload" }
+makemigrations = { cmd = "python manage.py makemigrations", default-environment = "dev", description = "Generate new migrations" }
 
 # ---- Standard harness ----
-bootstrap = "pre-commit install --install-hooks && pre-commit install --hook-type commit-msg"
-fmt = "ruff format ."
-format = "ruff format ."          # alias, matches the sibling repos
-lint = "ruff check ."
-typecheck = "mypy src/"
-check = "mypy src/"               # alias, kept for the CLAUDE.md task standard
-test = "pytest tests/unit/"
-test-integration = "pytest tests/integration/"
-cov = "pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml --cov-fail-under=90"
-# Machine-readable lint output for the SonarCloud scanner. --exit-zero so the
-# report is always produced; `lint` is what gates on ruff findings.
-ruff-report = "ruff check . --output-format json --output-file ruff-report.json --exit-zero"
-# --no-isolation uses the conda-forge hatchling/hatch-vcs from the dev feature
-# rather than fetching them from PyPI into a throwaway build environment.
-build = "python -m build --no-isolation"
-docs = "mkdocs build --strict"
-docs-serve = "mkdocs serve"
-changelog = "git cliff -o CHANGELOG.md"
-precommit = "pre-commit run --all-files"
-act = "act --container-architecture linux/amd64"
-
-[tasks.ci]
-depends-on = ["precommit", "build", "check", "lint", "cov"]
+bootstrap = { cmd = "pre-commit install --install-hooks && pre-commit install --hook-type commit-msg", default-environment = "dev", description = "Install the git hooks" }
+format = { cmd = "ruff format .", default-environment = "dev", description = "Format the code with ruff" }
+lint = { cmd = "ruff check .", default-environment = "dev", description = "Lint with ruff" }
+typecheck = { cmd = "mypy src/", default-environment = "dev", description = "Type-check with mypy" }
+test = { cmd = "pytest tests/unit/", default-environment = "dev", description = "Unit tests only (fast, no I/O)" }
+test-integration = { cmd = "pytest tests/integration/", default-environment = "dev", description = "Integration tests only" }
+test-cov = { cmd = "pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml --cov-fail-under=90", default-environment = "dev", description = "Full suite with coverage, fails under 90%" }
+# --exit-zero so the report is always produced; `lint` is what gates on findings.
+ruff-report = { cmd = "ruff check . --output-format json --output-file ruff-report.json --exit-zero", default-environment = "dev", description = "Write ruff findings as JSON for SonarCloud" }
+# --no-isolation uses the conda-forge hatchling/hatch-vcs already in the
+# environment rather than fetching them from PyPI into a throwaway build env.
+build = { cmd = "python -m build --no-isolation", default-environment = "dev", description = "Build the wheel and sdist" }
+docs = { cmd = "mkdocs build --strict", default-environment = "dev", description = "Build the documentation" }
+docs-serve = { cmd = "mkdocs serve", default-environment = "dev", description = "Serve the documentation with live reload" }
+changelog = { cmd = "git cliff -o CHANGELOG.md", default-environment = "dev", description = "Regenerate CHANGELOG.md with git-cliff" }
+precommit = { cmd = "pre-commit run --all-files", default-environment = "dev", description = "Run every pre-commit hook over the repository" }
+ci = { depends-on = ["test-cov", "lint", "typecheck", "build"], description = "The gate: test-cov, lint, typecheck, build" }

@@ -51,6 +51,28 @@ def test_dot_env_file_is_read_when_enabled(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.usefixtures("no_database_env")
+def test_debug_apps_are_off_by_default(monkeypatch: pytest.MonkeyPatch):
+    """The runtime environment lacks debug_toolbar, so local must not require it."""
+    monkeypatch.delenv("DJANGO_DEBUG_APPS", raising=False)
+    local = importlib.import_module(LOCAL)
+    assert local.DEBUG_APPS is False
+    assert "debug_toolbar" not in local.INSTALLED_APPS
+    assert "django_extensions" not in local.INSTALLED_APPS
+    assert not any("debug_toolbar" in mw for mw in local.MIDDLEWARE)
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_debug_apps_can_be_enabled(monkeypatch: pytest.MonkeyPatch):
+    """The dev environment sets DJANGO_DEBUG_APPS, which wires the toolbar in."""
+    monkeypatch.setenv("DJANGO_DEBUG_APPS", "True")
+    local = importlib.import_module(LOCAL)
+    assert local.DEBUG_APPS is True
+    assert "debug_toolbar" in local.INSTALLED_APPS
+    assert "django_extensions" in local.INSTALLED_APPS
+    assert any("debug_toolbar" in mw for mw in local.MIDDLEWARE)
+
+
+@pytest.mark.usefixtures("no_database_env")
 def test_local_falls_back_to_sqlite():
     local = importlib.import_module(LOCAL)
     assert local.DATABASES["default"]["ENGINE"].endswith("sqlite3")

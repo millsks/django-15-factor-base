@@ -17,10 +17,10 @@ Brief description of the changes made.
 
 ## Quality Checks
 
-- [ ] `pixi run fmt` — code is formatted
+- [ ] `pixi run format` — code is formatted
 - [ ] `pixi run lint` — no ruff findings
 - [ ] `pixi run typecheck` — no mypy errors
-- [ ] `pixi run cov` — coverage stays at or above 90%
+- [ ] `pixi run test-cov` — coverage stays at or above 90%
 - [ ] `pixi run ci` — the full gate exits 0
 
 ## Django Considerations
