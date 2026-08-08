@@ -2,9 +2,17 @@
 With these settings, tests run faster.
 """
 
+from config.observability.logging import build_logging_config
+
 from .base import *  # noqa: F403
 from .base import TEMPLATES
 from .base import env
+
+# LOGGING
+# ------------------------------------------------------------------------------
+# Console rendering at WARNING so the suite's output stays readable; the
+# structlog pipeline itself is still exercised.
+LOGGING = build_logging_config(debug=False, log_level="WARNING", log_format="console")
 
 # GENERAL
 # ------------------------------------------------------------------------------

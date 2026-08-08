@@ -30,6 +30,15 @@ tests/integration/   # marked `integration`
 docs/                # mkdocs documentation
 ```
 
+## Observability
+
+Structured logging (structlog) and distributed tracing (OpenTelemetry) are
+built in, not optional. Every log line carries `request_id`, `user_id` and
+`trace_id`, and requests, Celery tasks, queries and cache calls are traced.
+Spans export over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and are
+simply dropped when it is not — so nothing retries against a collector that
+isn't there. See `docs/observability.md`.
+
 ## Development
 
 ```sh

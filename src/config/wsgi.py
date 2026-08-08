@@ -26,6 +26,10 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.production")
 
+from config.observability import configure_observability  # noqa: E402
+
+configure_observability()
+
 # This application object is used by any WSGI server configured to use this
 # file. This includes Django's development server, if the WSGI_APPLICATION
 # setting points here.

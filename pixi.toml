@@ -19,7 +19,12 @@ crispy-bootstrap5 = ">=2026.3,<2027"
 django = ">=6.0,<7"
 django-allauth = ">=65.19,<66"
 django-anymail = ">=15.1,<16"
-django-celery-beat = ">=2.9,<3"
+# django-celery-beat itself is in [pypi-dependencies] -- see the note there --
+# but its dependencies all exist on conda-forge, so they are declared here and
+# uv treats them as already satisfied rather than pulling PyPI copies.
+django-timezone-field = ">=7.2,<8"
+python-crontab = ">=3.3,<4"
+cron-descriptor = ">=1.4,<2"   # django-celery-beat requires <2.0.0
 django-cors-headers = ">=4.9,<5"
 django-crispy-forms = ">=2.6,<3"   # conda-forge tops out at 2.6 (PyPI has 2.7)
 django-environ = ">=0.14,<0.15"
@@ -34,6 +39,20 @@ python-slugify = ">=8.0,<9"
 redis-py = ">=8.1,<9"
 uvicorn = ">=0.52,<0.53"
 whitenoise = ">=6.12,<7"
+# Structured logging. django-structlog binds request_id/user_id and propagates
+# them into Celery tasks; its conda recipe also pulls django-extensions and
+# django-ipware, which upstream treats as optional extras.
+structlog = ">=26.1,<27"
+django-structlog = ">=10.1,<11"
+# OpenTelemetry: traces only. Metrics and the OTLP logs signal are additive
+# later and need no restructuring.
+opentelemetry-api = ">=1.44,<2"
+opentelemetry-sdk = ">=1.44,<2"
+opentelemetry-exporter-otlp-proto-http = ">=1.44,<2"
+opentelemetry-instrumentation-django = ">=0.65b0"
+opentelemetry-instrumentation-celery = ">=0.65b0"
+opentelemetry-instrumentation-psycopg = ">=0.65b0"
+opentelemetry-instrumentation-redis = ">=0.65b0"
 # Backing packages for PyPI extras that conda-forge splits out:
 fido2 = "*"             # django-allauth[mfa]
 qrcode = "*"            # django-allauth[mfa]
@@ -60,6 +79,13 @@ uvicorn-worker = ">=0.4,<0.5"
 # package, so this entry only puts the source tree on the path.
 [pypi-dependencies]
 django-15-factor-base = { path = ".", editable = true }
+# From PyPI rather than conda-forge, which is otherwise the rule here.
+# Upstream declares `importlib-metadata<5.0; python_version < "3.8"`, but the
+# conda-forge recipe drops the environment marker and applies the cap
+# unconditionally. That collides head-on with opentelemetry-api, which needs
+# importlib-metadata>=6.0, and makes the two impossible to install together.
+# PyPI honours the marker, so on Python 3.14 there is no cap at all.
+django-celery-beat = ">=2.9,<3"
 
 # Build with the conda-forge hatchling/hatch-vcs from the dev feature instead
 # of letting the build frontend fetch its own copies from PyPI.

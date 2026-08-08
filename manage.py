@@ -24,6 +24,12 @@ def main():
     if str(src_dir) not in sys.path:
         sys.path.insert(0, str(src_dir))
 
+    # Management commands are instrumented too, so a data migration or backfill
+    # shows up as a trace like any request would.
+    from config.observability import configure_observability  # noqa: PLC0415
+
+    configure_observability()
+
     execute_from_command_line(sys.argv)
 
 
