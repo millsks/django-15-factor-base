@@ -4,6 +4,7 @@ channels = ["conda-forge"]
 name = "django-15-factor-base"
 platforms = ["osx-arm64", "linux-64", "win-64"]
 version = "0.1.0"
+requires-pixi = ">=0.70.2"
 
 # ---------------------------------------------------------------------------
 # Runtime dependencies. conda-forge is the source for everything that exists
