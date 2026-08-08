@@ -1,10 +1,11 @@
 [build-system]
-build-backend = "setuptools.build_meta"
-requires = [ "setuptools>=77" ]
+build-backend = "hatchling.build"
+requires = [ "hatchling", "hatch-vcs" ]
 
 [project]
 name = "django-15-factor-base"
-version = "0.1.0"
+# Version is derived from git tags by hatch-vcs; see [tool.hatch.version].
+dynamic = [ "version" ]
 description = "A Django application accelerator template based on 15 factor application principles."
 readme = "README.md"
 license = { text = "MIT" }
@@ -115,10 +116,26 @@ lint.isort.known-first-party = [ "config", "django_service", "tests" ]
 [tool.pyproject-fmt]
 keep_full_version = true
 
-# ==== setuptools ====
-# src/ is the import root; both config and django_service are top-level packages.
-[tool.setuptools.packages.find]
-where = [ "src" ]
+# ==== hatch ====
+[tool.hatch.version]
+source = "vcs"
+# Used when no git tag is reachable (shallow CI clones, fresh repos).
+fallback-version = "0.0.0"
+
+# src/ is the import root; config and django_service are both top-level packages.
+[tool.hatch.build.targets.wheel]
+packages = [ "src/config", "src/django_service" ]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src",
+  "tests",
+  "manage.py",
+  "mkdocs.yml",
+  "docs",
+  "README.md",
+  "LICENSE",
+]
 
 # ==== pytest ====
 [tool.pytest.ini_options]
@@ -145,15 +162,20 @@ include = [ "src/**" ]
 omit = [
   "*/migrations/*",
   "*/tests/*",
-  "*.egg-info/*",           # setuptools build artifacts, not source
+  "**/*.egg-info/**",       # setuptools build artifacts, not source
   "src/config/wsgi.py",     # deployment entrypoints: no logic, exercised by the
   "src/config/asgi.py",     # WSGI/ASGI server rather than by the test suite
   "src/config/websocket.py",
 ]
-# django_coverage_plugin measures Django templates as well as Python. It is
-# installed and can be re-enabled by adding it here, but the coverage gate
-# below is a Python-code gate, so templates are not counted.
-plugins = [ ]
+# Measures Django templates alongside Python. Requires
+# TEMPLATES[0]["OPTIONS"]["debug"] = True, which config/settings/test.py sets,
+# and COVERAGE_CORE=ctrace, set in pixi.toml -- see below.
+plugins = [ "django_coverage_plugin" ]
+
+[tool.coverage.django_coverage_plugin]
+# Defaults to "html, txt, tex", which makes coverage treat stray .txt files
+# (setuptools' SOURCES.txt, for one) as templates. Every template here is HTML.
+template_extensions = "html"
 
 # ==== mypy ====
 [tool.mypy]

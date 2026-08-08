@@ -43,6 +43,14 @@ def production_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.usefixtures("no_database_env")
+def test_dot_env_file_is_read_when_enabled(monkeypatch: pytest.MonkeyPatch):
+    """DJANGO_READ_DOT_ENV_FILE toggles the .env read in base.py."""
+    monkeypatch.setenv("DJANGO_READ_DOT_ENV_FILE", "True")
+    base = importlib.import_module(BASE)
+    assert base.READ_DOT_ENV_FILE is True
+
+
+@pytest.mark.usefixtures("no_database_env")
 def test_local_falls_back_to_sqlite():
     local = importlib.import_module(LOCAL)
     assert local.DATABASES["default"]["ENGINE"].endswith("sqlite3")

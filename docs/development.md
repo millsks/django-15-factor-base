@@ -6,6 +6,14 @@ Dependencies are declared in `pixi.toml` and resolved from **conda-forge**.
 `pyproject.toml` carries build metadata and tool configuration only — it does
 not declare dependencies.
 
+The build backend is **hatchling**, with **hatch-vcs** deriving the version
+from git tags. `[project]` therefore declares `dynamic = ["version"]` and has
+no hardcoded version; `django_service.__version__` reads it back from the
+installed distribution metadata. With no tag reachable the version resolves to
+a development version such as `0.0.1.dev6+g<sha>`; tag a release (`v0.1.0`) to
+get a clean one. `fallback-version` covers shallow CI clones with no tags at
+all.
+
 ```sh
 pixi install     # create the environment
 pixi run bootstrap   # install the git hooks
@@ -32,6 +40,8 @@ can never silently come up on sqlite.
 | Task | What it does |
 | --- | --- |
 | `pixi run runserver` | Django development server |
+| `pixi run serve` | Production-like ASGI server (uvicorn, all platforms) |
+| `pixi run serve-reload` | The same with autoreload |
 | `pixi run migrate` | Apply migrations |
 | `pixi run makemigrations` | Generate migrations |
 | `pixi run createsuperuser` | Create an admin user |
@@ -60,12 +70,43 @@ can never silently come up on sqlite.
 Shared fixtures live in `tests/conftest.py`; `UserFactory` lives in
 `tests/factories.py`.
 
+## Serving the application
+
+`runserver` is Django's development server. `pixi run serve` runs uvicorn
+against `config.asgi:application`, which is closer to production and works on
+Linux, macOS and Windows alike.
+
+Production uses gunicorn with the uvicorn worker class. gunicorn is POSIX-only
+and has no conda-forge win-64 build, so `gunicorn` and `uvicorn-worker` are
+declared under `[target.linux-64.dependencies]` and
+`[target.osx-arm64.dependencies]` rather than in `[dependencies]`. Windows
+developers get uvicorn instead; it speaks the same ASGI application, so the
+only thing that differs locally is the process manager. If you ever need
+multi-worker parity on Windows, `hypercorn` and `granian` are both on
+conda-forge and cross-platform.
+
 ## Coverage
 
-The gate measures Python under `src/`. Deployment entrypoints (`wsgi.py`,
-`asgi.py`, `websocket.py`) are excluded — they contain no logic. Django
-template coverage is available via `django_coverage_plugin`; add it back to
-`[tool.coverage.run] plugins` in `pyproject.toml` to enable it.
+The gate measures Python **and Django templates** under `src/`, via
+`django_coverage_plugin`. Two things are required for template measurement and
+both are configured:
+
+- `TEMPLATES[0]["OPTIONS"]["debug"] = True`, set in `config/settings/test.py`.
+- `COVERAGE_CORE=ctrace`, set in `[activation.env]` in `pixi.toml`. The plugin
+  is a *dynamic* file tracer, which needs `sys.settrace`. On Python 3.12+
+  coverage defaults to the `sysmon` core, which does not support such plugins —
+  templates are discovered but never traced and silently report 0%.
+
+`template_extensions` is narrowed to `html`; the plugin's default also includes
+`txt`, which makes coverage treat stray text files as templates.
+
+Deployment entrypoints (`wsgi.py`, `asgi.py`, `websocket.py`) are excluded —
+they contain no logic.
+
+Templates are covered by `tests/integration/test_template_rendering.py`, which
+drives the real test client. `RequestFactory`-based view tests never render a
+response, so without those tests the templates report 0% even though the views
+pass.
 
 ## Pre-commit
 
