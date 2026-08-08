@@ -112,6 +112,12 @@ dev = { features = ["dev"], solve-group = "default" }
 # silently report 0%. Force the C trace core so template coverage is real.
 COVERAGE_CORE = "ctrace"
 
+[feature.dev.activation.env]
+# Turns on django-debug-toolbar and django-extensions in
+# config/settings/local.py. They ship only in this feature, so the runtime
+# environment leaves the flag off and Django starts without them.
+DJANGO_DEBUG_APPS = "True"
+
 # ---------------------------------------------------------------------------
 # Tasks. Every task carries an explicit `default-environment`, so `pixi run
 # <task>` never has to be given -e and never prompts to choose -- tasks in
@@ -121,26 +127,27 @@ COVERAGE_CORE = "ctrace"
 # `description` is what `pixi task list` shows.
 # ---------------------------------------------------------------------------
 
-# ---- Django ----
-# These run against config.settings.local, which puts debug_toolbar and
-# django_extensions in INSTALLED_APPS. Both are dev-feature packages, so these
-# tasks belong to the dev environment -- in the runtime-only default
-# environment Django refuses to start with ModuleNotFoundError: debug_toolbar.
-#
-# `default` deliberately has no tasks: it is the environment a production image
-# installs, where gunicorn/uvicorn are invoked directly against
-# config.settings.production rather than through pixi.
-[feature.dev.tasks]
-manage = { cmd = "python manage.py", default-environment = "dev", description = "Run a Django management command" }
-runserver = { cmd = "python manage.py runserver", default-environment = "dev", description = "Django development server" }
+# ---- Django (runtime environment) ----
+# Operational commands a deployment also runs, so they belong to the runtime
+# environment. They work there because config/settings/local.py gates
+# debug_toolbar and django_extensions behind DJANGO_DEBUG_APPS, which only the
+# dev environment sets.
+[tasks]
+manage = { cmd = "python manage.py", default-environment = "default", description = "Run a Django management command" }
+migrate = { cmd = "python manage.py migrate", default-environment = "default", description = "Apply database migrations" }
+collectstatic = { cmd = "python manage.py collectstatic --noinput", default-environment = "default", description = "Collect static files into staticfiles/" }
+createsuperuser = { cmd = "python manage.py createsuperuser", default-environment = "default", description = "Create an admin user" }
 # uvicorn runs on all three platforms, unlike the gunicorn+uvicorn-worker
 # pairing used in production, which is POSIX-only.
-serve = { cmd = "uvicorn config.asgi:application --app-dir src", default-environment = "dev", description = "Serve with uvicorn (production-like ASGI)" }
+serve = { cmd = "uvicorn config.asgi:application --app-dir src", default-environment = "default", description = "Serve with uvicorn (production-like ASGI)" }
+
+# ---- Development-only Django commands ----
+# The dev server, autoreload and migration authoring. These run with
+# DJANGO_DEBUG_APPS on, so the debug toolbar is available.
+[feature.dev.tasks]
+runserver = { cmd = "python manage.py runserver", default-environment = "dev", description = "Django development server (with debug toolbar)" }
 serve-reload = { cmd = "uvicorn config.asgi:application --app-dir src --reload --reload-dir src", default-environment = "dev", description = "Serve with uvicorn and autoreload" }
-migrate = { cmd = "python manage.py migrate", default-environment = "dev", description = "Apply database migrations" }
 makemigrations = { cmd = "python manage.py makemigrations", default-environment = "dev", description = "Generate new migrations" }
-collectstatic = { cmd = "python manage.py collectstatic --noinput", default-environment = "dev", description = "Collect static files into staticfiles/" }
-createsuperuser = { cmd = "python manage.py createsuperuser", default-environment = "dev", description = "Create an admin user" }
 
 # ---- Standard harness ----
 bootstrap = { cmd = "pre-commit install --install-hooks && pre-commit install --hook-type commit-msg", default-environment = "dev", description = "Install the git hooks" }

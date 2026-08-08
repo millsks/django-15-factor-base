@@ -26,19 +26,31 @@ install. **`dev`** layers the toolchain (ruff, mypy, pytest, mkdocs, git-cliff)
 on top. They share a solve-group, so packages common to both resolve to
 identical versions.
 
-**You never need `-e`.** Every task declares `default-environment`, so
-`pixi run <task>` resolves without a flag and without prompting. `pixi task
+**You never need `-e` for a task.** Every task declares `default-environment`,
+so `pixi run <task>` resolves without a flag and without prompting. `pixi task
 list` shows each task with its description.
 
-All tasks run in `dev`, including the Django ones. That is not an oversight:
-`config.settings.local` puts `debug_toolbar` and `django_extensions` in
-`INSTALLED_APPS`, and both are dev-feature packages — in the runtime-only
-`default` environment Django refuses to start with
-`ModuleNotFoundError: debug_toolbar`.
+Operational commands — `manage`, `migrate`, `collectstatic`, `createsuperuser`,
+`serve` — run in `default`, because a deployment runs them too. Development-only
+commands — `runserver`, `serve-reload`, `makemigrations` — and the whole quality
+harness run in `dev`.
 
-`default` therefore has no tasks by design. It is the environment a production
-image installs, where gunicorn or uvicorn is invoked directly against
-`config.settings.production` rather than through pixi.
+An *ad-hoc* command still needs the flag: `pixi run -- pytest` would use
+`default` and fail on the missing test dependencies. Use `pixi run -e dev --`.
+
+### Debug apps
+
+`django-debug-toolbar` and `django-extensions` ship only in the `dev` feature,
+so `config/settings/local.py` gates them behind `DJANGO_DEBUG_APPS`:
+
+```python
+DEBUG_APPS = env.bool("DJANGO_DEBUG_APPS", default=False)
+```
+
+`[feature.dev.activation.env]` sets it to `True`, so the toolbar is on in `dev`
+and absent everywhere else. Without this gate the local settings import
+`debug_toolbar` unconditionally and Django cannot start in the runtime
+environment at all.
 
 `hatchling` and `hatch-vcs` are the exception — they sit in `[dependencies]`
 rather than the dev feature, because `[pypi-options] no-build-isolation`
