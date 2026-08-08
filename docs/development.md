@@ -15,9 +15,26 @@ get a clean one. `fallback-version` covers shallow CI clones with no tags at
 all.
 
 ```sh
-pixi install     # create the environment
+pixi install         # create the runtime environment
+pixi install -e dev  # add the development toolchain
 pixi run bootstrap   # install the git hooks
 ```
+
+There are two environments. **`default`** holds runtime dependencies only —
+Django, Celery, uvicorn and so on — and is what a production image would
+install. **`dev`** layers the toolchain (ruff, mypy, pytest, mkdocs, git-cliff)
+on top. They share a solve-group, so packages common to both resolve to
+identical versions.
+
+You rarely need `-e`: a task resolves to the environment that defines it.
+Runtime tasks live in `[tasks]` and development tasks in `[feature.dev.tasks]`,
+so `pixi run runserver` uses `default` and `pixi run test` uses `dev`
+automatically.
+
+`hatchling` and `hatch-vcs` are the exception — they sit in `[dependencies]`
+rather than the dev feature, because `[pypi-options] no-build-isolation`
+requires the build backend in whichever environment installs the editable
+package, including the runtime-only `default`.
 
 The project pins **pixi 0.70.2**: `requires-pixi = ">=0.70.2"` in `pixi.toml`
 sets the local floor, and every workflow passes `pixi-version: v0.70.2` to
@@ -51,19 +68,20 @@ can never silently come up on sqlite.
 | `pixi run makemigrations` | Generate migrations |
 | `pixi run createsuperuser` | Create an admin user |
 | `pixi run collectstatic` | Collect static files into `staticfiles/` |
-| `pixi run fmt` | `ruff format` |
+| `pixi run format` | `ruff format` |
 | `pixi run lint` | `ruff check` |
-| `pixi run check` | `mypy src/` |
+| `pixi run typecheck` | `mypy src/` |
 | `pixi run test` | Unit tests only (fast) |
 | `pixi run test-integration` | Integration tests only |
-| `pixi run cov` | Full suite, fails under 90% coverage |
+| `pixi run test-cov` | Full suite, fails under 90% coverage |
 | `pixi run build` | Build the wheel and sdist |
 | `pixi run docs` | Build the documentation (`--strict`) |
 | `pixi run docs-serve` | Serve the documentation with live reload |
 | `pixi run changelog` | Regenerate `CHANGELOG.md` with git-cliff |
-| `pixi run ci` | The full gate: precommit, build, check, lint, cov |
+| `pixi run ci` | The gate: test-cov, lint, typecheck |
 
-`pixi run ci` must exit 0 before any change is considered done.
+`pixi run ci` must exit 0 before any change is considered done. Packaging is
+validated separately by `release.yml`, which runs `build` before it tags.
 
 ## Tests
 
@@ -117,7 +135,7 @@ pass.
 
 Every hook is `repo: local` and runs the tools from the pixi `dev` feature — all
 of them conda-forge packages — so pre-commit can never disagree with
-`pixi run lint` / `pixi run check` about versions, and no hook environments are
+`pixi run lint` / `pixi run typecheck` about versions, and no hook environments are
 downloaded or built.
 
 Commit messages are validated by `conventional-commit-hook` at the `commit-msg`

@@ -10,7 +10,8 @@ dependency from conda-forge.
 ## Quick start
 
 ```sh
-pixi install         # create the environment
+pixi install         # runtime environment
+pixi install -e dev  # development toolchain
 pixi run bootstrap   # install the git hooks
 pixi run migrate     # apply migrations (sqlite by default)
 pixi run runserver   # http://127.0.0.1:8000/
@@ -34,14 +35,17 @@ docs/                # mkdocs documentation
 ```sh
 pixi run test              # unit tests (fast)
 pixi run test-integration  # integration tests
-pixi run cov               # full suite, 90% coverage gate
+pixi run test-cov          # full suite, 90% coverage gate
 pixi run ci                # the full gate -- must pass before any change is done
 pixi run docs-serve        # documentation with live reload
 ```
 
 Dependencies live in `pixi.toml` and come from conda-forge; `pyproject.toml`
-holds build metadata and tool configuration only. See `docs/development.md` for
-the database configuration and the full task list.
+holds build metadata and tool configuration only. The `default` environment
+carries runtime dependencies only; `dev` layers the toolchain on top. Tasks
+resolve to whichever environment defines them, so `-e` is rarely needed.
+
+See `docs/development.md` for the database configuration and the full task list.
 
 ## License
 

@@ -24,15 +24,16 @@ jobs:
         uses: prefix-dev/setup-pixi@v0.9.5
         with:
           pixi-version: v0.70.2
+          environments: dev
           cache: true
 
       - name: Install dependencies
-        run: pixi install
+        run: pixi install -e dev
 
       # `cov` runs the full suite and writes coverage.xml, which
       # sonar-project.properties points at via sonar.python.coverage.reportPaths.
       - name: Run tests with coverage
-        run: pixi run cov
+        run: pixi run test-cov
 
       - name: Run ruff linting with JSON output
         run: pixi run ruff-report

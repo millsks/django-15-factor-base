@@ -2,7 +2,7 @@
 # conda-forge packages), so pre-commit and `pixi run lint` / `check` can never
 # disagree on versions, and no hook environments are downloaded or built.
 #
-# Each entry is prefixed with `pixi run --` so the hooks work when git invokes
+# Each entry is prefixed with `pixi run -e dev --` so the hooks work when git invokes
 # them outside an activated pixi environment.
 exclude: '^(\.agents/|\.claude/|\.bmad-loop/|\.pixi/|_bmad/|src/django_service/contrib/sites/migrations/)'
 
@@ -14,57 +14,57 @@ repos:
       # ---- file hygiene (pre-commit-hooks, conda-forge) ----
       - id: check-added-large-files
         name: check for added large files
-        entry: pixi run -- check-added-large-files
+        entry: pixi run -e dev -- check-added-large-files
         language: system
 
       - id: check-merge-conflict
         name: check for merge conflicts
-        entry: pixi run -- check-merge-conflict
+        entry: pixi run -e dev -- check-merge-conflict
         language: system
         types: [text]
 
       - id: check-toml
         name: check toml
-        entry: pixi run -- check-toml
+        entry: pixi run -e dev -- check-toml
         language: system
         types: [toml]
 
       - id: check-yaml
         name: check yaml
-        entry: pixi run -- check-yaml
+        entry: pixi run -e dev -- check-yaml
         language: system
         types: [yaml]
 
       - id: end-of-file-fixer
         name: fix end of files
-        entry: pixi run -- end-of-file-fixer
+        entry: pixi run -e dev -- end-of-file-fixer
         language: system
         types: [text]
 
       - id: trailing-whitespace
         name: trim trailing whitespace
-        entry: pixi run -- trailing-whitespace-fixer
+        entry: pixi run -e dev -- trailing-whitespace-fixer
         language: system
         types: [text]
 
       # ---- lint / format / types ----
       - id: ruff
         name: ruff check
-        entry: pixi run -- ruff check --fix --force-exclude
+        entry: pixi run -e dev -- ruff check --fix --force-exclude
         language: system
         types_or: [python, pyi]
         require_serial: true
 
       - id: ruff-format
         name: ruff format
-        entry: pixi run -- ruff format --force-exclude
+        entry: pixi run -e dev -- ruff format --force-exclude
         language: system
         types_or: [python, pyi]
         require_serial: true
 
       - id: mypy
         name: mypy
-        entry: pixi run -- mypy src/
+        entry: pixi run -e dev -- mypy src/
         language: system
         types: [python]
         pass_filenames: false
@@ -72,7 +72,7 @@ repos:
       # ---- commit message ----
       - id: conventional-commit-hook
         name: conventional commit message
-        entry: pixi run -- conventional-commit-hook
+        entry: pixi run -e dev -- conventional-commit-hook
         language: system
         stages: [commit-msg]
         always_run: true
