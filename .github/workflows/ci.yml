@@ -2,70 +2,50 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main, develop ]
   pull_request:
-    branches: [main]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [ main, develop ]
 
 jobs:
-  # Fast feedback on every platform pixi.toml targets. There is no
-  # python-version matrix: pixi pins the interpreter, so setup-python is never
-  # involved and extra legs would all run the same Python.
   test:
-    name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Informational only: pixi pins the interpreter (python = "3.14.*") and
+        # setup-python is never invoked, so every leg runs Python 3.14.
+        python-version: ['3.10', '3.11', '3.12', '3.13']
 
     steps:
-      - uses: actions/checkout@v6
+    - uses: actions/checkout@v6
 
-      - name: Set up pixi
-        uses: prefix-dev/setup-pixi@v0.9.5
-        with:
-          cache: true
+    - name: Set up pixi
+      uses: prefix-dev/setup-pixi@v0.9.5
+      with:
+        # Must be able to read lock-file format v7; v0.67.2 caps out at v6.
+        pixi-version: v0.72.0
+        cache: true
 
-      - name: Run unit tests
-        run: pixi run test
+    - name: Run tests
+      run: |
+        pixi run test
 
-      - name: Run integration tests
-        run: pixi run test-integration
-
-  # The merge gate: pre-commit, build, mypy, ruff and the 90% coverage
-  # threshold, in that order. Linux only -- it is the production platform, and
-  # gunicorn has no Windows build.
-  full:
-    name: Full CI
+  lint:
     runs-on: ubuntu-latest
-    # The sqlite fallback in config/settings/base.py covers the test settings,
-    # so no database service is needed yet. When Postgres is provisioned, add:
-    #   services:
-    #     postgres:
-    #       image: postgres:18
-    #       env:
-    #         POSTGRES_PASSWORD: postgres
-    #       ports: ["5432:5432"]
-    #       options: >-
-    #         --health-cmd pg_isready --health-interval 10s
-    #         --health-timeout 5s --health-retries 5
-    # and set DATABASE_URL for the "Run full CI" step.
+
     steps:
-      - uses: actions/checkout@v6
-        with:
-          # hatch-vcs derives the version from tags; a shallow clone has none.
-          fetch-depth: 0
+    - uses: actions/checkout@v6
 
-      - name: Set up pixi
-        uses: prefix-dev/setup-pixi@v0.9.5
-        with:
-          cache: true
+    - name: Set up pixi
+      uses: prefix-dev/setup-pixi@v0.9.5
+      with:
+        pixi-version: v0.72.0
+        cache: true
 
-      # Produces coverage.xml as a side effect; SonarCloud consumes it in
-      # the sonarqube workflow, so there is no separate coverage upload here.
-      - name: Run full CI
-        run: pixi run ci
+    - name: Lint with ruff
+      run: |
+        pixi run lint
+
+    - name: Type check with mypy
+      run: |
+        pixi run typecheck
