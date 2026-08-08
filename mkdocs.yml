@@ -1,0 +1,35 @@
+site_name: Django 15-Factor Base
+site_description: A Django application accelerator template based on 15-factor application principles.
+repo_url: https://github.com/millsks/django-15-factor-base
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Development: development.md

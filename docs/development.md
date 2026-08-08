@@ -1,0 +1,119 @@
+# Development
+
+## Environment
+
+Dependencies are declared in `pixi.toml` and resolved from **conda-forge**.
+`pyproject.toml` carries build metadata and tool configuration only — it does
+not declare dependencies.
+
+The build backend is **hatchling**, with **hatch-vcs** deriving the version
+from git tags. `[project]` therefore declares `dynamic = ["version"]` and has
+no hardcoded version; `django_service.__version__` reads it back from the
+installed distribution metadata. With no tag reachable the version resolves to
+a development version such as `0.0.1.dev6+g<sha>`; tag a release (`v0.1.0`) to
+get a clean one. `fallback-version` covers shallow CI clones with no tags at
+all.
+
+```sh
+pixi install     # create the environment
+pixi run bootstrap   # install the git hooks
+```
+
+Every dependency resolves from conda-forge. The only PyPI entry in
+`pixi.lock` is the editable install of this project itself.
+
+## Database
+
+`config/settings/base.py` selects a backend in this order:
+
+1. `DATABASE_URL`, if set
+2. `POSTGRES_DB` (with `POSTGRES_USER`, `POSTGRES_PASSWORD`, and optional
+   `POSTGRES_HOST` / `POSTGRES_PORT`)
+3. sqlite at `db.sqlite3` in the repository root
+
+Step 3 is a local-development convenience. `config/settings/production.py`
+raises `ImproperlyConfigured` if it is reached in production, so a deployment
+can never silently come up on sqlite.
+
+## Tasks
+
+| Task | What it does |
+| --- | --- |
+| `pixi run runserver` | Django development server |
+| `pixi run serve` | Production-like ASGI server (uvicorn, all platforms) |
+| `pixi run serve-reload` | The same with autoreload |
+| `pixi run migrate` | Apply migrations |
+| `pixi run makemigrations` | Generate migrations |
+| `pixi run createsuperuser` | Create an admin user |
+| `pixi run collectstatic` | Collect static files into `staticfiles/` |
+| `pixi run fmt` | `ruff format` |
+| `pixi run lint` | `ruff check` |
+| `pixi run check` | `mypy src/` |
+| `pixi run test` | Unit tests only (fast) |
+| `pixi run test-integration` | Integration tests only |
+| `pixi run cov` | Full suite, fails under 90% coverage |
+| `pixi run build` | Build the wheel and sdist |
+| `pixi run docs` | Build the documentation (`--strict`) |
+| `pixi run docs-serve` | Serve the documentation with live reload |
+| `pixi run changelog` | Regenerate `CHANGELOG.md` with git-cliff |
+| `pixi run ci` | The full gate: precommit, build, check, lint, cov |
+
+`pixi run ci` must exit 0 before any change is considered done.
+
+## Tests
+
+- `tests/unit/` — no database, network, or filesystem access.
+- `tests/integration/` — everything else. `tests/integration/conftest.py`
+  applies the `integration` marker automatically, so
+  `pytest -m "not integration"` selects the fast suite.
+
+Shared fixtures live in `tests/conftest.py`; `UserFactory` lives in
+`tests/factories.py`.
+
+## Serving the application
+
+`runserver` is Django's development server. `pixi run serve` runs uvicorn
+against `config.asgi:application`, which is closer to production and works on
+Linux, macOS and Windows alike.
+
+Production uses gunicorn with the uvicorn worker class. gunicorn is POSIX-only
+and has no conda-forge win-64 build, so `gunicorn` and `uvicorn-worker` are
+declared under `[target.linux-64.dependencies]` and
+`[target.osx-arm64.dependencies]` rather than in `[dependencies]`. Windows
+developers get uvicorn instead; it speaks the same ASGI application, so the
+only thing that differs locally is the process manager. If you ever need
+multi-worker parity on Windows, `hypercorn` and `granian` are both on
+conda-forge and cross-platform.
+
+## Coverage
+
+The gate measures Python **and Django templates** under `src/`, via
+`django_coverage_plugin`. Two things are required for template measurement and
+both are configured:
+
+- `TEMPLATES[0]["OPTIONS"]["debug"] = True`, set in `config/settings/test.py`.
+- `COVERAGE_CORE=ctrace`, set in `[activation.env]` in `pixi.toml`. The plugin
+  is a *dynamic* file tracer, which needs `sys.settrace`. On Python 3.12+
+  coverage defaults to the `sysmon` core, which does not support such plugins —
+  templates are discovered but never traced and silently report 0%.
+
+`template_extensions` is narrowed to `html`; the plugin's default also includes
+`txt`, which makes coverage treat stray text files as templates.
+
+Deployment entrypoints (`wsgi.py`, `asgi.py`, `websocket.py`) are excluded —
+they contain no logic.
+
+Templates are covered by `tests/integration/test_template_rendering.py`, which
+drives the real test client. `RequestFactory`-based view tests never render a
+response, so without those tests the templates report 0% even though the views
+pass.
+
+## Pre-commit
+
+Every hook is `repo: local` and runs the tools from the pixi `dev` feature — all
+of them conda-forge packages — so pre-commit can never disagree with
+`pixi run lint` / `pixi run check` about versions, and no hook environments are
+downloaded or built.
+
+Commit messages are validated by `conventional-commit-hook` at the `commit-msg`
+stage, which is what lets git-cliff build the changelog.
