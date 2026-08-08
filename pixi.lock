@@ -122,6 +122,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-plugins-1.1.1.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-repl-0.3.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/conventional-commit-hook-0.1.0-pyhc364b38_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cpython-3.14.6-py314hd8ed1ab_101.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/crispy-bootstrap5-2026.3-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cron-descriptor-1.4.5-pyhd8ed1ab_1.conda
@@ -230,6 +231,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/six-1.17.0-pyhe01879c_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/sqlparse-0.5.5-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/stack_data-0.6.3-pyhd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/structlog-26.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/termcolor-3.3.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/text-unidecode-1.3-pyhd8ed1ab_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tokenize-rt-6.2.0-pyhd8ed1ab_0.conda
@@ -254,7 +256,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/whitenoise-6.12.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
-      - pypi: https://files.pythonhosted.org/packages/3f/26/affaaa8928f04729d0e69b33b4643a9713eaa270e9712892347f3c683ce5/conventional_pre_commit-4.4.0-py3-none-any.whl
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/amqp-5.3.1-pyhd8ed1ab_0.conda
@@ -279,6 +280,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-plugins-1.1.1.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-repl-0.3.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/conventional-commit-hook-0.1.0-pyhc364b38_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cpython-3.14.6-py314hd8ed1ab_101.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/crispy-bootstrap5-2026.3-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cron-descriptor-1.4.5-pyhd8ed1ab_1.conda
@@ -387,6 +389,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/six-1.17.0-pyhe01879c_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/sqlparse-0.5.5-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/stack_data-0.6.3-pyhd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/structlog-26.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/termcolor-3.3.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/text-unidecode-1.3-pyhd8ed1ab_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tokenize-rt-6.2.0-pyhd8ed1ab_0.conda
@@ -481,7 +484,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-ng-2.3.3-hed4e4f5_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hbf9d68e_6.conda
       - pypi: ./
-      - pypi: https://files.pythonhosted.org/packages/3f/26/affaaa8928f04729d0e69b33b4643a9713eaa270e9712892347f3c683ce5/conventional_pre_commit-4.4.0-py3-none-any.whl
       win-64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/amqp-5.3.1-pyhd8ed1ab_0.conda
@@ -506,6 +508,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-plugins-1.1.1.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-repl-0.3.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/conventional-commit-hook-0.1.0-pyhc364b38_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cpython-3.14.6-py314hd8ed1ab_101.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/crispy-bootstrap5-2026.3-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cron-descriptor-1.4.5-pyhd8ed1ab_1.conda
@@ -612,6 +615,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/six-1.17.0-pyhe01879c_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/sqlparse-0.5.5-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/stack_data-0.6.3-pyhd8ed1ab_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/structlog-26.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/termcolor-3.3.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/text-unidecode-1.3-pyhd8ed1ab_2.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tokenize-rt-6.2.0-pyhd8ed1ab_0.conda
@@ -702,7 +706,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/zlib-ng-2.3.3-h0261ad2_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/zstd-1.5.7-h534d264_6.conda
       - pypi: ./
-      - pypi: https://files.pythonhosted.org/packages/3f/26/affaaa8928f04729d0e69b33b4643a9713eaa270e9712892347f3c683ce5/conventional_pre_commit-4.4.0-py3-none-any.whl
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
   build_number: 20
@@ -2245,6 +2248,20 @@ packages:
   run_exports: {}
   size: 27011
   timestamp: 1733218222191
+- conda: https://conda.anaconda.org/conda-forge/noarch/conventional-commit-hook-0.1.0-pyhc364b38_0.conda
+  sha256: a53176dd47bedc231e454af7041396da05d620193310c41ba2eb2d40f5379a1f
+  md5: 19347cecceb760d2f1a5528975f70a69
+  depends:
+  - python >=3.10,<4
+  - structlog >=24.0.0
+  - python
+  license: MIT
+  license_family: MIT
+  purls:
+  - pkg:pypi/conventional-commit-hook?source=hash-mapping
+  run_exports: {}
+  size: 16454
+  timestamp: 1781440209559
 - conda: https://conda.anaconda.org/conda-forge/noarch/cpython-3.14.6-py314hd8ed1ab_101.conda
   noarch: generic
   sha256: 436618a5a090c9f7ade0c5f883e8602a130b3991bc88b06badd6f805d7dbff00
@@ -3813,6 +3830,19 @@ packages:
   run_exports: {}
   size: 26988
   timestamp: 1733569565672
+- conda: https://conda.anaconda.org/conda-forge/noarch/structlog-26.1.0-pyhcf101f3_0.conda
+  sha256: c0de1e3bf15ca975300a647bbffdc1b5ee5e98a55122510a240643ca8383eb65
+  md5: b04f2fe9cf66a176a278c4cee619cd3b
+  depends:
+  - python >=3.10
+  - typing-extensions
+  - python
+  license: Apache-2.0 OR MIT
+  purls:
+  - pkg:pypi/structlog?source=hash-mapping
+  run_exports: {}
+  size: 68854
+  timestamp: 1780750569621
 - conda: https://conda.anaconda.org/conda-forge/noarch/termcolor-3.3.0-pyhd8ed1ab_0.conda
   sha256: 2107f959cd2a8a804d52e124434088e1a28c843942b62a7f8a3d84072861f0ef
   md5: bc6228906129e420c74a5ebaf0d63936
@@ -6330,16 +6360,3 @@ packages:
 - pypi: ./
   name: django-15-factor-base
   requires_python: ==3.14.*
-- pypi: https://files.pythonhosted.org/packages/3f/26/affaaa8928f04729d0e69b33b4643a9713eaa270e9712892347f3c683ce5/conventional_pre_commit-4.4.0-py3-none-any.whl
-  name: conventional-pre-commit
-  version: 4.4.0
-  sha256: 5d266cb32a857344e1c4d87660c290cca1646d1ae480dcef6388e27bbc7f022f
-  requires_dist:
-  - black ; extra == 'dev'
-  - build ; extra == 'dev'
-  - coverage ; extra == 'dev'
-  - flake8 ; extra == 'dev'
-  - pre-commit ; extra == 'dev'
-  - pytest ; extra == 'dev'
-  - setuptools-scm ; extra == 'dev'
-  requires_python: '>=3.8'

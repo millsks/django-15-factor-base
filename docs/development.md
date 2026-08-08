@@ -11,8 +11,8 @@ pixi install     # create the environment
 pixi run bootstrap   # install the git hooks
 ```
 
-Only one dependency comes from PyPI: `conventional-pre-commit`, which has no
-conda-forge package.
+Every dependency resolves from conda-forge. The only PyPI entry in
+`pixi.lock` is the editable install of this project itself.
 
 ## Database
 
@@ -69,6 +69,10 @@ template coverage is available via `django_coverage_plugin`; add it back to
 
 ## Pre-commit
 
-Every hook is `repo: local` and runs the tools from the pixi `dev` feature, so
-pre-commit can never disagree with `pixi run lint` / `pixi run check` about
-versions, and no hook environments are downloaded.
+Every hook is `repo: local` and runs the tools from the pixi `dev` feature — all
+of them conda-forge packages — so pre-commit can never disagree with
+`pixi run lint` / `pixi run check` about versions, and no hook environments are
+downloaded or built.
+
+Commit messages are validated by `conventional-commit-hook` at the `commit-msg`
+stage, which is what lets git-cliff build the changelog.

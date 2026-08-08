@@ -56,6 +56,7 @@ django-15-factor-base = { path = ".", editable = true }
 
 [feature.dev.dependencies]
 python-build = ">=1.3,<2"
+conventional-commit-hook = ">=0.1,<1"   # commit-msg hook
 coverage = ">=7.15,<8"
 django_coverage_plugin = ">=3.2,<4"
 django-debug-toolbar = ">=7.0,<8"
@@ -80,11 +81,6 @@ ruff = ">=0.16,<0.17"
 watchdog = "*"          # werkzeug[watchdog]
 watchfiles = ">=1.2,<2"
 werkzeug = ">=3.1,<4"
-
-# conventional-pre-commit has no conda-forge package, so it is the one
-# development dependency that must come from PyPI.
-[feature.dev.pypi-dependencies]
-conventional-pre-commit = ">=4.4,<5"
 
 [environments]
 default = { features = ["dev"], solve-group = "default" }

@@ -1,6 +1,6 @@
-# Every hook is local: the tools come from the pixi `dev` feature, so
-# pre-commit and `pixi run lint` / `check` can never disagree on versions,
-# and no hook environments are downloaded or built.
+# Every hook is local: the tools come from the pixi `dev` feature (all of them
+# conda-forge packages), so pre-commit and `pixi run lint` / `check` can never
+# disagree on versions, and no hook environments are downloaded or built.
 #
 # Each entry is prefixed with `pixi run --` so the hooks work when git invokes
 # them outside an activated pixi environment.
@@ -70,9 +70,9 @@ repos:
         pass_filenames: false
 
       # ---- commit message ----
-      - id: conventional-pre-commit
+      - id: conventional-commit-hook
         name: conventional commit message
-        entry: pixi run -- conventional-pre-commit
+        entry: pixi run -- conventional-commit-hook
         language: system
         stages: [commit-msg]
         always_run: true
