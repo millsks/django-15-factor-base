@@ -93,6 +93,28 @@ pixi run serve
 `RedisInstrumentor` — so a trace spans the request, the queries it ran, the
 cache calls it made and any task it queued.
 
+!!! warning "`opentelemetry-instrumentation-asgi` is not optional here"
+
+    It is an *optional* import of the Django instrumentor, but this project
+    needs it. Without it `_is_asgi_supported` is `False` and the middleware
+    returns early for ASGI requests — **no span, and no warning**. Since
+    `pixi run serve` and the production uvicorn worker are both ASGI, dropping
+    the package would silently disable tracing in production while leaving
+    `runserver` working. `tests/unit/test_observability_init.py` asserts the
+    flag is true so this cannot regress.
+
+## Configuration is read before Django starts
+
+`configure_observability()` runs at entrypoint import — before Django loads its
+settings. That is deliberate: the Django instrumentor inserts its middleware
+into `MIDDLEWARE`, which has no effect once the middleware chain is built.
+
+The consequence is that `OTEL_*` variables must be in the environment before
+settings are read. `configure_observability()` therefore loads `.env` itself
+when `DJANGO_READ_DOT_ENV_FILE` is set, rather than waiting for the settings
+module to do it — otherwise `OTEL_*` entries in `.env` would be parsed too late
+and appear to be ignored. Real environment variables still take precedence.
+
 ## Writing logs
 
 Use structlog, never the standard library, and pass data as keyword arguments

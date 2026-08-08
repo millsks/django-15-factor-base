@@ -50,6 +50,11 @@ opentelemetry-api = ">=1.44,<2"
 opentelemetry-sdk = ">=1.44,<2"
 opentelemetry-exporter-otlp-proto-http = ">=1.44,<2"
 opentelemetry-instrumentation-django = ">=0.65b0"
+# Optional import of the Django instrumentor, and required in practice: without
+# it `_is_asgi_supported` is False and its middleware returns early for ASGI
+# requests, silently producing no span. uvicorn -- both `serve` and the
+# production uvicorn-worker -- is exactly that path.
+opentelemetry-instrumentation-asgi = ">=0.65b0"
 opentelemetry-instrumentation-celery = ">=0.65b0"
 opentelemetry-instrumentation-psycopg = ">=0.65b0"
 opentelemetry-instrumentation-redis = ">=0.65b0"
