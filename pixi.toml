@@ -115,11 +115,16 @@ createsuperuser = "python manage.py createsuperuser"
 # ---- Standard harness ----
 bootstrap = "pre-commit install --install-hooks && pre-commit install --hook-type commit-msg"
 fmt = "ruff format ."
+format = "ruff format ."          # alias, matches the sibling repos
 lint = "ruff check ."
-check = "mypy src/"
+typecheck = "mypy src/"
+check = "mypy src/"               # alias, kept for the CLAUDE.md task standard
 test = "pytest tests/unit/"
 test-integration = "pytest tests/integration/"
-cov = "pytest tests/ --cov=src --cov-report=term-missing --cov-fail-under=90"
+cov = "pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml --cov-fail-under=90"
+# Machine-readable lint output for the SonarCloud scanner. --exit-zero so the
+# report is always produced; `lint` is what gates on ruff findings.
+ruff-report = "ruff check . --output-format json --output-file ruff-report.json --exit-zero"
 # --no-isolation uses the conda-forge hatchling/hatch-vcs from the dev feature
 # rather than fetching them from PyPI into a throwaway build environment.
 build = "python -m build --no-isolation"

@@ -2,29 +2,43 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
   pull_request:
-    branches: ["main"]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  unit:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  # Fast feedback on every platform pixi.toml targets. There is no
+  # python-version matrix: pixi pins the interpreter, so setup-python is never
+  # involved and extra legs would all run the same Python.
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
-      - name: Set up Pixi
-        uses: prefix-dev/setup-pixi@v0.8.1
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.9.5
         with:
-          pixi-version: latest
+          cache: true
 
       - name: Run unit tests
         run: pixi run test
 
+      - name: Run integration tests
+        run: pixi run test-integration
+
+  # The merge gate: pre-commit, build, mypy, ruff and the 90% coverage
+  # threshold, in that order. Linux only -- it is the production platform, and
+  # gunicorn has no Windows build.
   full:
     name: Full CI
     runs-on: ubuntu-latest
@@ -41,12 +55,17 @@ jobs:
     #         --health-timeout 5s --health-retries 5
     # and set DATABASE_URL for the "Run full CI" step.
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Pixi
-        uses: prefix-dev/setup-pixi@v0.8.1
+      - uses: actions/checkout@v6
         with:
-          pixi-version: latest
+          # hatch-vcs derives the version from tags; a shallow clone has none.
+          fetch-depth: 0
 
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.9.5
+        with:
+          cache: true
+
+      # Produces coverage.xml as a side effect; SonarCloud consumes it in
+      # the sonarqube workflow, so there is no separate coverage upload here.
       - name: Run full CI
         run: pixi run ci
