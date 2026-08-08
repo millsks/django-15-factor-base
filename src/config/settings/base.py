@@ -1,14 +1,18 @@
 # ruff: noqa: ERA001, E501
 """Base settings to build other settings files upon."""
+
 import os
 import ssl
 from pathlib import Path
+from typing import Any
 
 import environ
 
-BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
-# django_15_factor_application_accelerator/
-APPS_DIR = BASE_DIR / "django_15_factor_application_accelerator"
+# Repository root (holds manage.py, pyproject.toml, .env).
+BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent.parent
+# The django_service package: holds the apps, templates, static and media.
+# src/ itself is the import root and is deliberately not a package.
+APPS_DIR = BASE_DIR / "src" / "django_service"
 env = environ.Env()
 
 READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=False)
@@ -49,7 +53,7 @@ LOCALE_PATHS = [str(BASE_DIR / "locale")]
 
 if os.getenv("DATABASE_URL", default=None):
     DATABASES = {"default": env.db("DATABASE_URL")}
-else:
+elif os.getenv("POSTGRES_DB", default=None):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -58,6 +62,15 @@ else:
             "PASSWORD": env.str("POSTGRES_PASSWORD"),
             "HOST": env.str("POSTGRES_HOST", default="postgres"),
             "PORT": env.str("POSTGRES_PORT", default="5432"),
+        },
+    }
+else:
+    # Local-development fallback until Postgres is provisioned. Production
+    # refuses to boot on sqlite -- see config/settings/production.py.
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": str(BASE_DIR / "db.sqlite3"),
         },
     }
 
@@ -100,7 +113,7 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
-    "django_15_factor_application_accelerator.users",
+    "django_service.users",
     # Your stuff: custom apps go here
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
@@ -109,7 +122,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 # MIGRATIONS
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#migration-modules
-MIGRATION_MODULES = {"sites": "django_15_factor_application_accelerator.contrib.sites.migrations"}
+MIGRATION_MODULES = {"sites": "django_service.contrib.sites.migrations"}
 
 # AUTHENTICATION
 # ------------------------------------------------------------------------------
@@ -205,7 +218,7 @@ TEMPLATES = [
                 "django.template.context_processors.static",
                 "django.template.context_processors.tz",
                 "django.contrib.messages.context_processors.messages",
-                "django_15_factor_application_accelerator.users.context_processors.allauth_settings",
+                "django_service.users.context_processors.allauth_settings",
             ],
         },
     },
@@ -330,13 +343,13 @@ ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 # https://docs.allauth.org/en/latest/account/configuration.html
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 # https://docs.allauth.org/en/latest/account/configuration.html
-ACCOUNT_ADAPTER = "django_15_factor_application_accelerator.users.adapters.AccountAdapter"
+ACCOUNT_ADAPTER = "django_service.users.adapters.AccountAdapter"
 # https://docs.allauth.org/en/latest/account/forms.html
-ACCOUNT_FORMS = {"signup": "django_15_factor_application_accelerator.users.forms.UserSignupForm"}
+ACCOUNT_FORMS = {"signup": "django_service.users.forms.UserSignupForm"}
 # https://docs.allauth.org/en/latest/socialaccount/configuration.html
-SOCIALACCOUNT_ADAPTER = "django_15_factor_application_accelerator.users.adapters.SocialAccountAdapter"
+SOCIALACCOUNT_ADAPTER = "django_service.users.adapters.SocialAccountAdapter"
 # https://docs.allauth.org/en/latest/socialaccount/configuration.html
-SOCIALACCOUNT_FORMS = {"signup": "django_15_factor_application_accelerator.users.forms.UserSocialSignupForm"}
+SOCIALACCOUNT_FORMS = {"signup": "django_service.users.forms.UserSocialSignupForm"}
 
 # django-rest-framework
 # -------------------------------------------------------------------------------
@@ -355,7 +368,9 @@ CORS_URLS_REGEX = r"^/api/.*$"
 
 # By Default swagger ui is available only to admin user(s). You can change permission classes to change that
 # See more configuration options at https://drf-spectacular.readthedocs.io/en/latest/settings.html#settings
-SPECTACULAR_SETTINGS = {
+# Annotated because production.py adds a "SERVERS" list of dicts, which a
+# value-inferred dict type would reject.
+SPECTACULAR_SETTINGS: dict[str, Any] = {
     "TITLE": "Django 15-Factor Application Accelerator API",
     "DESCRIPTION": "Documentation of API endpoints of Django 15-Factor Application Accelerator",
     "VERSION": "1.0.0",

@@ -1,5 +1,9 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [ "setuptools>=77" ]
+
 [project]
-name = "django_15_factor_application_accelerator"
+name = "django-15-factor-base"
 version = "0.1.0"
 description = "A Django application accelerator template based on 15 factor application principles."
 readme = "README.md"
@@ -12,56 +16,10 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.14",
 ]
-dependencies = [
-  "argon2-cffi==25.1.0",
-  "celery==5.6.3",
-  "crispy-bootstrap5==2026.3",
-  "django==6.0.8",
-  "django-allauth[mfa]==65.19.0",
-  "django-anymail==15.1",
-  "django-celery-beat==2.9.0",
-  "django-cors-headers==4.9.0",
-  "django-crispy-forms==2.7",
-  "django-environ==0.14.0",
-  "django-model-utils==5.0.0",
-  "django-redis==7.0.0",
-  "djangorestframework==3.17.2",
-  "drf-spectacular==0.30.0",
-  "gunicorn==26.0.0",
-  "hiredis==3.4.0",
-  "pillow==12.3.0",
-  "psycopg[c]==3.3.4",
-  "python-slugify==8.0.4",
-  "redis==8.1.0",
-  "uvicorn-worker==0.4.0",
-  "uvicorn[standard]==0.52.1",
-  "whitenoise==6.12.0",
-]
-
-[dependency-groups]
-dev = [
-  "coverage==7.15.4",
-  "django-coverage-plugin==3.2.2",
-  "django-debug-toolbar==7.0.0",
-  "django-extensions==4.1",
-  "django-stubs[compatible-mypy]==6.0.8",
-  "django-upgrade==1.31.1",
-  "djangorestframework-stubs==3.17.1",
-  "djlint==1.43.2",
-  "factory-boy==3.3.3",
-  "ipdb==0.13.13",
-  "mypy==2.3.0",
-  "pre-commit==4.6.1",
-  "psycopg[binary]==3.3.4",
-  "pytest==9.1.1",
-  "pytest-django==4.13.0",
-  "pytest-sugar==1.1.1",
-  "ruff==0.16.1",
-  "sphinx==9.1.0",
-  "sphinx-autobuild==2025.8.25",
-  "watchfiles==1.2.0",
-  "werkzeug[watchdog]==3.1.8",
-]
+# Runtime and development dependencies are declared in pixi.toml, which sources
+# them from conda-forge. pixi.toml is the single source of truth for versions;
+# this file carries build metadata and tool configuration only.
+dependencies = [ ]
 
 # ==== djLint ====
 [tool.djlint]
@@ -84,6 +42,12 @@ js.indent_size = 2
 extend-exclude = [
   "*/migrations/*.py",
   "staticfiles/*",
+  # Vendored tooling, not project source.
+  ".agents",
+  ".bmad-loop",
+  ".claude",
+  ".pixi",
+  "_bmad",
 ]
 
 lint.select = [
@@ -145,29 +109,51 @@ lint.ignore = [
   # https://github.com/astral-sh/ruff/issues/7871
 ]
 lint.isort.force-single-line = true
+lint.isort.known-first-party = [ "config", "django_service", "tests" ]
 
 # ==== pyproject-fmt ====
 [tool.pyproject-fmt]
 keep_full_version = true
 
+# ==== setuptools ====
+# src/ is the import root; both config and django_service are top-level packages.
+[tool.setuptools.packages.find]
+where = [ "src" ]
+
 # ==== pytest ====
-[tool.pytest]
+[tool.pytest.ini_options]
 addopts = [
   "--ds=config.settings.test",
   "--reuse-db",
   "--import-mode=importlib",
 ]
 minversion = "9.0"
+# "src" makes config/ and django_service/ importable; "." makes tests.factories importable.
+pythonpath = [ "src", "." ]
+testpaths = [ "tests" ]
 python_files = [
   "tests.py",
   "test_*.py",
 ]
+markers = [
+  "integration: marks tests as integration tests requiring real I/O, network, or DB",
+]
 
 # ==== Coverage ====
 [tool.coverage.run]
-include = [ "django_15_factor_application_accelerator/**" ]
-omit = [ "*/migrations/*", "*/tests/*" ]
-plugins = [ "django_coverage_plugin" ]
+include = [ "src/**" ]
+omit = [
+  "*/migrations/*",
+  "*/tests/*",
+  "*.egg-info/*",           # setuptools build artifacts, not source
+  "src/config/wsgi.py",     # deployment entrypoints: no logic, exercised by the
+  "src/config/asgi.py",     # WSGI/ASGI server rather than by the test suite
+  "src/config/websocket.py",
+]
+# django_coverage_plugin measures Django templates as well as Python. It is
+# installed and can be re-enabled by adding it here, but the coverage gate
+# below is a Python-code gate, so templates are not counted.
+plugins = [ ]
 
 # ==== mypy ====
 [tool.mypy]
@@ -189,3 +175,31 @@ ignore_errors = true
 
 [tool.django-stubs]
 django_settings_module = "config.settings.test"
+
+# ==== git-cliff ====
+[tool.git-cliff.changelog]
+header = "# Changelog\n\n"
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}]({{ commit.id }}))
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[tool.git-cliff.git]
+conventional_commits = true
+filter_unconventional = true
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^doc", group = "Documentation" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^test", group = "Testing" },
+  { message = "^ci", group = "Continuous Integration" },
+  { message = "^build", group = "Build System" },
+  { message = "^chore", skip = true },
+]

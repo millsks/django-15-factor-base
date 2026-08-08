@@ -20,10 +20,10 @@ from pathlib import Path
 
 from django.core.wsgi import get_wsgi_application
 
-# This allows easy placement of apps within the interior
-# django_15_factor_application_accelerator directory.
-BASE_DIR = Path(__file__).resolve(strict=True).parent.parent
-sys.path.append(str(BASE_DIR / "django_15_factor_application_accelerator"))
+# src/ is the import root: config, users and contrib are top-level packages.
+SRC_DIR = Path(__file__).resolve(strict=True).parent.parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.production")
 
 # This application object is used by any WSGI server configured to use this

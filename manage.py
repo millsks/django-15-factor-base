@@ -19,10 +19,10 @@ def main():
             "forget to activate a virtual environment?",
         ) from exc
 
-    # This allows easy placement of apps within the interior
-    # django_15_factor_application_accelerator directory.
-    current_path = Path(__file__).parent.resolve()
-    sys.path.append(str(current_path / "django_15_factor_application_accelerator"))
+    # src/ is the import root: config, users and contrib are top-level packages.
+    src_dir = Path(__file__).parent.resolve() / "src"
+    if str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
 
     execute_from_command_line(sys.argv)
 

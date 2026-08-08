@@ -1,4 +1,8 @@
 # ruff: noqa: E501
+from typing import Any
+
+from django.core.exceptions import ImproperlyConfigured
+
 from .base import *  # noqa: F403
 from .base import DATABASES
 from .base import INSTALLED_APPS
@@ -15,6 +19,10 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["millsks.github.io"])
 
 # DATABASES
 # ------------------------------------------------------------------------------
+# The sqlite fallback in base.py is a local-development convenience only.
+if DATABASES["default"]["ENGINE"].endswith("sqlite3"):
+    msg = "Production requires a real database: set DATABASE_URL or POSTGRES_DB."
+    raise ImproperlyConfigured(msg)
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
 
 # CACHES
@@ -103,7 +111,7 @@ INSTALLED_APPS += ["anymail"]
 # https://anymail.readthedocs.io/en/stable/installation/#anymail-settings-reference
 # https://anymail.readthedocs.io/en/stable/esps
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-ANYMAIL = {}
+ANYMAIL: dict[str, Any] = {}
 
 
 # LOGGING
