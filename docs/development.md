@@ -19,6 +19,11 @@ pixi install     # create the environment
 pixi run bootstrap   # install the git hooks
 ```
 
+The project pins **pixi 0.70.2**: `requires-pixi = ">=0.70.2"` in `pixi.toml`
+sets the local floor, and every workflow passes `pixi-version: v0.70.2` to
+`setup-pixi`. `pixi.lock` is lock-file format v7, which pixi 0.67.x cannot
+read at all, so the floor is a hard requirement rather than a preference.
+
 Every dependency resolves from conda-forge. The only PyPI entry in
 `pixi.lock` is the editable install of this project itself.
 

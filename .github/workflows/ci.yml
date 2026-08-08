@@ -2,51 +2,51 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: [ main, develop ]
   pull_request:
-    branches: ["main"]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [ main, develop ]
 
 jobs:
-  unit:
-    name: Unit Tests
-    runs-on: ubuntu-latest
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Informational only: pixi pins the interpreter (python = "3.14.*") and
+        # setup-python is never invoked, so every leg runs Python 3.14.
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
-      - name: Set up Pixi
-        uses: prefix-dev/setup-pixi@v0.8.1
-        with:
-          pixi-version: latest
+    - name: Set up pixi
+      uses: prefix-dev/setup-pixi@v0.9.5
+      with:
+        # Project-wide pixi version. Must read lock-file format v7 -- the
+        # upstream v0.67.2 pin caps out at v6 and cannot read this lock.
+        pixi-version: v0.70.2
+        cache: true
 
-      - name: Run unit tests
-        run: pixi run test
+    - name: Run tests
+      run: |
+        pixi run test
 
-  full:
-    name: Full CI
+  lint:
     runs-on: ubuntu-latest
-    # The sqlite fallback in config/settings/base.py covers the test settings,
-    # so no database service is needed yet. When Postgres is provisioned, add:
-    #   services:
-    #     postgres:
-    #       image: postgres:18
-    #       env:
-    #         POSTGRES_PASSWORD: postgres
-    #       ports: ["5432:5432"]
-    #       options: >-
-    #         --health-cmd pg_isready --health-interval 10s
-    #         --health-timeout 5s --health-retries 5
-    # and set DATABASE_URL for the "Run full CI" step.
+
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
-      - name: Set up Pixi
-        uses: prefix-dev/setup-pixi@v0.8.1
-        with:
-          pixi-version: latest
+    - name: Set up pixi
+      uses: prefix-dev/setup-pixi@v0.9.5
+      with:
+        pixi-version: v0.70.2
+        cache: true
 
-      - name: Run full CI
-        run: pixi run ci
+    - name: Lint with ruff
+      run: |
+        pixi run lint
+
+    - name: Type check with mypy
+      run: |
+        pixi run typecheck
