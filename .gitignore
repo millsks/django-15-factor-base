@@ -220,3 +220,8 @@ __marimo__/
 .bmad-loop/cache/
 .bmad-loop/policy.toml
 _bmad/render/
+django_15_factor_application_accelerator/.envs/.local/.django
+django_15_factor_application_accelerator/.envs/.local/.postgres
+django_15_factor_application_accelerator/.envs/.production/.django
+django_15_factor_application_accelerator/.envs/.production/.postgres
+src/.DS_Store
