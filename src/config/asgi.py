@@ -22,6 +22,10 @@ if str(SRC_DIR) not in sys.path:
 # If DJANGO_SETTINGS_MODULE is unset, default to the local settings
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.local")
 
+from config.observability import configure_observability  # noqa: E402
+
+configure_observability()
+
 # This application object is used by any ASGI server configured to use this file.
 django_application = get_asgi_application()
 

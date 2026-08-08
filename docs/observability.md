@@ -1,0 +1,147 @@
+# Observability
+
+Logging and tracing are permanent parts of this template, not an optional
+add-on. Every process — web, ASGI, Celery worker, management command — emits
+structured logs through **structlog** and creates **OpenTelemetry** spans.
+
+## What a log line looks like
+
+```json
+{
+  "event": "request_started",
+  "request": "GET /",
+  "request_id": "779e9522-1615-4425-baa1-a6f8ac9f1495",
+  "user_id": null,
+  "ip": "127.0.0.1",
+  "level": "info",
+  "logger": "django_structlog.middlewares.request",
+  "timestamp": "2026-08-08T21:37:00.576800Z",
+  "trace_id": "3293968340d1e265f91e2e43e120bba8",
+  "span_id": "eb80a5eaf6eba477"
+}
+```
+
+Three identifiers do the work:
+
+- **`request_id`** ties every line from one request together, and follows the
+  request into any Celery task it enqueues.
+- **`trace_id`** opens the corresponding trace in your tracing backend.
+- **`user_id`** is populated because `RequestMiddleware` is ordered *after*
+  `AuthenticationMiddleware`.
+
+Django, allauth and Celery log through the standard library, not structlog.
+They are routed through `structlog.stdlib.ProcessorFormatter` with the same
+`foreign_pre_chain`, so their output is structured and carries the same
+timestamp, level and trace context. There is no second log format to parse.
+
+## Configuration
+
+All standard OpenTelemetry variables apply. The ones that matter most:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Where spans are sent. Unset means spans are created but not exported. |
+| `OTEL_TRACES_EXPORTER` | `otlp` when an endpoint is set, else `none` | `otlp`, `console` or `none`. |
+| `OTEL_SERVICE_NAME` | `django-15-factor-base` | `service.name` on the resource. |
+| `OTEL_SDK_DISABLED` | `false` | Turns tracing off entirely, per the OTel spec. |
+| `DJANGO_ENV` | `local` | Reported as `deployment.environment`. |
+| `DJANGO_LOG_LEVEL` | `INFO` | Root log level. |
+| `DJANGO_LOG_FORMAT` | `console` under DEBUG, else `json` | `json` or `console`. |
+
+### Why export is conditional
+
+A `BatchSpanProcessor` whose collector is unreachable retries on every export
+cycle and floods stderr — in every test run and every `runserver`. So the OTLP
+processor is attached **only** when an endpoint is configured:
+
+| Condition | SDK + instrumentation | Span export | `trace_id` in logs |
+| --- | --- | --- | --- |
+| Endpoint set | on | OTLP | yes |
+| Endpoint unset | on | dropped | yes |
+| `OTEL_TRACES_EXPORTER=console` | on | stdout | yes |
+| `OTEL_SDK_DISABLED=true` | off | none | no |
+
+Instrumentation is installed either way, which is why `trace_id` appears in the
+sample above even with no collector running.
+
+## Seeing it work
+
+Spans to your terminal, no collector required:
+
+```sh
+OTEL_TRACES_EXPORTER=console pixi run runserver
+curl localhost:8000/
+```
+
+JSON logs in development, which normally default to console rendering:
+
+```sh
+DJANGO_LOG_FORMAT=json pixi run runserver
+```
+
+Against a collector:
+
+```sh
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+export OTEL_SERVICE_NAME=my-service
+pixi run serve
+```
+
+## What is instrumented
+
+`DjangoInstrumentor`, `CeleryInstrumentor`, `PsycopgInstrumentor` and
+`RedisInstrumentor` — so a trace spans the request, the queries it ran, the
+cache calls it made and any task it queued.
+
+## Writing logs
+
+Use structlog, never the standard library, and pass data as keyword arguments
+rather than interpolating it into the message:
+
+```python
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+logger.info("order_placed", order_id=order.pk, total=order.total)
+```
+
+`request_id`, `user_id` and `trace_id` are added for you.
+
+## Layout
+
+```
+src/config/observability/
+  __init__.py     configure_observability() -- called by each process entrypoint
+  logging.py      processor chains and the LOGGING dictConfig factory
+  telemetry.py    tracer provider, exporter selection, instrumentors
+```
+
+`configure_observability()` is called from `manage.py`, `wsgi.py`, `asgi.py`
+and `celery_app.py`, and is idempotent. It is deliberately not called from an
+`AppConfig.ready()` hook: that runs after Django has built its handler stack,
+and can fire more than once.
+
+structlog itself is configured from `config/settings/base.py`, because
+`LOGGING` has to be built while settings are being read.
+
+## Adding metrics or OTLP logs later
+
+Both are additive and need no restructuring:
+
+- **Metrics** — add a `MeterProvider` with a `PeriodicExportingMetricReader` in
+  `configure_telemetry()`, plus `opentelemetry-exporter-otlp-proto-http`, which
+  is already a dependency.
+- **OTLP logs** — attach an OTel `LoggingHandler` in `build_logging_config()`
+  alongside the console handler. Logs would then go to both stdout and the
+  collector.
+
+## Note on dependencies
+
+`django-celery-beat` comes from PyPI rather than conda-forge. Upstream declares
+`importlib-metadata<5.0; python_version < "3.8"`, but the conda-forge recipe
+drops the environment marker and applies the cap unconditionally, which
+collides with `opentelemetry-api`'s requirement of `importlib-metadata>=6.0`
+and makes the two impossible to install together. PyPI honours the marker, so
+on Python 3.14 there is no cap. Its own dependencies still come from
+conda-forge.

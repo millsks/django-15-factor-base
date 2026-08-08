@@ -106,6 +106,16 @@ drift from the manifest.
 
 `pixi run ci` must exit 0 before any change is considered done.
 
+## Logging and tracing
+
+Logs are structured via structlog and carry `request_id`, `user_id` and
+`trace_id`; OpenTelemetry traces requests, Celery tasks, queries and cache
+calls. Both are always on. Use `structlog.get_logger(__name__)` and pass data
+as keyword arguments — never the standard library's `logging`.
+
+See [Observability](observability.md) for the environment variables and for how
+export behaves without a collector.
+
 ## Tests
 
 - `tests/unit/` — no database, network, or filesystem access.

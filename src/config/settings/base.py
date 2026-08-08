@@ -8,6 +8,9 @@ from typing import Any
 
 import environ
 
+from config.observability.logging import build_logging_config
+from config.observability.logging import configure_structlog
+
 # Repository root (holds manage.py, pyproject.toml, .env).
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent.parent
 # The django_service package: holds the apps, templates, static and media.
@@ -110,6 +113,7 @@ THIRD_PARTY_APPS = [
     "rest_framework.authtoken",
     "corsheaders",
     "drf_spectacular",
+    "django_structlog",
 ]
 
 LOCAL_APPS = [
@@ -170,6 +174,9 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # After AuthenticationMiddleware so request.user is resolved and can be
+    # bound onto the log context as user_id.
+    "django_structlog.middlewares.RequestMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
@@ -270,25 +277,22 @@ DJANGO_ADMIN_FORCE_ALLAUTH = env.bool("DJANGO_ADMIN_FORCE_ALLAUTH", default=Fals
 # LOGGING
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#logging
-# See https://docs.djangoproject.com/en/dev/topics/logging for
-# more details on how to customize your logging configuration.
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "verbose": {
-            "format": "%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s",
-        },
-    },
-    "handlers": {
-        "console": {
-            "level": "DEBUG",
-            "class": "logging.StreamHandler",
-            "formatter": "verbose",
-        },
-    },
-    "root": {"level": "INFO", "handlers": ["console"]},
-}
+# Everything -- ours, Django's, allauth's, Celery's -- renders through structlog.
+# See config/observability/logging.py.
+DJANGO_LOG_LEVEL = env.str("DJANGO_LOG_LEVEL", default="INFO")
+DJANGO_LOG_FORMAT = env.str("DJANGO_LOG_FORMAT", default="")
+
+LOGGING = build_logging_config(
+    debug=DEBUG,
+    log_level=DJANGO_LOG_LEVEL,
+    log_format=DJANGO_LOG_FORMAT,
+)
+
+configure_structlog()
+
+# django-structlog binds request_id and user_id for the life of a request and
+# carries request_id into the Celery tasks a request enqueues.
+DJANGO_STRUCTLOG_CELERY_ENABLED = True
 
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 REDIS_SSL = REDIS_URL.startswith("rediss://")
