@@ -26,10 +26,19 @@ install. **`dev`** layers the toolchain (ruff, mypy, pytest, mkdocs, git-cliff)
 on top. They share a solve-group, so packages common to both resolve to
 identical versions.
 
-You rarely need `-e`: a task resolves to the environment that defines it.
-Runtime tasks live in `[tasks]` and development tasks in `[feature.dev.tasks]`,
-so `pixi run runserver` uses `default` and `pixi run test` uses `dev`
-automatically.
+**You never need `-e`.** Every task declares `default-environment`, so
+`pixi run <task>` resolves without a flag and without prompting. `pixi task
+list` shows each task with its description.
+
+All tasks run in `dev`, including the Django ones. That is not an oversight:
+`config.settings.local` puts `debug_toolbar` and `django_extensions` in
+`INSTALLED_APPS`, and both are dev-feature packages — in the runtime-only
+`default` environment Django refuses to start with
+`ModuleNotFoundError: debug_toolbar`.
+
+`default` therefore has no tasks by design. It is the environment a production
+image installs, where gunicorn or uvicorn is invoked directly against
+`config.settings.production` rather than through pixi.
 
 `hatchling` and `hatch-vcs` are the exception — they sit in `[dependencies]`
 rather than the dev feature, because `[pypi-options] no-build-isolation`
@@ -78,10 +87,12 @@ can never silently come up on sqlite.
 | `pixi run docs` | Build the documentation (`--strict`) |
 | `pixi run docs-serve` | Serve the documentation with live reload |
 | `pixi run changelog` | Regenerate `CHANGELOG.md` with git-cliff |
-| `pixi run ci` | The gate: test-cov, lint, typecheck |
+| `pixi run ci` | The gate: test-cov, lint, typecheck, build |
 
-`pixi run ci` must exit 0 before any change is considered done. Packaging is
-validated separately by `release.yml`, which runs `build` before it tags.
+`pixi task list` prints this table straight from `pixi.toml`, so it cannot
+drift from the manifest.
+
+`pixi run ci` must exit 0 before any change is considered done.
 
 ## Tests
 
