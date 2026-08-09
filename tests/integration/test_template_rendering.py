@@ -59,14 +59,13 @@ class TestAllauthPages:
 
 
 class TestManagePages:
-    """These render the shared element partials -- panel, table, badge, alert --
-    which the entrance pages do not touch."""
+    """These render the shared element partials -- badge, field, alert -- which
+    the entrance pages do not touch."""
 
     @pytest.mark.parametrize(
         "url_name",
         [
             "account_email",
-            "mfa_index",
             "socialaccount_connections",
         ],
     )
@@ -75,8 +74,8 @@ class TestManagePages:
         response = client.get(reverse(url_name))
         assert response.status_code == HTTPStatus.OK
 
-    def test_email_address_table_renders(self, client: Client, user: User):
-        """allauth/elements/table.html only renders once a row exists."""
+    def test_email_address_row_renders(self, client: Client, user: User):
+        """allauth/elements/badge.html only renders once a verified row exists."""
         EmailAddress.objects.create(
             user=user,
             email=user.email,
