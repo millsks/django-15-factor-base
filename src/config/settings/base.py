@@ -106,7 +106,6 @@ THIRD_PARTY_APPS = [
     "crispy_bootstrap5",
     "allauth",
     "allauth.account",
-    "allauth.mfa",
     "allauth.socialaccount",
     "django_celery_beat",
     "rest_framework",
@@ -144,14 +143,11 @@ LOGIN_URL = "account_login"
 
 # PASSWORDS
 # ------------------------------------------------------------------------------
-# https://docs.djangoproject.com/en/dev/ref/settings/#password-hashers
-PASSWORD_HASHERS = [
-    # https://docs.djangoproject.com/en/dev/topics/auth/passwords/#using-argon2-with-django
-    "django.contrib.auth.hashers.Argon2PasswordHasher",
-    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
-    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
-    "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
-]
+# PASSWORD_HASHERS is deliberately unset. Authentication is delegated to an
+# OpenID Connect provider, so a component never issues or verifies a local
+# password and has no reason to prefer one hasher over another -- Django's
+# defaults stand. Dropping the Argon2 entry is what lets argon2-cffi leave the
+# dependency set.
 # https://docs.djangoproject.com/en/dev/ref/settings/#auth-password-validators
 AUTH_PASSWORD_VALIDATORS = [
     {

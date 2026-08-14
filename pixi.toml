@@ -13,7 +13,6 @@ requires-pixi = ">=0.70.2"
 [dependencies]
 python = "3.14.*"
 libpq = ">=18.4,<19"
-argon2-cffi = ">=25.1,<26"
 celery = ">=5.6,<6"
 crispy-bootstrap5 = ">=2026.3,<2027"
 django = ">=6.0,<7"
@@ -28,14 +27,11 @@ cron-descriptor = ">=1.4,<2"   # django-celery-beat requires <2.0.0
 django-cors-headers = ">=4.9,<5"
 django-crispy-forms = ">=2.6,<3"   # conda-forge tops out at 2.6 (PyPI has 2.7)
 django-environ = ">=0.14,<0.15"
-django-model-utils = ">=5.0,<6"
 django-redis = ">=7.0,<8"
 djangorestframework = ">=3.17,<4"
 drf-spectacular = ">=0.30,<0.31"
 hiredis = ">=3.4,<4"
-pillow = ">=12.3,<13"
 psycopg = ">=3.3,<4"
-python-slugify = ">=8.0,<9"
 redis-py = ">=8.1,<9"
 uvicorn = ">=0.52,<0.53"
 whitenoise = ">=6.12,<7"
@@ -59,8 +55,9 @@ opentelemetry-instrumentation-celery = ">=0.65b0"
 opentelemetry-instrumentation-psycopg = ">=0.65b0"
 opentelemetry-instrumentation-redis = ">=0.65b0"
 # Backing packages for PyPI extras that conda-forge splits out:
-fido2 = "*"             # django-allauth[mfa]
-qrcode = "*"            # django-allauth[mfa]
+# django-allauth[mfa] (fido2, qrcode) is deliberately absent: authentication is
+# delegated to an OpenID Connect provider, so any second factor is enforced at
+# the IdP and `allauth.mfa` is never installed.
 uvicorn-standard = "*"  # uvicorn[standard]
 # Build backend for the editable install below. It lives here rather than in
 # the dev feature because [pypi-options] no-build-isolation requires the
