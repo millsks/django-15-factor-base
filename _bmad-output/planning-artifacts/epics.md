@@ -187,7 +187,7 @@ Python 3.14 · Django 6.0 · django-allauth 65.19.1 (`requests` must be declared
 - **R-4** The GitHub-template path ships from `main` HEAD carrying machinery (AD-32).
 - **R-5** Local development proves less than running suggests.
 
-**Open items with no owner** — FR-45's OTLP export end-to-end test and its collector stub design; NFR-6's telemetry-overhead measurement and its milestone; the enterprise developer portal's order-surface field list (until it exists, the fixture set covers the AD-25 parameters and the four feature booleans).
+**Open items with no owner** — FR-45's OTLP export end-to-end test and its collector stub design; NFR-6's telemetry-overhead measurement and its milestone; the enterprise developer portal's order-surface field list (until it exists, the fixture set covers the AD-25 parameters and the three feature booleans).
 
 **Spike, not a decision** — dropping `uvicorn-worker` for gunicorn 26's native ASGI worker.
 
@@ -1960,7 +1960,7 @@ So that six combinations are not six independent dependency solves testing two d
 
 **Acceptance Criteria:**
 
-**Given** the four selectable features
+**Given** the three selectable features
 **When** they are declared in `pixi.toml`
 **Then** each is a pixi feature
 **And** an `[environments]` matrix yields six pre-locked environments from one `pixi.lock`
@@ -1971,7 +1971,7 @@ So that six combinations are not six independent dependency solves testing two d
 
 **Given** `django-celery-beat`'s `django <6.1` cap
 **When** the solve group is absent
-**Then** the four Celery combinations resolve a different Django from the other eight
+**Then** the two Celery combinations resolve a different Django from the other four
 **And** a test asserts that all six resolve the same Django version
 
 **Given** combination *n*'s gate
@@ -2021,7 +2021,7 @@ So that a combination does not boot into an `ImportError` from an instrumentor c
 **Then** the region between the paired `feature:<name>` / `/feature:<name>` markers is removed
 **And** the markers are removed with it
 
-**Given** the three declared region-bearing paths
+**Given** the declared region-bearing paths, as an open set
 **When** a combination without background task processing is materialized
 **Then** the Celery block in `src/config/settings/base.py`, the Celery instrumentor call in `src/config/observability/telemetry.py`, and the `worker` and `beat` tasks in `pixi.toml` are all absent
 
@@ -2088,7 +2088,7 @@ So that a parameter added to the order surface breaks materialization instead of
 **Given** the fixture set
 **When** it is authored
 **Then** it covers every parameterized value declared in Story 7.3, including the component package name and the code-quality project key
-**And** it covers the four feature booleans
+**And** it covers the three feature booleans
 
 **Given** a parameter with no corresponding fixture
 **When** materialization runs
@@ -2097,7 +2097,7 @@ So that a parameter added to the order surface breaks materialization instead of
 
 **Given** the portal's order-surface field list does not exist yet
 **When** the fixture set is scoped
-**Then** it covers the declared parameters and the four feature booleans
+**Then** it covers the declared parameters and the three feature booleans
 **And** the missing field list is recorded as an open item owned by the portal team
 
 ### Story 8.7: Output reconciliation proves the accelerator's machinery never reaches a component
