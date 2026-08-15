@@ -1,4 +1,4 @@
-# Story 7.4: django_service is core in its entirety and the UI surface leaves it
+# Story 7.4: django_service is core in its entirety and the interface mechanism is core with it
 
 Status: ready-for-dev
 
@@ -6,73 +6,77 @@ Status: ready-for-dev
 
 As a lead developer,
 I want no feature-scoped disposition anywhere inside the base package,
-so that a reusable app cannot import a module that exists in six combinations and not the other six.
+so that a reusable app cannot import a module that exists in some combinations and not in others.
 
 ## Acceptance Criteria
 
 **Traceability:** FR-1, FR-3 · AD-29 · SC-7 · readiness warning W-1
 
-1. **Given** that no source document enumerates which templates, static assets, views and forms constitute the server-rendered UI feature
+1. **Given** that no source document enumerates which templates, static assets, views and forms constitute the interface mechanism
    **When** this story begins
-   **Then** that surface is enumerated by audit of the existing tree and recorded in the carrier before any file moves
-   **And** the enumeration distinguishes user-facing surface from `base.html` and the error templates, which stay
+   **Then** that surface is enumerated by audit of the existing tree and recorded in the carrier as `core`
+   **And** the enumeration distinguishes the `home`/`about` demonstration pages, which are deleted, from `base.html`, `_navbar.html`, the error templates, form styling, static-file serving and the user profile views, which stay
 
 2. **Given** any path inside `src/django_service/`
    **When** its disposition is assigned
    **Then** it is `core`
    **And** a gate test asserts that no `feature:*` disposition applies to any path inside it
 
-3. **Given** surface that genuinely belongs to the server-rendered UI feature
-   **When** the UI feature is prepared for extraction
-   **Then** user-facing page templates, form styling, user-facing views and forms move out of `django_service` into a feature-owned location first
+3. **Given** surface an earlier revision assigned to a server-rendered UI feature
+   **When** its disposition is decided
+   **Then** nothing moves out of `django_service` — the interface mechanism is immovable core (revision 3), so `base.html`, the error templates, form styling, static-file serving and the user profile views all stay
+   **And** the `home` and `about` demonstration pages are deleted rather than made core, including their `TemplateView`s in `src/config/urls.py` and `templates/pages/`
+   **And** `base.html` carries no hardcoded navigation, its bar rendering the contributed navigation registry instead of literal links
+   **And** `User.get_absolute_url()` and `LOGIN_REDIRECT_URL` stand unchanged, since `users:detail` and `users:redirect` are now core routes
 
 4. **Given** `base.html` and the error templates
-   **When** the UI feature is absent
+   **When** any combination is materialized
    **Then** they remain
    **And** the 403, 404 and 500 pages that extend `base.html` still render
 
-5. **Given** a combination with the server-rendered UI absent
+5. **Given** any of the six combinations
    **When** it runs
    **Then** the admin renders, static files serve, the messages framework is available, and template rendering works
-   **And** what the UI feature removed is the end-user surface and nothing else
+   **And** the navigation bar, the form styling and the user profile views are present too, because the interface mechanism is core rather than selectable
 
 6. **Given** the immovable core
-   **When** any of the twelve combinations is inspected
+   **When** any of the six combinations is inspected
    **Then** it declares PostgreSQL as its deployed database, DRF with drf-spectacular, the Django admin, CORS handling, structlog, OpenTelemetry, environment-based configuration, static file serving and a uvicorn/gunicorn process
    **And** no feature toggle can be set to a value that removes any of them
 
 ## Tasks / Subtasks
 
-- [ ] Task 1 — Audit and record the UI surface in the carrier **before moving anything** (AC: #1)
-  - [ ] This discharges readiness warning W-1: the UI feature's surface is described in the sources but never enumerated. It is an inventory of what is already in the tree, not a design exercise. No UX contract exists and none is to be invented (`epics.md:192-198`).
-  - [ ] Add `[features.ui]` detail to `accelerator.toml`: `templates`, `static`, `views`, `forms`, `urls`, `tests` — each an explicit list. An empty list is a declaration; an absent key is not.
-  - [ ] Record, in the same block, the **stays** list and the reason each item stays: `base.html`, `403.html`, `403_csrf.html`, `404.html`, `500.html`, `static/images/favicons/favicon.ico`. The audit results are pre-run in Source Tree below; verify each against the tree rather than trusting the table.
-  - [ ] Record the two **decisions this story must make and cannot inherit** (Source Tree, "Decisions required"): where the feature-owned location is, and what happens to the allauth template overrides.
+- [ ] Task 1 — Audit and record the interface surface in the carrier as `core` (AC: #1, #2)
+  - [ ] This discharges readiness warning W-1: the interface surface is described in the sources but never enumerated. It is an inventory of what is already in the tree, not a design exercise. No UX contract exists and none is to be invented (`epics.md:192-198`).
+  - [ ] The enumeration is now a **`core` enumeration, not a feature's**. There is no `[features.ui]` and no `feature:ui` name — the interface mechanism is immovable core (AD-29, revision 3; FR-3), and AD-33 is retired, so there is no `src/features/`, no feature package and no third import root. Record the surface under `[dispositions]` as `core` and reference it from `[immovable_core]` (Task 6).
+  - [ ] Record, item by item and with the reason each stays: `base.html`, the new `_navbar.html` and the navigation registry, `403.html`, `403_csrf.html`, `404.html`, `500.html`, the `account/` and `allauth/` template overrides, `templates/users/{user_detail,user_form}.html`, `users/{views,urls,forms,context_processors}.py`, `static/css/project.css`, `static/js/project.js`, `static/images/favicons/favicon.ico`. The audit results are pre-run in Source Tree below; verify each against the tree rather than trusting the table.
+  - [ ] Record separately the **deleted** list — `templates/pages/home.html`, `templates/pages/about.html` and their two `TemplateView` routes in `src/config/urls.py` — with the reason: demonstration content, nothing in the product needs it, and a component that wants a landing page owns one. A deleted path is not a disposition; it must not appear in `[dispositions]` after Task 3, and input reconciliation would fail on a claim naming a path that no longer exists.
+  - [ ] Record the one **decision this story must make and cannot inherit** (Source Tree, "Decision required"): what the navigation brand link points at once `home` is gone.
 
-- [ ] Task 2 — Break `base.html`'s dependency on UI-only routes so it renders with the UI absent (AC: #4, #5)
-  - [ ] `src/django_service/templates/base.html` today reverses three routes that leave with the UI feature: `{% url 'home' %}` (twice), `{% url 'about' %}`, and `{% url 'users:detail' request.user.username %}`. With the UI absent those tags raise `NoReverseMatch` and **every** page extending `base.html` fails — including the 404 that AD-30's smoke check asserts renders. AC #4 is not satisfiable without this change.
-  - [ ] Reduce `base.html` to what the admin and the error handlers need in every combination: `{% load static i18n %}`, the `<head>` block, the favicon, the `{% block css %}` / `{% block javascript %}` / `{% block content %}` / `{% block main %}` / `{% block modal %}` / `{% block inline_javascript %}` block skeleton, and the `{% if messages %}` loop (AC #5 requires the messages framework be available).
-  - [ ] Move the navbar — every `{% url %}` in it, the brand link, the profile and sign-in/sign-out items, the `ACCOUNT_ALLOW_REGISTRATION` conditional — into a UI-feature template that overrides a `{% block %}` `base.html` leaves empty. Do **not** guard it with `{% if %}` on a setting: that is present-but-disabled, which FR-28 and Story 7.6's AC forbid, and it leaves a template orphan the coverage signal will report as zero.
-  - [ ] `base.html` currently loads Bootstrap CSS and JS from `cdnjs.cloudflare.com`. That is form styling and belongs with the UI feature. Moving it also removes an external network dependency from the error pages, which matters for the local smoke check (FR-33: no external service running). Move it into the UI-feature block.
-  - [ ] Keep `403.html`, `403_csrf.html`, `404.html`, `500.html` where they are and unchanged in content; they extend `base.html` and use only `{% block title %}` / `{% block content %}`.
+- [ ] Task 2 — Assert `django_service` is `core` in its entirety (AC: #2)
+  - [ ] This is the story's spine and the reason its premise changed: with the interface mechanism core, **nothing moves out of `src/django_service/`**. The package's disposition is uniform and the story's job is to assert it, not to reshape it.
+  - [ ] Confirm every tracked path under `src/django_service/` is claimed `core` in `accelerator.toml` — `users/{models,views,urls,forms,admin,adapters,apps,context_processors}.py`, `migrations/`, `api/`, `contrib/sites/`, the whole of `templates/` after Task 3's deletions, the whole of `static/`, and `__init__.py`.
+  - [ ] The one genuine violation in the tree is **`src/django_service/users/tasks.py`**: it imports `from celery import shared_task`, which is `feature:celery` code inside the package this AD declares `core` in its entirety. Its own docstring calls it "a pointless Celery task to demonstrate usage" and nothing under `src/` calls it. AD-29 resolves it explicitly: it is **deleted rather than relocated**. Deleting a file requires the user's confirmation. Take `tests/integration/users/test_tasks.py` with it.
+  - [ ] Do not create a `feature:*` claim, a marker, or a region anywhere under `src/django_service/` — Task 5's gate test refuses both the path-level and the sub-file route.
 
-- [ ] Task 3 — Sever the `core`→UI route references (AC: #4, #5)
-  - [ ] `src/django_service/users/models.py:24-31` — `User.get_absolute_url()` returns `reverse("users:detail", kwargs={"username": self.username})`. `models.py` is `core` (it is `AUTH_USER_MODEL`, AD-5 guaranteed surface); `users:detail` leaves with the UI. In six combinations this method raises `NoReverseMatch` — and Django's admin calls `get_absolute_url` to render the "View on site" link. Resolve it: either remove the method (a breaking change to the guaranteed surface — bump `django_service.__api_version__` per AD-5 if it is enumerated) or make it resolve the route defensively without a `try/except`-shaped feature check. Record the choice and its reason in the carrier.
-  - [ ] `src/config/settings/base.py:140` — `LOGIN_REDIRECT_URL = "users:redirect"` names a UI route. `base.py` is `core`. Make this a `feature:ui` region under AD-24 with a `core` default beside it (the admin index or `settings.ADMIN_URL`), so the six UI-absent combinations have a valid redirect target.
-  - [ ] `src/config/urls.py` — `core`, and it carries UI routes: `path("", TemplateView...pages/home.html, name="home")`, `path("about/", TemplateView...pages/about.html, name="about")`, and `path("users/", include("django_service.users.urls", namespace="users"))`. Mark each as a `feature:ui` region under AD-24 (paired `# feature:ui` / `# /feature:ui` line comments) and declare the regions in `accelerator.toml`. **This makes `src/config/urls.py` a region-bearing path the AD-24 list does not name** — declare it; Story 7.2's reconciler must already accept more than three.
+- [ ] Task 3 — Delete the `home` and `about` demonstration pages (AC: #1, #3)
+  - [ ] Delete `src/django_service/templates/pages/home.html` and `pages/about.html`, and the now-empty `templates/pages/` directory. Deleting files requires the user's confirmation.
+  - [ ] Delete their routes in `src/config/urls.py`: `path("", TemplateView.as_view(template_name="pages/home.html"), name="home")` at `:14` and the `about/` route at `:15-19`. Remove the now-unused `from django.views.generic import TemplateView` import at `:8` — no other route in the file uses it.
+  - [ ] **`src/config/urls.py` gains no markers and becomes no region-bearing path.** Its UI routes are either core or deleted: the `users/` include at `:23` is now a `core` route, and `home`/`about` are gone. An earlier revision expected `feature:ui` regions here; that is wrong under revision 3 and Story 7.2's `[[regions]]` list does not name this file.
+  - [ ] **`User.get_absolute_url()` (`src/django_service/users/models.py:19-26`) and `LOGIN_REDIRECT_URL` (`src/config/settings/base.py:140`) stand unchanged.** Both reverse `users:detail` / `users:redirect`, which are now `core` routes present in every combination. An earlier revision required them to be relocated or region-marked; do neither. Leave both files byte-identical in this respect.
+  - [ ] Retarget the tests that reverse the deleted routes rather than deleting them: `tests/integration/test_request_logging.py` calls `reverse("home")` at `:64`, `:76`, `:89`, `:101`, `:113`, `:135` and `reverse("about")` at `:90`; `tests/integration/test_template_rendering.py` has `test_home` (`:30-32`) and `test_about` (`:34-36`). The logging tests need any resolvable `core` route that renders — the admin index or a profile route — and their assertions about `request_id`/`trace_id` correlation must survive the change untouched. The two template-rendering tests cover pages that no longer exist; replace them with equivalents over `core` templates rather than dropping the coverage.
   - [ ] Do not use conditional imports, settings-module inheritance or `try/except ImportError` anywhere in this task. AD-24 forbids all three, and a URLconf that conditionally includes a module is exactly the mechanism it names.
 
-- [ ] Task 4 — Move the user-facing surface out of `src/django_service/` (AC: #2, #3)
-  - [ ] Decide the feature-owned location first (see "Decisions required"), then move — never the other way round.
-  - [ ] Move `src/django_service/users/views.py` (`UserDetailView`, `UserUpdateView`, `UserRedirectView` — all three are `LoginRequiredMixin` end-user pages).
-  - [ ] Move `src/django_service/users/urls.py` (the `users` namespace: `~redirect/`, `~update/`, `<str:username>/`).
-  - [ ] Move `src/django_service/templates/pages/home.html`, `pages/about.html`, `users/user_detail.html`, `users/user_form.html`.
-  - [ ] Move `src/django_service/static/css/project.css` and `static/js/project.js` — both are referenced only from `base.html`'s UI blocks. `static/images/favicons/favicon.ico` stays (`base.html` head, every combination). `static/fonts/.gitkeep` is a placeholder; decide and record.
-  - [ ] Split `src/django_service/users/forms.py`: `UserAdminChangeForm` and `UserAdminCreationForm` are used by `users/admin.py` and stay `core`; `UserSignupForm` and `UserSocialSignupForm` are allauth signup forms referenced from `base.py:348` and `:352` — decide with the allauth-template decision and keep both halves consistent.
-  - [ ] `src/django_service/users/context_processors.py` (`allauth_settings`, exposing `ACCOUNT_ALLOW_REGISTRATION`) exists only for the navbar's registration link. It is registered in `base.py:224`. Move it with the navbar and make the `TEMPLATES` context-processor entry a `feature:ui` region.
-  - [ ] **`src/django_service/users/tasks.py` is `feature:celery` code sitting inside `src/django_service/`** — it imports `from celery import shared_task` and defines `get_users_count`, documented in its own docstring as "a pointless Celery task to demonstrate usage". AD-29 forbids a `feature:*` disposition there, so it must leave too, or be deleted. Deleting it is the cleaner answer and needs the user's confirmation before removal; moving it to the celery feature's location is the conservative one. Take `tests/integration/users/test_tasks.py` with it either way.
-  - [ ] Everything remaining under `src/django_service/` — `users/models.py`, `apps.py`, `admin.py`, `adapters.py`, `migrations/`, `api/`, `contrib/sites/`, `templates/{base,403,403_csrf,404,500}.html`, `static/images/`, `__init__.py` — is `core` and stays.
-  - [ ] Update every import that follows the moved modules. `INSTALLED_APPS` gains the UI feature's app label as a `feature:ui` region in `base.py` (Story 7.2 already marks `crispy_forms` / `crispy_bootstrap5` at `:105-106`; this entry joins that region or gets its own).
+- [ ] Task 4 — Replace `base.html`'s hardcoded navigation with the registry (AC: #3, #4, #5)
+  - [ ] `src/django_service/templates/base.html` hardcodes four reversals inside its navbar: `{% url 'home' %}` on the brand link at **`:71`**, `{% url 'home' %}` again at **`:75`**, `{% url 'about' %}` at **`:78`** and `{% url 'users:detail' request.user.username %}` at **`:83`**. Two of those routes are being deleted by Task 3. Replace the whole `<nav>` block (`:60-104`) with `{% include "_navbar.html" %}`.
+  - [ ] Create `src/django_service/templates/_navbar.html` (NEW, `core`). It renders the **navigation registry** rather than literal links: it iterates the registry, filters each entry by its optional permission against `request.user`, reverses each entry's URL *name*, and escapes each label. No entry carries raw HTML and no link in this template is hardcoded.
+  - [ ] Create the registry itself in `django_service` — AD-8: *"`django_service` owns a navigation registry, contributed to exactly like `INSTALLED_APPS` — append only, in adopted-app-list order. An entry is data, never markup: a label, a URL name, and an optional permission the renderer filters on."* It is permitted on the closed contributable surface where `MIDDLEWARE` and `AUTHENTICATION_BACKENDS` are refused, for a reason that must hold in the implementation: **it confers presentation and never authorization**, labels are auto-escaped, and no entry carries raw HTML.
+  - [ ] Seed the registry with the base's own entries, which are what the navbar renders today minus the deleted pages: the authenticated profile link (`users:detail`), sign-out (`account_logout`), sign-in (`account_login`), and sign-up (`account_signup`) gated on `ACCOUNT_ALLOW_REGISTRATION`. `src/django_service/users/context_processors.py` (`allauth_settings`, registered at `base.py:224`) supplies that flag and **stays `core`** — it is registered unconditionally in every combination.
+  - [ ] **Every registered URL name must resolve in the URLconf, refused as `ImproperlyConfigured` at stage 2** — the stage that has a resolved URLconf (AD-8, AD-26). An app that contributes a link to a route it forgot to mount fails at startup rather than rendering a 500 on whatever page carries the navigation bar. `src/config/startup/` does not exist until Epic 4; if Story 4.3 has not landed, record the refusal as owed and name the story that owes it rather than implementing a second refusal site.
+  - [ ] The **contribution and merge** half of the registry — an adopted app appending its own entries through its contribution module — is AD-8's composition step and belongs to Epic 9, Story 9.4. What lands here is the registry, its renderer, and the base's own entries. Traceability marker, not an acceptance condition for this story.
+  - [ ] Keep `403.html`, `403_csrf.html`, `404.html`, `500.html` unchanged; they extend `base.html` and use only `{% block title %}` / `{% block content %}`. After this task a 404 renders with no `NoReverseMatch`, which is what AD-30's smoke check asserts in every combination.
+  - [ ] Do **not** guard the navbar with `{% if %}` on a setting, and do not introduce a feature flag anywhere in this task. There is no `ui` feature to switch on, and a present-but-disabled shape is what FR-28 and Story 7.6 forbid.
+  - [ ] `base.html`'s Bootstrap CSS and JS load from `cdnjs.cloudflare.com` and stay `core` with the rest of the form styling. Record the external-fetch observation for the local smoke check (FR-33 runs with no external service): it is a rendering concern for a page fetched from a browser, not a boot-time network reach, and FR-23's no-network-at-boot rule is unaffected. Do not silently vendor or remove it under this story.
 
 - [ ] Task 5 — The AD-29 gate test (AC: #2)
   - [ ] Add `tests/integration/materializer/test_django_service_is_core.py` (NEW), `@pytest.mark.integration`: load the carrier and assert **no** `[dispositions]` entry, glob or region under `src/django_service/` resolves to a `feature:*` disposition. Assert over resolved dispositions, not over the literal declaration text, so a glob like `src/**/templates/pages/*` cannot slip through.
@@ -81,15 +85,17 @@ so that a reusable app cannot import a module that exists in six combinations an
 
 - [ ] Task 6 — Enumerate the guaranteed surface and the immovable core in the carrier (AC: #6)
   - [ ] AD-29: *"`accelerator.toml` enumerates the guaranteed surface explicitly; anything inside `django_service` not enumerated is internal and may change without a version bump."* Add `[guaranteed_surface]` listing the modules and names reusable apps may import — at minimum `django_service.users.models.User` (`AUTH_USER_MODEL`) and `django_service.__api_version__`. `__api_version__` does not exist yet (AD-5, Epic 9); declare the slot and record the forward reference.
-  - [ ] Add `[immovable_core]` enumerating AC #6's nine items so the assertion has a single declared source: PostgreSQL as the deployed database, DRF with drf-spectacular, the Django admin, CORS handling, structlog, OpenTelemetry, environment-based configuration, static file serving, and a uvicorn/gunicorn process.
+  - [ ] Add `[immovable_core]` enumerating AC #6's nine items so the assertion has a single declared source: PostgreSQL as the deployed database, DRF with drf-spectacular, the Django admin, CORS handling, structlog, OpenTelemetry, environment-based configuration, static file serving, and a uvicorn/gunicorn process. Add the **interface mechanism** as a tenth (FR-3, amended): template loading, `base.html`, `_navbar.html` and the navigation registry, the error templates, form styling, static-file serving and the user profile views.
   - [ ] Add a gate test asserting no `[features.*]` list claims any package or path backing an `[immovable_core]` item — that is what makes "no feature toggle can be set to a value that removes any of them" checkable rather than asserted.
   - [ ] The runtime half of AC #6 — the `core`-disposed immovable-core assertion suite that runs inside every combination's gate and is never pruned (AD-30) — belongs to Epic 8. **Traceability marker, not an acceptance condition for this story.** What lands here is the declaration it will assert against.
 
-- [ ] Task 7 — Tests (AC: #4, #5, and regression cover for the move)
-  - [ ] `tests/integration/test_template_rendering.py` (UPDATE, exists today): extend to assert the 403, 404 and 500 templates render with the UI-feature templates and routes absent. Simulate absence by overriding `ROOT_URLCONF` to a UI-less URLconf, not by deleting files.
-  - [ ] Add an assertion that the admin index renders and that `django.contrib.messages` is available with the UI absent (AC #5), mirroring the AD-30 smoke check at reference-application scale.
-  - [ ] `tests/integration/users/test_views.py` and `tests/integration/users/test_forms.py` cover the moved views and forms — relocate them to mirror the feature's new source location and disposition them `feature:ui`, per the spine's test-location convention. `tests/unit/users/test_urls.py` covers the moved URLconf; same treatment. `tests/integration/users/test_admin.py`, `test_models.py`, `test_api_views.py`, `test_api_openapi.py` and `tests/unit/users/test_api_urls.py`, `test_adapters.py` cover `core` and stay.
-  - [ ] `pixi run ci` exits 0, with coverage ≥90% including templates. Moving templates without moving their tests will show up as a coverage drop, which is the orphan signal working as designed — fix it by moving the tests, never by adding an omit entry (CG-1).
+- [ ] Task 7 — Tests (AC: #3, #4, #5, and regression cover for the deletions)
+  - [ ] `tests/integration/test_template_rendering.py` (UPDATE, exists today): replace `test_home` (`:30-32`) and `test_about` (`:34-36`), whose pages no longer exist, with assertions over `core` templates. Assert the 403, 404 and 500 pages render end to end with no `NoReverseMatch` now that `base.html` reverses nothing itself.
+  - [ ] Add an assertion that `_navbar.html` renders from the registry: an entry whose permission the user lacks is filtered out, a label containing markup is escaped, and a registry with no entries renders an empty bar rather than raising.
+  - [ ] Add an assertion that the admin index renders for a staff user and that `django.contrib.messages` round-trips through `base.html`'s message loop (AC #5), mirroring the AD-30 smoke check at reference-application scale. Assert `{% static %}` resolves.
+  - [ ] `tests/integration/test_request_logging.py` (UPDATE): retarget its seven `reverse("home")` / `reverse("about")` calls (`:64`, `:76`, `:89`, `:90`, `:101`, `:113`, `:135`) at a `core` route. Its assertions about `request_id` and `trace_id` correlation are unchanged in meaning — do not weaken them to make the retarget easier.
+  - [ ] **No test moves and none is re-dispositioned to a feature.** `tests/integration/users/{test_views,test_forms,test_admin,test_models,test_api_views,test_api_openapi}.py` and `tests/unit/users/{test_urls,test_api_urls,test_adapters}.py` all cover `core` surface and all stay `core` where they are. Only `tests/integration/users/test_tasks.py` leaves, with the `tasks.py` it covers.
+  - [ ] `pixi run ci` exits 0, with coverage ≥90% including templates. Deleting `pages/home.html` and `pages/about.html` removes measured templates along with the tests that covered them, which is the correct shape; answer any residual shortfall with tests, never with an omit entry (CG-1).
 
 ## Dev Notes
 

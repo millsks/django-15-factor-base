@@ -36,7 +36,7 @@ so that a reachable credential route or an unrecognized schema stops the process
    **Then** `ImproperlyConfigured` is raised
    **And** the misconfiguration surfaces as a configuration error rather than as a mysterious permissions problem
 
-6. **Given** stage 1 runs as the last statement of every settings module
+6. **Given** stage 1 runs as the last statement of every leaf settings module
    **When** stage 1 and stage 2 iterate databases
    **Then** both iterate every configured database
 
@@ -58,6 +58,7 @@ so that a reachable credential route or an unrecognized schema stops the process
   - [ ] `_refuse_local_sign_in_route() -> None`. Import the local sign-in module object created by Epic 3 Story 3.4 — a plain top-level `import`, producing a module object.
   - [ ] Predicate: for each unwrapped view callable, resolve its defining module with `inspect.getmodule(callable)` and refuse when that module object **is** the imported local sign-in module, or is a submodule of it (compare the imported module's `__name__` obtained *from the imported object*, never a hardcoded literal, and test `defining.__name__ == mod.__name__ or defining.__name__.startswith(mod.__name__ + ".")`).
   - [ ] **The evasion this blocks, stated explicitly (AD-21):** a route named `local_persona_login` mounted under `/accounts/` would satisfy AD-21 by name and pass an allowlist that already permits `/accounts/` for allauth. Any implementation that matches the route name or the path prefix is wrong and must be rejected in review.
+  - [ ] **Shipping is not mounting (AD-21).** The local sign-in *module* is `core` and ships in every component; Story 3.4 mounts its *route* only where locality is local. So in a correctly configured deployed component this condition finds nothing to refuse — it is the backstop for a route reachable anyway, through a URLconf edit, a misconfiguration, or a locality that failed open. Do not read the condition as evidence the route is mounted everywhere, and do not "fix" Story 3.4 by mounting it unconditionally: that would make every deployed component refuse to start.
   - [ ] Story 3.4 declares the local sign-in route's URL name and path prefix as fixed constants in exactly one place, and Epic 7 moves that declaration into `accelerator.toml`. Those constants are **not** the predicate — they exist for the route's own construction and for the FR-17 allowlist (Story 4.6). This condition uses the module object only.
   - [ ] If Story 3.4 has not landed, implement against a `LOCAL_SIGN_IN_MODULE` constant in `src/config/startup/stage_two.py` holding the dotted path, imported once with `importlib.import_module` at module scope into a module object, and record in the Completion Notes that Story 3.4 must place its views in that module rather than declare a second location.
 
@@ -95,11 +96,11 @@ so that a reachable credential route or an unrecognized schema stops the process
 ### Architecture Constraints
 
 - **AD-26 (the load-bearing clause, verbatim):** "**Predicates resolve objects, never strings.** The credential-path and local-sign-in conditions resolve the URLconf and refuse any route whose view callable belongs to the forbidden module — `obtain_auth_token`'s and the local sign-in module's — so renaming a route or remounting it under another prefix cannot evade them."
-- **AD-21 (binding rule):** "Local persona sign-in is exposed as a URL route and by no other mechanism … The stage-2 predicate refuses any route whose **view callable belongs to the local sign-in module** (AD-26), never a name or prefix match, because a route named `local_persona_login` mounted under `/accounts/` would otherwise satisfy this AD and pass an allowlist that already permits `/accounts/` for allauth. It ships in every component and is refused wherever the component is deployed."
+- **AD-21 (binding rule):** "Local persona sign-in is exposed as a URL route and by no other mechanism … The stage-2 predicate refuses any route whose **view callable belongs to the local sign-in module** (AD-26), never a name or prefix match, because a route named `local_persona_login` mounted under `/accounts/` would otherwise satisfy this AD and pass an allowlist that already permits `/accounts/` for allauth. **The module ships in every component; the route is mounted only where locality is local.** The distinction is the whole rule: a route mounted unconditionally would make every deployed component refuse to start, since the stage-2 condition refuses the local sign-in route's reachability. Shipping is not mounting, and the refusal is the backstop for a route that is reachable anyway — through a URLconf edit, a misconfiguration, or a locality that failed open — not the expected path."
   **Prevents:** "the product's own credential path taking a shape the refusal contract cannot see; and — the subtler half — a route that satisfies this AD by name and still evades the refusal because the predicate matched a string."
 - **AD-9 (binding rule):** "The stage-2 unapplied-migrations refusal and the sqlite refusal both iterate every configured database — which is only possible because stage 1 runs *after* composition (AD-26)."
 - **AD-27 (binding rule):** "Django `Group` rows named by the claims contract, and the `Permission` rows attached to them, are provisioned by a data migration inside `django_service`, seeded from the claims contract, so they exist before the first authentication … A designated staff or superuser group absent from the database at startup is a stage-2 refusal condition, on AD-12's own reasoning: a misconfiguration must not present as a permissions bug."
-  **Prevents:** "the bootstrap deadlock in which every deployed component grants nobody any authorization and nobody can reach the admin, while all twelve local smoke checks pass."
+  **Prevents:** "the bootstrap deadlock in which every deployed component grants nobody any authorization and nobody can reach the admin, while every local smoke check passes."
 - **AD-13:** "Process type fails open: absent means not a serving process, because failing it closed would produce exactly that deadlock." Do not infer serving-process status from `sys.argv`, the process name, or the presence of an ASGI server in `sys.modules`.
 - **AD-22:** "No entrypoint, task or container command runs migrations; migration is a release-stage step … and the stage-2 refusal enforces that a serving process never starts against an unrecognized schema." This story implements the refusal only.
 - **AD-24 forbids** `try/except ImportError` and conditional imports. `obtain_auth_token` and the local sign-in module are imported unconditionally at module top level.
@@ -109,7 +110,7 @@ so that a reachable credential route or an unrecognized schema stops the process
 
 ### The settled refusal count
 
-From `_bmad-output/planning-artifacts/epics.md:308-326`. **Nine conditions — seven unconditional, two conditional — across fourteen distinct forbidden states**, each tested separately under FR-16.
+From `_bmad-output/planning-artifacts/epics.md:310-328`. **Nine conditions — seven unconditional, two conditional — across fourteen distinct forbidden states**, each tested separately under FR-16.
 
 | # | Condition | Stage | Forbidden states |
 |---|---|---|---|
@@ -131,7 +132,7 @@ This story owns conditions 6 and 7 and the stage-2 half of 5 — **four of the f
 |---|---|---|
 | `src/config/startup/stage_two.py` | UPDATE | Created as a skeleton by Story 4.1 with `run_stage_two`, `STAGE_TWO_OWNER_APP_LABEL` and the `_STAGE_TWO_RAN` sentinel. **Change:** add `_iter_view_callables` and the four condition functions, plus the fixed-order tuple. **Preserve:** the `is_deployed()` early return and the sentinel's position as the final statement. |
 | `src/django_service/users/apps.py` | UPDATE (no change if 4.1 landed) | `UsersConfig.ready()` already calls `run_stage_two()` after Story 4.1. Confirm only. Today the body at `:9-12` is a docstring and nothing else. |
-| `src/config/urls.py` | READ ONLY | Today: `home`, `about`, admin at `settings.ADMIN_URL`, `users/` include, `accounts/` → `allauth.urls` (`:24`), media static, the API block at `:35-46` including `path("api/auth-token/", obtain_auth_token, name="obtain_auth_token")` at `:39` and its import at `:11`, and the `DEBUG`-gated error-page and debug-toolbar routes at `:48-75`. **This story does not edit it** — Epic 2 Story 2.8 removes the token route. This story makes its return a build failure. |
+| `src/config/urls.py` | READ ONLY | Today: `home`, `about`, admin at `settings.ADMIN_URL`, `users/` include, `accounts/` → `allauth.urls` (`:24`), media static, the API block at `:35-46` including `path("api/auth-token/", obtain_auth_token, name="obtain_auth_token")` at `:39` and its import at `:11`, and the `DEBUG`-gated error-page and debug-toolbar routes at `:48-75`. **This story does not edit it** — Epic 2 Story 2.8 removes the token route, and Epic 7 Story 7.4 deletes the `home` and `about` `TemplateView`s as demonstration content (revision 3). Note that `src/config/urls.py` is **not** a region-bearing path under AD-24: its interface routes are `core` or deleted, never feature-owned. This story makes the token route's return a build failure. |
 | `tests/unit/config/startup/test_stage_two_urlconf.py` | NEW | Route-condition tests including both evasion tests and the negative case. |
 | `tests/integration/config/startup/test_stage_two_database_conditions.py` | NEW | Migrations and designated-group conditions, `@pytest.mark.integration`. |
 
@@ -158,11 +159,13 @@ This story owns conditions 6 and 7 and the stage-2 half of 5 — **four of the f
 
 Aligned with the Structural Seed. One observation on scope: the smoke check's "rendered 404" and "rendered admin index" assertions (AD-30) run in Epic 8, and the local sign-in route is asserted reachable *locally* by Epic 3 Story 3.4 — both are **traceability markers, not acceptance conditions for this story**. Likewise Story 3.4's own criterion "when Epic 4 lands, it is refused at startup in a deployed component" is closed by Task 3 here.
 
+One forward reference on the stage-2 fixed-order tuple, recorded so it is not mistaken for scope here. AD-8's navigation registry adds its own stage-2 refusal — every registered URL name must resolve in the URLconf, or `ImproperlyConfigured`, at the stage that has a resolved URLconf. It executes in `src/config/startup/stage_two.py` and Epic 9 appends it to this tuple when the composition step exists. It is **not** a tenth refusal condition and does not change the settled count of nine conditions and fourteen forbidden states: it validates a *contributed setting*, in the shape of Story 9.6's adoption-time gate conditions, rather than a forbidden state of the component's own configuration. Story 4.6 records the declaration half.
+
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 4.3]
-- [Source: _bmad-output/planning-artifacts/epics.md#Resolved during story creation: the refusal count] — lines 308-326
-- [Source: _bmad-output/planning-artifacts/epics.md#Cross-epic threads] — line 219: FR-41's refusal is implemented here; Epic 5 owns the release-stage contract
+- [Source: _bmad-output/planning-artifacts/epics.md#Resolved during story creation: the refusal count] — lines 310-328
+- [Source: _bmad-output/planning-artifacts/epics.md#Cross-epic threads] — line 221: FR-41's refusal is implemented here; Epic 5 owns the release-stage contract
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-26]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-21]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-9]

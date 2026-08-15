@@ -30,7 +30,7 @@ so that "this component passed its gate" is a statement the pipeline makes rathe
 4. **Given** gunicorn has no win-64 build
    **When** the workflows are reorganized
    **Then** the reference application keeps its three-OS matrix
-   **And** any twelve-combination job is declared Linux-only
+   **And** any six-combination job is declared Linux-only
 
 5. **Given** a developer runs `pixi run ci` locally
    **When** CI runs the same task
@@ -50,7 +50,7 @@ so that "this component passed its gate" is a statement the pipeline makes rathe
   - [ ] Declare a `gate` job on `ubuntu-latest` whose only project step is `run: pixi run ci`. Story 1.2 attaches the PostgreSQL `services:` block and `DATABASE_URL` to **this** job — leave the job shaped so that addition is a pure insertion.
   - [ ] Retain a three-OS compatibility matrix job (`ubuntu-latest`, `windows-latest`, `macos-latest`) on the reference application per AC #4. Because GitHub Actions `services:` containers run only on Linux runners, that matrix job runs `pixi run test` (sqlite substitution), not `pixi run ci`. Record this split in a comment in `ci.yml` so the next reader does not read it as a narrowed gate.
   - [ ] Keep `prefix-dev/setup-pixi@v0.9.5` with `pixi-version: v0.70.2`, `environments: dev`, `cache: true` — the existing pins carry a comment explaining the lock-file-format v7 requirement; preserve it.
-  - [ ] Add a comment in `ci.yml` stating that any future twelve-combination job is Linux-only because `gunicorn` has no win-64 build (`pixi.toml:82-91` scopes `gunicorn`/`uvicorn-worker` to `linux-64` and `osx-arm64` only).
+  - [ ] Add a comment in `ci.yml` stating that any future six-combination job is Linux-only because `gunicorn` has no win-64 build (`pixi.toml:82-91` scopes `gunicorn`/`uvicorn-worker` to `linux-64` and `osx-arm64` only).
 
 - [ ] Task 3 — Remove the gate steps that live outside the single invocation (AC: #2, #3, #5)
   - [ ] `.github/workflows/sonarqube.yml:35-36` runs `pixi run test-cov` solely to produce `coverage.xml` for the scanner. Template coverage is configured in `pyproject.toml` (`[tool.coverage.run] plugins = ["django_coverage_plugin"]`, `[tool.coverage.django_coverage_plugin] template_extensions = "html"`) and enabled by `COVERAGE_CORE=ctrace` in `pixi.toml [activation.env]` — so it is already measured by `pixi run ci`. Make the SonarCloud workflow consume the gate's artifact rather than re-run coverage: remove the `pixi run test-cov` step and obtain `coverage.xml` from the gate job (upload/download artifact, or `workflow_run`). The SonarCloud workflow must no longer own a coverage run.
@@ -70,7 +70,7 @@ so that "this component passed its gate" is a statement the pipeline makes rathe
 
 ### Architecture Constraints
 
-- **AD-18 — One gate, one invocation, Linux for the matrix.** "A single workflow invokes `pixi run ci`, which has never run in CI. Template coverage moves out of the SonarCloud workflow and `build` off its fortnightly cron. The twelve-combination harness is Linux-only, `gunicorn` having no win-64 build; the three-OS matrix stays on the reference application, where it claims something different." **Prevents:** "the orphan detector being disabled by a change nobody understood as security-relevant; thirty-six gate runs that cannot exercise the process model."
+- **AD-18 — One gate, one invocation, Linux for the matrix.** "A single workflow invokes `pixi run ci`, which has never run in CI. A `ci` task **already exists** at `pixi.toml:206` … so this AD reshapes an existing task rather than creating one. The coverage *run invocation* moves out of the SonarCloud workflow (`sonarqube.yml:36`); the template-coverage *configuration* is already correct in `pyproject.toml` … and does not move. `build` comes off its fortnightly cron, which lives inside `release.yml` … that workflow also runs `lint`, `typecheck` and `test-cov` inline at `:173-181`, so four gate steps leave it, not one. The six-combination harness is Linux-only, `gunicorn` having no win-64 build; the three-OS matrix stays on the reference application, where it claims something different. **GitHub Actions `services:` containers are Linux-only**, so FR-32's PostgreSQL gate cannot run on that three-OS matrix: the gate job is ubuntu-only and a separate three-OS job runs `pixi run test` for platform compatibility." **Prevents:** "the orphan detector being disabled by a change nobody understood as security-relevant; thirty-six gate runs that cannot exercise the process model."
 - **AD-20 — bring-up mode.** "`test-cov` already carries `--cov-fail-under=90`, so the floor is hard the moment the gate consolidates." Consolidating the gate makes the 90% floor binding on this repository immediately. Do not weaken `--cov-fail-under=90` to make the gate pass; the bring-up advisory mode of AD-20 applies only to *materialized-combination* gates, which do not exist yet.
 - **AD-19** pins verification reduction to PR/merge. This story does **not** implement the reduced/full split — that is Epic 8 Story 8.9. Keep the workflow shape simple enough that the split is an addition rather than a rewrite.
 - **Consistency Conventions — Rationale:** "Reasoning lives beside the configuration it constrains, in the same file, as `pixi.toml` already does." Every comment this story removes from `ci.yml` or `pixi.toml` must be re-placed, not dropped.
@@ -114,7 +114,7 @@ Task-name variance: the repository uses `format`/`typecheck`/`test-cov` where th
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 1.1]
 - [Source: _bmad-output/planning-artifacts/epics.md#Epic 1] — "Every later epic lands against this gate, so it goes first."
 - [Source: _bmad-output/planning-artifacts/epics.md:125] — no starter template; brownfield rewire.
-- [Source: _bmad-output/planning-artifacts/epics.md:220] — "FR-32's PostgreSQL service and the single `pixi run ci` invocation begin in Epic 1 against the reference application; Epic 8 extends both to twelve combinations."
+- [Source: _bmad-output/planning-artifacts/epics.md:222] — "FR-32's PostgreSQL service and the single `pixi run ci` invocation begin in Epic 1 against the reference application; Epic 8 extends both to six combinations."
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-18]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-19]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-20]

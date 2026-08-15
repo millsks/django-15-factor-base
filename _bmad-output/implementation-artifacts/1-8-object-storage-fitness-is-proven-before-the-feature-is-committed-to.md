@@ -6,7 +6,7 @@ Status: ready-for-dev
 
 As a lead developer,
 I want `django-storages` proven against the pinned Django and Python before object storage is built,
-so that a feature six of twelve combinations will select is not committed to on the strength of a package that cannot run.
+so that a feature three of six combinations will select is not committed to on the strength of a package that cannot run.
 
 ## Acceptance Criteria
 
@@ -51,7 +51,7 @@ so that a feature six of twelve combinations will select is not committed to on 
     - Assert `django.core.checks.run_checks()` reports no error with the storage backend configured — the Django system check framework is where a settings-shape incompatibility surfaces.
     - Assert the backend reads its configuration from environment variables alone, with no configuration file (FR-38).
   - [ ] Optional round-trip leg, and **its absence must be reported, not hidden**: a `save` → `exists` → `open` → `size` → `url` → `delete` cycle against an S3-compatible endpoint. Gate it on an `AWS_S3_ENDPOINT_URL`-style environment variable being set; when unset, the test reports the bound explicitly rather than passing silently.
-  - [ ] **State the bound in the recorded verdict.** CG-2's discipline applies: "A silently narrowed claim reads as full coverage and is worse than a bounded one" (`epics.md:339`). If only the no-network leg ran, the verdict says so and names what remains unproven.
+  - [ ] **State the bound in the recorded verdict.** CG-2's discipline applies: "A silently narrowed claim reads as full coverage and is worse than a bounded one" (`epics.md:341`). If only the no-network leg ran, the verdict says so and names what remains unproven.
 
 - [ ] Task 3 — Record the verdict where the dependency is declared (AC: #1, #2)
   - [ ] AC #1's "recorded where the dependency is declared" means a comment block in `pixi.toml` beside the `django-storages` declaration. Write it there: the versions tested (django-storages 1.14.6, Django 6.0, Python 3.14 — from the spine's Stack table), the call sites exercised, the verdict, the date, and the bound (which legs did not run).
@@ -80,9 +80,9 @@ so that a feature six of twelve combinations will select is not committed to on 
 ### Architecture Constraints
 
 - **FR-50:** "Channel availability *and fitness against the pinned runtime* are checked before a feature is committed to."
-- **R-1 — `django-storages` fitness is unproven, and object storage cannot be deferred.** Verbatim: "Present on the channel, which is FR-50's test, but released 2025-04-02 with no declared Django 6.0 or Python 3.14 support and nothing newer available; Django 6.0 support exists only on unreleased upstream master. Object storage appears in six of twelve combinations, does not exist yet, and is expected to be selected by most components — so dropping it is not an available answer and the risk must be carried rather than avoided. The escalation is ordered: spike `1.14.6` against the locked Django and Python first, since it is a thin wrapper over a `boto3` already in the lock and Django's `Storage` API has been stable; if that fails, push the conda-forge feedstock as was done for `django-celery-beat`, with a **time-boxed** package-index exception whose exit condition is that build landing; a component-owned S3 backend against `django.core.files.storage.Storage` is the last resort, because a platform product owning its own storage backend is a permanent maintenance and security cost. A permanent supply-chain exception is not on the list."
-- **Why this is Epic 1 and not Epic 7.** `epics.md:235`: Epic 1 "carries the R-1 spike as an early long-pole story, on FR-50's own rule that fitness is proven before a feature is committed to." `epics.md:271`: Epic 7 "builds object storage greenfield on whatever Epic 1's R-1 spike concluded." **This story's output is Epic 7 Story 7.5's input.** Write the verdict so that story can act on it without re-deriving anything.
-- **AD-3:** the four selectable features are pixi features with an `[environments]` matrix, and **all twelve environments share one `solve-group`**. The spike environment must join `solve-group = "default"` for the same reason: otherwise it tests a different Django than the product ships.
+- **R-1 — `django-storages` fitness is unproven, and object storage cannot be deferred.** Verbatim: "Present on the channel, which is FR-50's test, but released 2025-04-02 with no declared Django 6.0 or Python 3.14 support and nothing newer available; Django 6.0 support exists only on unreleased upstream master. Object storage appears in three of six combinations, does not exist yet, and is expected to be selected by most components — so dropping it is not an available answer and the risk must be carried rather than avoided. The escalation is ordered: spike `1.14.6` against the locked Django and Python first, since it is a thin wrapper over a `boto3` already in the lock and Django's `Storage` API has been stable; if that fails, push the conda-forge feedstock as was done for `django-celery-beat`, with a **time-boxed** package-index exception whose exit condition is that build landing; a component-owned S3 backend against `django.core.files.storage.Storage` is the last resort, because a platform product owning its own storage backend is a permanent maintenance and security cost. A permanent supply-chain exception is not on the list."
+- **Why this is Epic 1 and not Epic 7.** `epics.md:237`: Epic 1 "carries the R-1 spike as an early long-pole story, on FR-50's own rule that fitness is proven before a feature is committed to." `epics.md:273`: Epic 7 "builds object storage greenfield on whatever Epic 1's R-1 spike concluded." **This story's output is Epic 7 Story 7.5's input.** Write the verdict so that story can act on it without re-deriving anything.
+- **AD-3:** the three selectable features — background task processing, Redis and object storage — are pixi features with an `[environments]` matrix, and **all six environments share one `solve-group`**. The spike environment must join `solve-group = "default"` for the same reason: otherwise it tests a different Django than the product ships.
 - **Spine §Consistency Conventions — Supply chain:** conda-forge only; `[pypi-dependencies]` carries the editable self-install and nothing else. Story 1.7's tests enforce this; a spike that quietly adds a pypi entry breaks that story's gate.
 - **FR-25:** "Object storage attaches an S3-compatible backend configured from environment variables alone (`django-storages`, `boto3`); **user media is out of scope.**" Do not spike media handling, `ImageField`, thumbnailing or upload views.
 - **FR-38:** "Configuration is exclusively environmental; no configuration file in the image." The spike's configuration must come from environment variables only.
@@ -114,21 +114,21 @@ so that a feature six of twelve combinations will select is not committed to on 
 
 `tests/spikes/` is a new sibling of `tests/unit/` and `tests/integration/`. The Structural Seed shows only `tests/` without subdivision, so this introduces no conflict; the spine's test-location convention ("Accelerator and base tests live under `tests/`, mirroring `src/`, and carry the disposition of what they cover") is satisfied by a `machinery`-dispositioned spike directory.
 
-Variance: the spike environment is a fifth pixi environment shape that the AD-3 twelve-combination matrix does not anticipate. It is temporary — Epic 8 Story 8.1 builds the real matrix, and by then this spike has served its purpose. Record in Completion Notes whether `[feature.spike-storage]` should be removed at that point or folded into the `storage` feature Epic 7 declares.
+Variance: the spike environment is an extra pixi environment shape that the AD-3 six-environment matrix does not anticipate. It is temporary — Epic 8 Story 8.1 builds the real matrix, and by then this spike has served its purpose. Record in Completion Notes whether `[feature.spike-storage]` should be removed at that point or folded into the `storage` feature Epic 7 declares.
 
 ### Forward context — this story's output is consumed downstream
 
-Epic 7 Story 7.5 ("Object storage attaches an S3-compatible backend with a local substitution") builds on this verdict. AC #2's "the evidence is attached at the point of declaration" is what makes that possible: Story 7.5 moves `django-storages` from the spike feature into the `storage` pixi feature and carries the comment block with it. FR-18's fifth substitution — filesystem-backed object storage — is also Epic 7's, not Epic 3's (`epics.md:223`). **These are traceability markers, not acceptance conditions for this story.**
+Epic 7 Story 7.5 ("Object storage attaches an S3-compatible backend with a local substitution") builds on this verdict. AC #2's "the evidence is attached at the point of declaration" is what makes that possible: Story 7.5 moves `django-storages` from the spike feature into the `storage` pixi feature and carries the comment block with it. FR-18's fifth substitution — filesystem-backed object storage — is also Epic 7's, not Epic 3's (`epics.md:225`). **These are traceability markers, not acceptance conditions for this story.**
 
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 1.8]
 - [Source: _bmad-output/planning-artifacts/epics.md:99] — FR-50.
-- [Source: _bmad-output/planning-artifacts/epics.md:182] — R-1 restated in the epic preamble with the ordered escalation.
-- [Source: _bmad-output/planning-artifacts/epics.md:235] — Epic 1 carries the R-1 spike as an early long-pole story.
-- [Source: _bmad-output/planning-artifacts/epics.md:271] — Epic 7 "builds object storage greenfield on whatever Epic 1's R-1 spike concluded."
-- [Source: _bmad-output/planning-artifacts/epics.md:223] — FR-18's fifth substitution is delivered in Epic 7, not Epic 3.
-- [Source: _bmad-output/planning-artifacts/epics.md:339] — CG-2's discipline: a silently narrowed claim is worse than a bounded one.
+- [Source: _bmad-output/planning-artifacts/epics.md:184] — R-1 restated in the epic preamble: "object storage is in three of six combinations and cannot be dropped", with the ordered escalation.
+- [Source: _bmad-output/planning-artifacts/epics.md:237] — Epic 1 carries the R-1 spike as an early long-pole story.
+- [Source: _bmad-output/planning-artifacts/epics.md:273] — Epic 7 "builds object storage greenfield on whatever Epic 1's R-1 spike concluded."
+- [Source: _bmad-output/planning-artifacts/epics.md:225] — FR-18's fifth substitution is delivered in Epic 7, not Epic 3.
+- [Source: _bmad-output/planning-artifacts/epics.md:341] — CG-2's discipline: a silently narrowed claim is worse than a bounded one.
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Named Residual Risks] — R-1 in full.
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Stack] — django-storages 1.14.6 / boto3 1.43.65, Django 6.0, Python 3.14.
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-3] — the shared solve-group.

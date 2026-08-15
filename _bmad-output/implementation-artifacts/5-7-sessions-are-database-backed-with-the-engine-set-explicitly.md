@@ -15,7 +15,7 @@ so that session behaviour is never a property of an unrelated feature toggle.
 1. **Given** `SESSION_ENGINE`
    **When** settings are composed
    **Then** it is set explicitly in `base.py` to the database-backed engine
-   **And** it is identical in all twelve combinations
+   **And** it is identical in all six combinations
 
 2. **Given** the Redis cache feature
    **When** it is selected
@@ -24,7 +24,7 @@ so that session behaviour is never a property of an unrelated feature toggle.
 3. **Given** expired session rows and expired mapper epoch records
    **When** pruning is specified
    **Then** both are pruned by one declared admin process
-   **And** deliberately not by a background task, since background task processing exists in only four of twelve combinations
+   **And** deliberately not by a background task, since background task processing exists in only two of six combinations, and the session table in the other four would otherwise grow unbounded
 
 4. **Given** the scheduling of that admin process
    **When** scope is assigned
@@ -47,7 +47,7 @@ so that session behaviour is never a property of an unrelated feature toggle.
   - [ ] Emit one `structlog` event per pruned kind with the deleted row count. Never `print()`; the command must not use `self.stdout.write` as its only output channel for machine-readable results.
   - [ ] Support `--dry-run` reporting counts without deleting, and make the command idempotent and safe to run concurrently with serving traffic (delete by expiry predicate, no table lock, no `TRUNCATE`).
   - [ ] Full type hints and a Google-style docstring on `Command.handle`.
-  - [ ] **Do not** implement pruning as a Celery task, a `CELERY_BEAT_SCHEDULE` entry, or a `PeriodicTask` row. AC #3's second clause is the requirement, not an implementation preference: Celery exists in only four of twelve combinations.
+  - [ ] **Do not** implement pruning as a Celery task, a `CELERY_BEAT_SCHEDULE` entry, or a `PeriodicTask` row. AC #3's second clause is the requirement, not an implementation preference: Celery exists in only two of six combinations, and in the other four the pruning would simply never run.
 
 - [ ] Task 3 — Declare the admin process (AC: #3, #4)
   - [ ] Add a `prune` task to `pixi.toml` `[tasks]`:
@@ -57,7 +57,7 @@ so that session behaviour is never a property of an unrelated feature toggle.
   - [ ] Do not put a cron expression, an interval, or a schedule value in `component.toml` beyond the marker that the schedule is the deployment repository's (AC #4).
 
 - [ ] Task 4 — Document, and state the phase boundary honestly (AC: #4)
-  - [ ] `docs/deployment.md` `## Session and epoch pruning`: sessions are database-backed in every combination with `SESSION_ENGINE` set explicitly in `base.py`; expired session rows and expired mapper epoch records are pruned by one admin process, `pixi run prune`; it is deliberately not a background task because Celery exists in only four of twelve combinations.
+  - [ ] `docs/deployment.md` `## Session and epoch pruning`: sessions are database-backed in every combination with `SESSION_ENGINE` set explicitly in `base.py`; expired session rows and expired mapper epoch records are pruned by one admin process, `pixi run prune`; it is deliberately not a background task because Celery exists in only two of six combinations, so in the other four a scheduled task would never run and the session table would grow without bound.
   - [ ] State the phase boundary: **FR-44's explicit-engine half is phase 1; its scheduling half is "Next."** The component declares and documents the process; the schedule lives in the deployment repository and is out of scope here.
   - [ ] Record the AD-31 companion facts in the same section so a reader does not look for them elsewhere: session cookie hardening lives in `production.py` (`SESSION_COOKIE_SECURE` `:53`, `SESSION_COOKIE_NAME = "__Secure-sessionid"` `:55`) and is unchanged by this story.
   - [ ] Ensure `docs/deployment.md` is in `mkdocs.yml` `nav`; `pixi run docs` is `mkdocs build --strict`.
@@ -67,7 +67,7 @@ so that session behaviour is never a property of an unrelated feature toggle.
     - `django.conf.settings.SESSION_ENGINE == "django.contrib.sessions.backends.db"`;
     - the literal appears in `src/config/settings/base.py` — a source-level assertion, because AC #1 says *set explicitly in `base.py`*, and a settings-level assertion alone would pass on Django's default;
     - `local.py`, `production.py` and `test.py` contain **no** `SESSION_ENGINE` assignment (AC #2's mechanical form: no settings module other than `base.py` may set it, so no feature's settings fragment can either);
-    - the assignment in `base.py` is not enclosed by any `# feature:` / `# /feature:` marker pair — parse the markers rather than eyeballing them, since this is what makes AC #1's "identical in all twelve combinations" true after materialization.
+    - the assignment in `base.py` is not enclosed by any `# feature:` / `# /feature:` marker pair — parse the markers rather than eyeballing them, since this is what makes AC #1's "identical in all six combinations" true after materialization.
   - [ ] Extend `tests/unit/test_settings.py` if its existing fresh-import fixtures make the multi-module assertions cheaper; that module already evicts and re-imports `config.settings.{base,local,production}` (see its docstring and `_evict_settings_modules` fixture) and is the established pattern here.
   - [ ] `tests/integration/test_prune_command.py` (`@pytest.mark.integration`): create an expired session and an expired epoch record, run the command via `call_command`, assert both are gone and a live session and a live epoch record survive; `--dry-run` deletes nothing and reports the same counts. Leave the database as found.
   - [ ] Add the `[[admin_processes]]` ↔ `pixi.toml` assertions to `tests/unit/test_process_model.py` (Story 5.2) rather than writing a second `pixi.toml` parser.
@@ -76,14 +76,14 @@ so that session behaviour is never a property of an unrelated feature toggle.
 
 ### Architecture Constraints
 
-- **AD-31** — *Rule:* "`SESSION_ENGINE` is set explicitly in `base.py` to the database-backed engine, in every combination — **the Redis feature may not change it, because FR-44's whole point is that session behaviour must not vary by toggle.** Expired sessions and expired mapper epoch records (AD-10) are pruned by one declared admin process, not a background task, because Celery exists in only four of twelve combinations." *Prevents:* "session behaviour varying by feature toggle."
-- **AD-10** — "**The epoch record lives in the database**, in a `django_service`-owned table, not in `django.core.cache`: eight of twelve combinations have no Redis… The table is pruned by a declared admin process alongside sessions (AD-31). It is internal surface (AD-29), so adding it is not an API version bump." The epoch model is Epic 2's deliverable; this story prunes it and must not redefine it.
+- **AD-31** — *Rule:* "`SESSION_ENGINE` is set explicitly in `base.py` to the database-backed engine, in every combination — **the Redis feature may not change it, because FR-44's whole point is that session behaviour must not vary by toggle.** Expired sessions and expired mapper epoch records (AD-10) are pruned by one declared admin process, not a background task, because Celery exists in only two of six combinations." *Prevents:* "session behaviour varying by feature toggle."
+- **AD-10** — "**The epoch record lives in the database**, in a `django_service`-owned table, not in `django.core.cache`: two of six combinations have no Redis… The table is pruned by a declared admin process alongside sessions (AD-31). It is internal surface (AD-29), so adding it is not an API version bump." The epoch model is Epic 2's deliverable; this story prunes it and must not redefine it.
 - **NFR-3** — "Statelessness — nothing shared through local disk or process memory across replicas; **sessions database-backed in every combination.**"
 - **FR-44 phase note** (epics.md §4.7): "Sessions are database-backed with the engine set explicitly in every combination; pruning is a scheduled admin process. *(Explicit engine: phase-1. **Scheduling: Next.**)*" Say so in the documentation; do not build a scheduler.
 - **AD-24** — Feature-owned regions are delimited by paired `feature:<name>` / `/feature:<name>` line comments and **no other sub-file removal mechanism is permitted — not conditional imports, not settings-module inheritance, not `try/except ImportError`.** The `SESSION_ENGINE` line must sit outside every region; conversely, the Redis feature's own settings fragment (Epic 7) will be a region in this same file and must not contain a `SESSION_ENGINE` assignment.
 - **AD-13** — Process type fails open; an admin process must not declare `COMPONENT_PROCESS`, or it declares itself a serving process and deadlocks on the migrations refusal.
 - **AD-14** — The two-way process-model gate test derives the process group structurally; the `prune` task must fall outside it.
-- **AD-29** — `src/django_service/` is `core` in its entirety and **no `feature:*` disposition may apply to any path inside it**. The management command therefore travels into all twelve combinations, which is exactly why it must not depend on Celery.
+- **AD-29** — `src/django_service/` is `core` in its entirety and **no `feature:*` disposition may apply to any path inside it**. The management command therefore travels into all six combinations, which is exactly why it must not depend on Celery. Revision 3 also makes the interface mechanism part of that core; that changes nothing here, since `SESSION_ENGINE` was never interface-owned.
 - **Project standards** — Pixi is the only runner: the command is invoked as `pixi run prune`, never bare `python manage.py`. Python 3.14 only. Full type hints, Google docstrings, line length 120. `X | Y`, `list[X]`, `dict[K, V]`. Never `print()`; never stdlib `logging` — `structlog` only. Never a bare `except:`; never `except X: pass`.
 
 ### Source Tree — files to touch

@@ -234,7 +234,7 @@ Nine epics. The split follows the architecture's own ordering constraints — AD
 
 ### Epic 1: A gate that detects, and a supply chain that is proven
 
-The platform group gets a quality gate that runs, is strict, and cannot be narrowed — and the object-storage supply-chain risk is either cleared or escalated before anything depends on it. `pixi run ci` has never run in CI, `[tool.mypy]` sets `check_untyped_defs` while three documents assert `strict`, and the coverage `omit` list is open. Every later epic lands against this gate, so it goes first. Carries the R-1 spike as an early long-pole story, on FR-50's own rule that fitness is proven before a feature is committed to. Also collapses the five import-root declaration sites to one (AD-7) and deletes the sub-router network surface with its coverage `omit` entry (AD-16), both preconditions for Epic 4's allowlist to be complete rather than merely present.
+The platform group gets a quality gate that runs, is strict, and cannot be narrowed — and the object-storage supply-chain risk is either cleared or escalated before anything depends on it. `pixi run ci` has never run in CI, `[tool.mypy]` sets `check_untyped_defs` while three documents assert `strict`, and the coverage `omit` list is open. Every later epic lands against this gate, so it goes first. Carries the R-1 spike as an early long-pole story, on FR-50's own rule that fitness is proven before a feature is committed to. Also collapses the six import-root declaration sites to one (AD-7) and deletes the sub-router network surface with its coverage `omit` entry (AD-16), both preconditions for Epic 4's allowlist to be complete rather than merely present.
 
 **FRs covered:** FR-49, FR-50. *(NFR-4, NFR-5, NFR-7; AD-7, AD-16, AD-18, AD-20)*
 

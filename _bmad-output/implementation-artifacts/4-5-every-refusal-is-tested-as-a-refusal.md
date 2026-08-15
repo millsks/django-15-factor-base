@@ -89,7 +89,7 @@ so that the suite proves the deployed settings refuse rather than merely proving
 
 ### The fourteen forbidden states — the settled count
 
-Reproduced from `_bmad-output/planning-artifacts/epics.md:308-326`. **Nine conditions — seven unconditional, two conditional — across fourteen distinct forbidden states**, each tested separately under FR-16. This table is the contents of `FORBIDDEN_STATES`.
+Reproduced from `_bmad-output/planning-artifacts/epics.md:310-328`. **Nine conditions — seven unconditional, two conditional — across fourteen distinct forbidden states**, each tested separately under FR-16. This table is the contents of `FORBIDDEN_STATES`.
 
 | # | Condition | Stage | Forbidden states |
 |---|---|---|---|
@@ -145,12 +145,12 @@ Reproduced from `_bmad-output/planning-artifacts/epics.md:308-326`. **Nine condi
 
 Aligned with the Structural Seed and the Test-location convention. This story is the epic's closing audit and depends on Stories 4.2, 4.3 and 4.4 having landed — it marks and audits their tests rather than writing the conditions. If any of the three has not landed, implement `FORBIDDEN_STATES`, the audit test and the CG-3 tests, and let the audit fail on the unclaimed states; do not stub the missing conditions or weaken the audit to pass.
 
-The AD-30 immovable-core assertion suite that runs inside every combination's gate is Epic 8's, and Epic 8 extends this epic's assertions to twelve combinations. That is a **traceability marker, not an acceptance condition for this story**.
+The AD-30 immovable-core assertion suite that runs inside every combination's gate is Epic 8's, and Epic 8 extends this epic's assertions to all six combinations. That is a **traceability marker, not an acceptance condition for this story**.
 
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 4.5]
-- [Source: _bmad-output/planning-artifacts/epics.md#Resolved during story creation: the refusal count] — lines 308-326
+- [Source: _bmad-output/planning-artifacts/epics.md#Resolved during story creation: the refusal count] — lines 310-328
 - [Source: _bmad-output/planning-artifacts/prds/prd-django-15-factor-base-2026-08-14/prd.md#FR-16]
 - [Source: _bmad-output/planning-artifacts/prds/prd-django-15-factor-base-2026-08-14/prd.md#CG-3]
 - [Source: _bmad-output/planning-artifacts/prds/prd-django-15-factor-base-2026-08-14/prd.md#SC-5]

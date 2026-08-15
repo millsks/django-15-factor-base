@@ -90,9 +90,9 @@ so that I can exercise real authorization differences without an identity realm.
 
 > Django `Group` rows named by the claims contract, and the `Permission` rows attached to them, are provisioned by a data migration inside `django_service`, seeded from the claims contract, so they exist before the first authentication. **The local persona seeding task calls that same mechanism rather than reimplementing it — a task that creates groups itself is what makes the deadlock invisible to the harness.** A designated staff or superuser group absent from the database at startup is a stage-2 refusal condition, on AD-12's own reasoning: a misconfiguration must not present as a permissions bug.
 
-*Prevents:* "the bootstrap deadlock in which every deployed component grants nobody any authorization and nobody can reach the admin, while all twelve local smoke checks pass."
+*Prevents:* "the bootstrap deadlock in which every deployed component grants nobody any authorization and nobody can reach the admin, while every local smoke check passes."
 
-This is load-bearing and it is the single easiest rule in this story to break by accident. A seeding task that calls `Group.objects.get_or_create(name=...)` will pass every one of this story's happy-path tests and every one of the twelve local smoke checks, while every deployed component is unreachable by anyone. The groups must come from the mechanism Story 2.3 built — the same callable its data migration invokes — and from nowhere else.
+This is load-bearing and it is the single easiest rule in this story to break by accident. A seeding task that calls `Group.objects.get_or_create(name=...)` will pass every one of this story's happy-path tests and every one of the six local smoke checks, while every deployed component is unreachable by anyone. The groups must come from the mechanism Story 2.3 built — the same callable its data migration invokes — and from nowhere else.
 
 **AD-11 — One identity key, three separated roles.** A persona's `subject` is the identity key and populates `User.idp_subject` (unique, indexed, nullable, sole store). `username`, `email` and `name` are attributes: populated from claims, displayed, used in URLs, **never resolved by**. `USERNAME_FIELD` remains `username`. AC #5 is a direct consequence — resolution is by identity key, so a persona is the same user across sign-ins whatever its username does.
 
@@ -164,9 +164,9 @@ Its disposition is `core`: FR-19 states the path ships in every component and is
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-10] · [#AD-11] · [#AD-12] · [#AD-4] · [#AD-13] · [#AD-21]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Consistency Conventions] — `src/config/<concern>/`; `ImproperlyConfigured` for every forbidden configuration; structured JSON logging; test location.
 - [Source: _bmad-output/planning-artifacts/prds/prd-django-15-factor-base-2026-08-14/prd.md#FR-19] — declarations, the task, the refusal, and why the path ships rather than being stripped.
-- [Source: _bmad-output/planning-artifacts/prds/prd-django-15-factor-base-2026-08-14/prd.md:928] — the local personas "are not a mitigation."
+- [Source: _bmad-output/planning-artifacts/prds/prd-django-15-factor-base-2026-08-14/prd.md:936] — the local personas "are not a mitigation."
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 3.3] · [#Story 2.3] · [#Story 2.5]
-- [Source: _bmad-output/planning-artifacts/epics.md:334] — SC-6 is not closed by personas; it needs a real IdP.
+- [Source: _bmad-output/planning-artifacts/epics.md:336] — SC-6 is not closed by personas; it needs a real IdP.
 - [Source: src/django_service/users/models.py] · [Source: tests/conftest.py:13-20] · [Source: tests/unit/conftest.py] · [Source: pixi.toml]
 
 ## Dev Agent Record

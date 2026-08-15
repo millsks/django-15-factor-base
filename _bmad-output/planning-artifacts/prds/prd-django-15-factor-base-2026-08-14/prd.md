@@ -671,7 +671,7 @@ Expired session rows are pruned by a one-off management process the platform sch
 - Sessions are database-backed in every combination, with the session engine set explicitly rather than left to the framework default, so session behaviour never varies by toggle.
 - Pruning is documented as a scheduled admin process, deliberately not as a scheduled background task — background task processing exists in only two of the six combinations, and a component whose session table grew without bound in the other four would make session hygiene a property of an unrelated toggle.
 
-**Notes:** the source addendum §5.3 originally inverted this arithmetic, reading "8 of the 12" and "the other 4"; it has since been corrected to match. Background tasks require the Redis cache, so they are present only in the `on/on` pairing: one of three valid pairings, times two UI states, times two object-storage states — four combinations. The correction strengthens the requirement, since two thirds of the space is affected rather than one third.
+**Notes:** the source addendum §5.3 originally inverted this arithmetic, reading "8 of the 12" and "the other 4"; it has since been corrected to match. Background tasks require the Redis cache, so they are present only in the `on/on` pairing: one of three valid pairings, times two object-storage states — two combinations. The correction strengthens the requirement, since two thirds of the space is affected rather than one third.
 
 **Priority note:** setting the session engine explicitly is phase-1 must-have; scheduling the pruning process is **Next**, because the schedule lives in the deployment repository.
 

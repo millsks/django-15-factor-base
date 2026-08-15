@@ -67,10 +67,10 @@ so that no credential or network surface exists where the route allowlist cannot
 ### Architecture Constraints
 
 - **AD-16 — No network surface exists beneath Django's routing.** Rule, verbatim: "`asgi.py` exposes Django's ASGI application directly. `src/config/websocket.py`, the scope-dispatching wrapper, and its `[tool.coverage.run] omit` entry are all deleted together. Any future protocol handled below Django's URL resolver is a designed feature with its own authentication story and its own entry in the carrier, never an inherited handler." **Prevents:** "a credential or network surface that the route allowlist cannot see because it is not a route."
-- **Why this is Epic 1 and not Epic 4.** `epics.md:235`: deleting the sub-router network surface with its coverage omit entry is a "precondition for Epic 4's allowlist to be complete rather than merely present." FR-17's allowlist inspects the resolved URLconf (FR-15); a handler that is not a route is invisible to it. The current `websocket_application` accepts every connection with no authentication whatsoever.
+- **Why this is Epic 1 and not Epic 4.** `epics.md:237`: deleting the sub-router network surface with its coverage omit entry is a "precondition for Epic 4's allowlist to be complete rather than merely present." FR-17's allowlist inspects the resolved URLconf (FR-15); a handler that is not a route is invisible to it. The current `websocket_application` accepts every connection with no authentication whatsoever.
 - **AD-26 — Predicates resolve objects, never strings.** The forward reason the surface must be a route: the stage-2 predicates resolve the URLconf and refuse routes by view callable. Nothing beneath the resolver can be reached by that mechanism.
 - **AD-20** — the coverage `omit` list is "a closed, carrier-declared surface" and the precedent it names for narrowing is `[tool.coverage.run] omit` in this very tree. Story 1.5 closes that list; this story removes the one entry that would otherwise be declared and then be wrong.
-- **FR-47:** "ASGI request tracing — the ASGI instrumentor active in all twelve combinations." AC #3's span assertion is what keeps this true across the deletion.
+- **FR-47:** "ASGI request tracing — the ASGI instrumentor active in all six combinations." AC #3's span assertion is what keeps this true across the deletion.
 
 ### Source Tree — files to touch
 
@@ -102,8 +102,8 @@ Variance worth recording: `src/config/wsgi.py` retains its own `sys.path` insert
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 1.4]
-- [Source: _bmad-output/planning-artifacts/epics.md:235] — deletion is a precondition for Epic 4's allowlist.
-- [Source: _bmad-output/planning-artifacts/epics.md:163] — AD-16 restated in the epic preamble.
+- [Source: _bmad-output/planning-artifacts/epics.md:237] — deletion is a precondition for Epic 4's allowlist.
+- [Source: _bmad-output/planning-artifacts/epics.md:165] — AD-16 restated in the epic preamble.
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-16]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-20]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-26]

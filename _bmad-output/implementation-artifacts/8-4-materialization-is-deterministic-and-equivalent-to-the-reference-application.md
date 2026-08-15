@@ -30,7 +30,7 @@ so that a materialized combination is a reproducible artifact rather than a fres
 - [ ] Task 1: Remove every ordering-derived nondeterminism from the materializer (AC: #3)
   - [ ] In `tools/materializer/materialize.py`, walk the source tree in `sorted()` order at every directory level; never iterate a `set` or `dict` whose insertion order derives from a filesystem walk.
   - [ ] In `tools/materializer/carrier.py`, hold dispositions in a mapping whose iteration is sorted before use; return `tuple` rather than `list` from any function whose result feeds output.
-  - [ ] In `tools/materializer/combination.py`, `enumerate_valid()` returns the twelve in a fixed, sorted-by-identifier order and never derives it from `frozenset` iteration.
+  - [ ] In `tools/materializer/combination.py`, `enumerate_valid()` returns the six in a fixed, sorted-by-identifier order and never derives it from `frozenset` iteration.
   - [ ] Write every text file with `encoding="utf-8"` and `newline="\n"`; copy binary paths byte-for-byte.
 
 - [ ] Task 2: Remove every time- and environment-derived nondeterminism (AC: #3)
@@ -44,13 +44,13 @@ so that a materialized combination is a reproducible artifact rather than a fres
   - [ ] `diff_trees(a: Path, b: Path) -> tuple[str, ...]` returning a sorted, human-readable list of differing paths, so a failing assertion names what differed rather than reporting two hashes.
 
 - [ ] Task 4: Define and assert equivalence to the reference application (AC: #2)
-  - [ ] "Equivalent" is: for the all-features-selected combination, the set of paths in the output equals the set of reference-application paths that travel (`core`, `tenant`, and every `feature:*` path — all four features are selected), plus the declared generated artifacts, and the content of every such path is identical to the reference application's **except** for the feature-marker comment lines removed by Story 8.3 and the parameter substitutions applied by Story 8.6.
+  - [ ] "Equivalent" is: for the all-features-selected combination — `combo-celery-redis-storage`, since revision 3 leaves three selectable features — the set of paths in the output equals the set of reference-application paths that travel (`core`, `tenant`, and every `feature:*` path — all three features are selected), plus the declared generated artifacts, and the content of every such path is identical to the reference application's **except** for the feature-marker comment lines removed by Story 8.3 and the parameter substitutions applied by Story 8.6.
   - [ ] Implement `assert_equivalent_to_reference()` in the test, not in the materializer — this is a gate assertion, not a production code path.
   - [ ] State the exclusions explicitly in the assertion's failure message: markers removed, parameters substituted, `.accelerator.json` added, `machinery` paths absent.
 
 - [ ] Task 5: The determinism gate test (AC: #1)
   - [ ] `tests/integration/materializer/test_determinism.py` (`@pytest.mark.integration`, `tmp_path`) — materialize one combination twice into two separate `tmp_path` subdirectories and assert `tree_digest(a) == tree_digest(b)`, reporting `diff_trees` on failure.
-  - [ ] Repeat for all twelve, not one — the AC names one combination as the minimum; running twelve costs the same walk and catches a feature-specific ordering bug.
+  - [ ] Repeat for all six, not one — the AC names one combination as the minimum; running six costs the same walk and catches a feature-specific ordering bug.
   - [ ] Add a second run under a different working directory and a different `tmp_path` prefix, to catch an absolute path leaking into output.
   - [ ] This test runs in `pixi run ci`; it is a gate test, not an optional check.
 
@@ -76,7 +76,7 @@ so that a materialized combination is a reproducible artifact rather than a fres
 | `tools/materializer/compare.py` | NEW | `tree_digest` and `diff_trees`. |
 | `tools/materializer/materialize.py` | UPDATE | Created by Story 8.2, extended by Story 8.3. This story enforces sorted traversal, fixed newline and encoding, and no timestamp. Preserve the path-level and region-level pruning already implemented. |
 | `tools/materializer/carrier.py` | UPDATE | Created by Story 8.2. Sorted iteration; tuple returns. Preserve `Disposition`'s four members and the `machinery` default. |
-| `tools/materializer/combination.py` | UPDATE | Created by Story 8.2. Fix the enumeration order explicitly. Preserve the twelve-member result and the identifier format. |
+| `tools/materializer/combination.py` | UPDATE | Created by Story 8.2. Fix the enumeration order explicitly. Preserve the six-member result and the identifier format. |
 | `tests/unit/materializer/test_compare.py` | NEW | |
 | `tests/unit/materializer/test_combination.py` | UPDATE | Add the stable-ordering assertions. |
 | `tests/integration/materializer/test_determinism.py` | NEW | The AD-3 gate test. |

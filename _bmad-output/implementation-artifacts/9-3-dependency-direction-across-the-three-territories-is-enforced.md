@@ -56,6 +56,8 @@ so that a base that depends on what is built on it is caught by the gate.
 
 - [ ] Task 6 — Enforce the feature-to-feature prohibition (AC: #4)
   - [ ] AD-4's fourth clause — "A feature's code may never import another feature's" — is part of the same rule and is cheap to add here. For every path carrying a `feature:<name>` disposition in `accelerator.toml`, assert no import resolves to a path carrying `feature:<other>`.
+  - [ ] **Under revision 3 the path-level half of this is vacuous, and that is expected**: no feature has a code surface. AD-33 is retired, `src/features/` does not exist, and the three remaining features — background task processing, Redis and object storage — own feature-owned *regions* of `core` paths (AD-24) and dependency entries, nothing more. Write the loop over the `feature:*` disposition set anyway so it fails closed if a feature ever acquires a path, and make its emptiness explicit in the test rather than silent.
+  - [ ] The clause has a live form the regions give it: for each declared `[[regions]]` entry, assert that an import statement inside a `feature:<a>` region resolves to nothing owned by `feature:<b>`. This is the case AD-24 already names in the other direction — `telemetry.py`'s celery and redis instrumentor calls each carry their own import at `:21` and `:24`, one region per feature, and neither may reach into the other's.
   - [ ] Note in the test docstring that the epic's ACs for this story do not enumerate this clause; it is AD-4 completeness and it fails the gate under AC #4 like any other violation.
 
 - [ ] Task 7 — Tests that prove the checker detects, not just that it passes (AC: #4)
@@ -70,7 +72,8 @@ so that a base that depends on what is built on it is caught by the gate.
 - **AD-4 (binding, and its `Binds:` field is `all`):** "A tenant app may import `django_service`. `django_service` may never import a tenant app. `config` may import `django_service` and reaches tenant apps only through the settings composition step, never by direct import. A feature's code may never import another feature's." *Prevents:* "a base that depends on what is built on it; feature surfaces that cannot be independently removed."
 - **AD-8:** the composition step is how `config` reaches tenant applications — it "merges contributions from the `component.toml` adopted-app list", by name, at runtime. That is why the prohibition on static imports in `config` costs nothing.
 - **AD-1:** nothing is inferred from directory layout; the tenant root and the adopted-app list are read from `accelerator.toml` and `component.toml`.
-- **AD-24:** no `try/except ImportError`. If the checker cannot resolve a name it fails; it does not degrade to skipping the file.
+- **AD-24:** no `try/except ImportError`. If the checker cannot resolve a name it fails; it does not degrade to skipping the file. The three features are `celery`, `redis` and `storage` (revision 3 — the interface mechanism is `core`, not a feature), and each owns *regions*, not packages; the region set is an open, carrier-declared `[[regions]]` array, so the checker must iterate it and never encode a count.
+- **AD-33 is retired (revision 3).** There is no `src/features/` and no feature package, so AD-4's diagram's `feature: celery` / `feature: redis` / `feature: storage` nodes have no directory behind them. The territory function's four values — `config`, `base`, `tenant`, `external` — are unaffected; do not add a fifth for features.
 - **AD-26:** predicates resolve objects, never strings. Here the object is the AST node and the resolved module name — not a substring match over file text. Do not implement this with `grep`, a regex over source, or `str.startswith` on raw lines.
 
 **Must not do:**
@@ -99,14 +102,14 @@ Verified today: `src/django_service/` contains `users/`, `contrib/sites/`, `temp
   - `src/config/**` importing `django_service` is allowed (AC #3);
   - a tenant module importing `django_service` is allowed (AC #1);
   - each synthetic violation is reported with file, line and module (AC #4);
-  - no `feature:<a>` path imports a `feature:<b>` path (AD-4 clause four).
+  - no `feature:<a>` path imports a `feature:<b>` path, and no import inside a `feature:<a>` region reaches `feature:<b>` (AD-4 clause four; the path-level set is empty under revision 3 and the test says so explicitly).
 - Disposition: covers `core` and `machinery` surface; lives under `tests/`, never pruned.
 - AD-20 floor: ninety percent including templates. Every branch of `territory()` — including `external` and the relative-import path — needs a test.
 - Runner: `pixi run test`, `pixi run ci`. Never bare `pytest`.
 
 #### Project Structure Notes
 
-The Structural Seed's three territories are exactly `src/config/`, `src/django_service/`, `src/django_apps/`. This story adds no application code; it adds a machinery checker and a gate test.
+The Structural Seed's three territories are exactly `src/config/`, `src/django_service/`, `src/django_apps/` — and there is no fourth, since AD-33's `src/features/` is retired. This story adds no application code; it adds a machinery checker and a gate test.
 
 Variance today: `src/django_apps/` (Story 9.2), `accelerator.toml` (Story 7.1), `component.toml` (Story 5.1) and `src/config/settings/composition.py` (Story 9.4) all do not exist. Implement this story after 9.2 and alongside or after 9.4 — the composition-module assertion in Task 4 has nothing to assert until 9.4 lands, and the checker itself is complete without it.
 
@@ -119,6 +122,8 @@ Python 3.14 only; full type hints; `set[str]` / `X | Y` forms; Google-style docs
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-8]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-26]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-1]
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-24] — regions are the feature's only surface; the `[[regions]]` array is open
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-33] — retired; no feature root, so AD-4's feature-to-feature clause has no paths to scan
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Structural Seed]
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 9.2] — the tenant root this checker reads
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 9.4] — the composition step, the only path from `config` to a tenant app

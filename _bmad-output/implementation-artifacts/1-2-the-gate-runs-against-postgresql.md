@@ -65,8 +65,8 @@ so that the database named in the immovable core is actually verified before any
 
 ### Architecture Constraints
 
-- **FR-32:** "Every valid combination passes the full gate against PostgreSQL — no partial pass; CI must declare a PostgreSQL service, which no workflow does today." This story delivers the reference-application half only. Epic 8 Story 8.8 extends it to twelve combinations.
-- **AD-18** binds FR-32 and places the PostgreSQL service in the single-invocation gate. The twelve-combination harness is Linux-only; the three-OS matrix stays on the reference application "where it claims something different" — that is, cross-platform importability, not database fidelity.
+- **FR-32:** "Every valid combination passes the full gate against PostgreSQL — no partial pass; CI must declare a PostgreSQL service, which no workflow does today." This story delivers the reference-application half only. Epic 8 Story 8.8 extends it to six combinations.
+- **AD-18** binds FR-32 and places the PostgreSQL service in the single-invocation gate. The six-combination harness is Linux-only; the three-OS matrix stays on the reference application "where it claims something different" — that is, cross-platform importability, not database fidelity. **GitHub Actions `services:` containers are Linux-only**, so FR-32's PostgreSQL gate cannot run on that three-OS matrix at all: the gate job is ubuntu-only and the separate three-OS job runs `pixi run test` for platform compatibility.
 - **AD-9** (forward context, Epic 9): "the stage-2 unapplied-migrations refusal and the sqlite refusal both iterate every configured database." Today `DATABASES` has exactly one key. Do not add a second database in this story; do not write a fix that assumes exactly one either.
 - **R-5 — Local development proves less than running suggests.** "sqlite accepts schemas PostgreSQL rejects, eager execution never exercises delivery or retries, synthetic claims never exercise JWKS retrieval or rotation." AC #4's "knowingly traded parity gap" is this risk, stated by name.
 - **CG-3 / Consistency Conventions:** "A refusal never degrades to a warning." Applied here as: a gate failure never degrades to a skip.
@@ -96,16 +96,16 @@ so that the database named in the immovable core is actually verified before any
 
 #### Project Structure Notes
 
-No new directory is created. The Structural Seed's `src/config/settings/` already exists with `base`, `local`, `production`, `test`. `accelerator.toml`, `component.toml` and `tools/materializer/` — which Epic 8's twelve-combination PostgreSQL gate will need — do not exist yet and are out of scope.
+No new directory is created. The Structural Seed's `src/config/settings/` already exists with `base`, `local`, `production`, `test`. `accelerator.toml`, `component.toml` and `tools/materializer/` — which Epic 8's six-combination PostgreSQL gate will need — do not exist yet and are out of scope.
 
 Variance: the seed shows stage-1 refusals as "the last statement of every settings module" (AD-26). `src/config/settings/production.py` currently carries an inline ad-hoc sqlite refusal at `:26-28` instead. That is Epic 4's consolidation, not this story's — leave it where it is.
 
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 1.2]
-- [Source: _bmad-output/planning-artifacts/epics.md:98] — FR-32 text.
-- [Source: _bmad-output/planning-artifacts/epics.md:220] — Epic 1 begins the PostgreSQL service; Epic 8 extends it.
-- [Source: _bmad-output/planning-artifacts/epics.md:316] — refusal condition #1 is "built: `production.py:26-28`".
+- [Source: _bmad-output/planning-artifacts/epics.md:72] — FR-32 text.
+- [Source: _bmad-output/planning-artifacts/epics.md:222] — Epic 1 begins the PostgreSQL service; Epic 8 extends it to six combinations.
+- [Source: _bmad-output/planning-artifacts/epics.md:318] — refusal condition #1 is "built: `production.py:26-28`".
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-18]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-9]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Named Residual Risks] — R-5.

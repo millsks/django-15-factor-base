@@ -66,7 +66,7 @@ so that a base that moved beneath an application is found before production.
 
 - **AD-5 (binding):** "A reusable app declares its supported range as `MIN <= v <= MAX` integers **in its contribution module**, not in package metadata — an in-repo app has no distribution metadata, and AD-8 refuses to let the two residency modes diverge. The adoption gate test asserts compatibility from that constant, so it runs identically in both residencies." Also: "`django_service.__api_version__` is a single integer, bumped by hand on any breaking change and on the removal of any guaranteed surface." *Prevents:* "a reusable app silently breaking on a component whose base moved beneath it."
 - **AD-8:** the two residency modes must not diverge; nothing self-registers and entry-point/metadata discovery is forbidden. The same reasoning governs where the version range lives.
-- **AD-26:** the refusal contract is one module with two stages. This check is deliberately **not** one of the nine refusal conditions — the epics' refusal table enumerates nine conditions and adoption compatibility is not among them. Adding a tenth would contradict the resolved refusal count.
+- **AD-26:** the refusal contract is one module with two stages. This check is deliberately **not** one of them — the epics' refusal table enumerates the conditions and adoption compatibility is not among them, and it does not become one here. It is a gate condition: the component's *gate* fails, before production, which is what AC #3 asks for. (Separately, revision 3's navigation registry does add a stage-2 refusal — every registered URL name must resolve in the URLconf, Story 9.4 AC #9. That one is a genuine refusal because it can only be evaluated in a running process; this one can be evaluated by a test and therefore is not.)
 - **AD-24:** no `try/except ImportError`. A contribution module that will not import is a failure with a message, not a skip.
 - **Spine Consistency Conventions:** a refusal never degrades to a warning; a gate failure never degrades to a printed notice.
 
@@ -118,7 +118,7 @@ Python 3.14; `Sequence[str]` from `collections.abc`; `list[str]` return; full ty
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-5]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-8]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-26]
-- [Source: _bmad-output/planning-artifacts/epics.md#Resolved during story creation: the refusal count] — nine conditions; this check is not one of them
+- [Source: _bmad-output/planning-artifacts/epics.md#Resolved during story creation: the refusal count] — the enumerated conditions; this check is not one of them
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 9.1] — `__api_version__`
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 9.4] — the contribution module and its fixtures
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 9.5] — the two-residency fixture pattern

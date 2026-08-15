@@ -81,7 +81,7 @@ so that the same person is the same user across flows, and two people whose emai
 - **AD-12 (binding rule):** "A `username` collision between two distinct `idp_subject`s is refused and logged; the second identity keeps its existing username and authenticates normally." *Prevents:* "a misconfiguration presenting as a permissions bug; IdP group taxonomy silently becoming Django taxonomy; an `IntegrityError` mid-authentication."
 - **FR-8:** "One shared mapper at `src/config/authorization/` owns all authorization decisions, resolving users by one designated identity-key claim." One mapper. The DRF class, the allauth adapter and the local sign-in route are all *callers*; none may contain resolution logic of its own — Stories 2.6 and 2.7 each carry an explicit AC to that effect.
 - **AD-4:** `config` may import `django_service`, so `config.authorization.mapper` importing `django_service.users.models.User` is legal and expected. Prefer `django.contrib.auth.get_user_model()` at call time over a module-level import of the concrete class, so the mapper does not pin `AUTH_USER_MODEL`.
-- **AD-24 (what you must not do):** no conditional imports, no `try/except ImportError`, no settings-module inheritance. The mapper is `core` and present in all twelve combinations.
+- **AD-24 (what you must not do):** no conditional imports, no `try/except ImportError`, no settings-module inheritance. The mapper is `core` and present in all six combinations.
 - **Spine, Consistency Conventions → Logging:** structured JSON to stdout carrying `request_id`, `trace_id`, `span_id`; **every authorization change emits an event**. Use `structlog.get_logger(__name__)`. Never `print()`. Never stdlib `logging`. `django-structlog`'s `RequestMiddleware` (already in `MIDDLEWARE` at `src/config/settings/base.py:175`) binds `request_id` for the life of a request, so the mapper's events inherit correlation without doing anything.
 - **Spine, Consistency Conventions → Runtime errors:** "Nothing is swallowed silently." Never a bare `except:`; never `except X: pass`. The collision case is logged and handled, not swallowed.
 
@@ -127,7 +127,7 @@ Repository task names: `pixi run format` / `lint` / `typecheck` / `test` / `test
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Consistency Conventions]
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 2.4]
 - [Source: _bmad-output/planning-artifacts/epics.md:36] — FR-8
-- [Source: _bmad-output/planning-artifacts/epics.md:328-337] — SC-6 is external
+- [Source: _bmad-output/planning-artifacts/epics.md:330-339] — SC-6 is external
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/reviews/review-tech-verification.md:219] — allauth's `pre_social_login` (+ `sociallogin.connect`) is the correct hook for resolve-by-`idp_subject`; `populate_user` only decorates a new instance
 - [Source: src/config/settings/base.py:175] — `django_structlog.middlewares.RequestMiddleware`, placed after `AuthenticationMiddleware`
 - [Source: tests/factories.py] — `UserFactory`, `django_get_or_create = ["username"]`, no `idp_subject`

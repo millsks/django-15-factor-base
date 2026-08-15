@@ -226,7 +226,7 @@ graph TD
 ### AD-24 — A `core` path carries feature-owned regions by declared markers, and by no other mechanism
 
 - **Binds:** FR-2, FR-28, FR-30, AD-2, AD-3
-- **Prevents:** two builders splitting on markers versus file-extraction and producing incompatible trees; a missed region leaving `CeleryInstrumentor().instrument()` in eight combinations whose environment no longer contains the instrumentor — an `ImportError` at boot that path-level reconciliation cannot see; and a region declared against a stale line range or a fixed path count, which delivers the same failure while appearing to comply.
+- **Prevents:** two builders splitting on markers versus file-extraction and producing incompatible trees; a missed region leaving `CeleryInstrumentor().instrument()` in the four combinations whose environment no longer contains the instrumentor — an `ImportError` at boot that path-level reconciliation cannot see; and a region declared against a stale line range or a fixed path count, which delivers the same failure while appearing to comply.
 - **Rule:** A region is delimited by paired line comments in the file's own comment syntax, `feature:<name>` / `/feature:<name>`, and every region is declared in `accelerator.toml` with its path and feature. Reconciliation extends to regions in both directions: a marker naming an undeclared feature fails; a declared region whose markers are absent from the named file fails; an unbalanced marker pair fails. No other sub-file removal mechanism is permitted — not conditional imports, not settings-module inheritance, not `try/except ImportError`.
   **The set of region-bearing paths is open, and the carrier declares it as an open `[[regions]]` array — never as a fixed set of keys.** An earlier revision of this AD named three paths and was wrong; the reconciler must not encode a count. The paths known at the time of writing:
 
@@ -372,7 +372,7 @@ graph LR
   CAR["accelerator.toml — catalogue"]
   COMP["component.toml — travels"]
   M["materializer"]
-  T12["12 materialized trees"]
+  T6["6 materialized trees"]
   ORP["input + output reconciliation"]
   PM["process-model assertions"]
   FM["FreeMarker copy — one-way, out of tree"]
@@ -381,10 +381,10 @@ graph LR
   CAR --> M
   CAR --> ORP
   COMP --> PM
-  M --> T12
+  M --> T6
   M --> COMP
   M --> STAMP
-  T12 --> FM
+  T6 --> FM
 ```
 
 ```mermaid

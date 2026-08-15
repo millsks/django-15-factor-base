@@ -43,8 +43,9 @@ so that my own code is neither pruned nor reported as an orphan.
   - [ ] Do not add an example or demo app to the tree. Tenant paths travel into every component (AD-2: `tenant` is never pruned), so a demo `billing/` would ship to every component forever.
 
 - [ ] Task 2 — Add the second import root at the single declaration site (AC: #3)
-  - [ ] Edit `[tool.hatch.build.targets.wheel]` in `pyproject.toml` (currently lines 126–127) so the `sources` remapping Story 1.6 introduced lists both roots: `src` and `src/django_apps`. One table, two entries — no new site.
-  - [ ] Update the comment above the table (currently `# src/ is the import root; config and django_service are both top-level packages.`) to state both roots and that the construct is directory-level, so adding an app needs no per-app edit — which is what makes AD-6's graduation promise hold.
+  - [ ] Edit `[tool.hatch.build.targets.wheel]` in `pyproject.toml` (currently lines 126–127) so the `sources` remapping Story 1.6 introduced lists both roots: `src` and `src/django_apps`. **Two roots, not three** — one table, two entries, no new site.
+  - [ ] There is no third root. Revision 3 retires AD-33: `src/features/` is not created, because with the interface mechanism `core` no feature has a code surface — background task processing, Redis and object storage own feature-owned *regions* of `core` paths (AD-24) and dependency entries, and nothing else.
+  - [ ] Update the comment above the table (currently at line 125, `# src/ is the import root; config and django_service are both top-level packages.`) to state both roots and that the construct is directory-level, so adding an app needs no per-app edit — which is what makes AD-6's graduation promise hold.
   - [ ] Do not add `--app-dir`, a `sys.path` insert, a `pythonpath` entry, a `.pth` file, or a `conftest.py` path hack anywhere. `uvicorn --app-dir` accepts one directory and is never a declaration mechanism (AD-7).
 
 - [ ] Task 3 — Declare the tenant space in the carrier (AC: #2, #5)
@@ -60,7 +61,7 @@ so that my own code is neither pruned nor reported as an orphan.
   - [ ] New `tests/unit/test_tenant_space.py`.
   - [ ] Assert `src/django_apps/` exists and that `src/django_apps/__init__.py` does **not** exist.
   - [ ] Assert `accelerator.toml` names the tenant root and that its value is the directory that exists on disk.
-  - [ ] Assert `pyproject.toml`'s `[tool.hatch.build.targets.wheel]` `sources` contains both `src` and `src/django_apps`, and that no other file in the repository declares an import root: no `sys.path` mutation in `manage.py`, `src/config/asgi.py`, `src/config/wsgi.py`; no `[tool.pytest.ini_options] pythonpath`; no `--app-dir` in any `pixi.toml` task string. Parse the files, do not grep the whole tree.
+  - [ ] Assert `pyproject.toml`'s `[tool.hatch.build.targets.wheel]` `sources` contains exactly `src` and `src/django_apps` — two roots, no third — and that no other file in the repository declares an import root: no `sys.path` mutation in `manage.py` (`:23-25`), `src/config/asgi.py` (`:18-20`), `src/config/wsgi.py` (`:24-26`); no `[tool.pytest.ini_options] pythonpath`; no `--app-dir` in any `pixi.toml` task string, which means **both** the `serve` task (`pixi.toml:179`) and the `serve-reload` task (`pixi.toml:186`) — six sites collapse to one, not five. Parse the files, do not grep the whole tree.
 
 - [ ] Task 6 — Test: an app under the root imports and installs unqualified (AC: #1, #4)
   - [ ] In `tests/integration/test_tenant_app_residency.py` (marked `@pytest.mark.integration`), build a minimal Django app under `tmp_path/django_apps/billing/` — `apps.py` with `class BillingConfig(AppConfig): name = "billing"`, `models.py`, `migrations/__init__.py` — mirroring what the `sources` remapping does at install time by prepending `tmp_path/django_apps` to `sys.path` via `monkeypatch.syspath_prepend`.
@@ -77,7 +78,9 @@ so that my own code is neither pruned nor reported as an orphan.
 ### Architecture Constraints
 
 - **AD-6 (binding):** "`src/django_apps/` contains no `__init__.py`. An app at `src/django_apps/billing/` is imported and installed as `billing`, unqualified. Graduating it to a channel package changes its residency and never its import path." *Prevents:* "an app's import path changing at the moment it becomes reusable, breaking every consuming component's `INSTALLED_APPS`, imports and migration references."
-- **AD-7 (binding):** "There are five import-root declaration sites in this repository and after this AD there is one. … Retained: `[tool.hatch.build.targets.wheel]`, which declares both roots via a `sources` remapping of `src/` and `src/django_apps/` — a directory-level construct, so adding an app needs no per-app edit and AD-6's graduation promise holds. `uvicorn --app-dir` accepts one directory and is therefore never a declaration mechanism." *Prevents:* "a second source root working under `pytest` and failing under `gunicorn`."
+- **AD-7 (binding):** "There are **six** import-root declaration sites in this repository and after this AD there is one. … Retained: `[tool.hatch.build.targets.wheel]`, which declares both roots via a `sources` remapping of `src/` and `src/django_apps/` — a directory-level construct, so adding an app needs no per-app edit and AD-6's graduation promise holds. **The retained site does not have that shape today**: `pyproject.toml:126-127` reads `packages = ["src/config", "src/django_service"]`, a per-package enumeration. Converting it is part of this AD, not a precondition of it. `uvicorn --app-dir` accepts one directory and is therefore never a declaration mechanism." *Prevents:* "a second source root working under `pytest` and failing under `gunicorn`." The sixth site is `--app-dir src` in the **`serve-reload`** task at `pixi.toml:186`; an earlier revision named only `serve`, and `manage.py`'s insert is at `:23-25`, not `:24-26`.
+- **AD-33 is retired (revision 3).** There is no `src/features/`, no feature package, and therefore no third import root. The `sources` remapping declares two roots and only two.
+- **AD-7 — what the pytest removal takes with it.** `pyproject.toml:149` reads `pythonpath = [ "src", "." ]`, and its own comment at `:148` says why: `"src" makes config/ and django_service/ importable; "." makes tests.factories importable.` The `"."` entry is what lets `tests/conftest.py:7`'s `from tests.factories import UserFactory` resolve under `--import-mode=importlib`, and the `sources` remapping covers `src/`, not the repository root. Story 1.6 owns the removal and owns saying how `tests.factories` resolves afterwards; **this story's Task 5 asserts the `pythonpath` key is gone**, so it fails until that resolution exists. Do not resolve it here by re-adding a path entry, a `.pth` file, or a `conftest.py` `sys.path` hack — that would recreate the site this story asserts is absent.
 - **AD-2 (binding):** `tenant` is "never judged, never pruned". Unlisted paths default to `machinery`, so the tenant root must be declared or every app beneath it would be treated as accelerator machinery and silently dropped.
 - **AD-1:** the tenant-space location is declared in `accelerator.toml` and nowhere else.
 - **Spine Consistency Conventions:** "A tenant app's tests live **inside the app**, because they must graduate with it." Do not create `tests/unit/django_apps/`.
@@ -85,6 +88,7 @@ so that my own code is neither pruned nor reported as an orphan.
 **Must not do:**
 - Do not add `src/django_apps/__init__.py`. It would make apps import as `django_apps.billing` and break AD-6's graduation promise irreversibly for every consuming component.
 - Do not create a second import-root declaration site of any kind (AD-1, AD-7).
+- Do not declare a third root. `src/features/` does not exist and is not created (AD-33, retired).
 - Do not ship an example tenant app in the reference application.
 
 ### Source Tree — files to touch
@@ -94,25 +98,25 @@ so that my own code is neither pruned nor reported as an orphan.
 | `src/django_apps/` | NEW | The tenant path root. No `__init__.py`. |
 | `src/django_apps/.gitkeep` | NEW | Empty; keeps the root tracked. |
 | `src/django_apps/README.md` | NEW | States the unqualified-import rule and the tests-live-inside-the-app convention. |
-| `pyproject.toml` | UPDATE | Lines 126–127 today read `[tool.hatch.build.targets.wheel]` / `packages = [ "src/config", "src/django_service" ]`, with the comment `# src/ is the import root; config and django_service are both top-level packages.` at line 125. **Story 1.6 converts `packages` to a `sources` remapping**; this story adds `src/django_apps` to that same `sources` value. If Story 1.6 has not landed, do it there, not here — do not add a parallel key. |
+| `pyproject.toml` | UPDATE | Lines 126–127 today read `[tool.hatch.build.targets.wheel]` / `packages = [ "src/config", "src/django_service" ]`, with the comment `# src/ is the import root; config and django_service are both top-level packages.` at line 125. **Story 1.6 converts `packages` to a `sources` remapping** — a conversion, not a retention; this story adds `src/django_apps` to that same `sources` value, making two roots. If Story 1.6 has not landed, do it there, not here — do not add a parallel key. |
 | `accelerator.toml` | UPDATE | **Does not exist today** (Story 7.1). Add the tenant-root key and the `tenant` disposition for `src/django_apps/`. |
 | Reconciliation / orphan / materializer modules | UPDATE | Created by Stories 7.1, 7.8, 8.2, 8.7. Add the `tenant` skip, driven by the carrier value. |
 | `tests/unit/test_tenant_space.py` | NEW | Static assertions of Task 5. |
 | `tests/integration/test_tenant_app_residency.py` | NEW | Import/installation behaviour of Tasks 6–7. |
 
-Verified against the repo today: `src/django_apps/` does **not** exist; `src/` contains only `config/` and `django_service/`. `pyproject.toml:126-127` holds `packages = [ "src/config", "src/django_service" ]` — the range still holds. `pyproject.toml:149` still carries `pythonpath = [ "src", "." ]`, and `pixi.toml`'s `serve` task still carries `--app-dir src`; both are Story 1.6's removals, not this story's.
+Verified against the repo today: `src/django_apps/` does **not** exist, and neither does `src/features/`; `src/` contains only `config/` and `django_service/`. `pyproject.toml:126-127` holds `packages = [ "src/config", "src/django_service" ]` — the range still holds. `pyproject.toml:149` still carries `pythonpath = [ "src", "." ]` (its explanatory comment at `:148`), `pixi.toml:179`'s `serve` task carries `--app-dir src`, and `pixi.toml:186`'s `serve-reload` task carries `--app-dir src --reload --reload-dir src`; all three are Story 1.6's removals, not this story's.
 
 ### Testing Requirements
 
 - `tests/unit/test_tenant_space.py` — no I/O beyond reading two TOML files; unit.
 - `tests/integration/test_tenant_app_residency.py` — every test carries `@pytest.mark.integration`; uses `tmp_path` and `monkeypatch.syspath_prepend`; restores `sys.modules` and the Django app registry so the suite is order-independent.
-- Assertions: no `__init__.py` at the root; carrier names the root; both roots at one site; no other site declares a root; `import billing` resolves unqualified; `billing.migrations` is the migration module; gate result identical with and without a tenant app.
+- Assertions: no `__init__.py` at the root; carrier names the root; exactly two roots at one site; no other site declares a root (all six former sites absent, `serve-reload` included); `import billing` resolves unqualified; `billing.migrations` is the migration module; gate result identical with and without a tenant app.
 - Disposition: these tests cover the carrier and the build configuration, both `core`/`machinery` surface of the accelerator; they live under `tests/` and are never pruned by a feature.
 - AD-20 floor: ninety percent including templates, `COVERAGE_CORE=ctrace` in force. `pixi run ci` must exit 0.
 
 #### Project Structure Notes
 
-The Structural Seed shows `src/django_apps/    # tenant — path root, no __init__.py (AD-6)` as a sibling of `config/` and `django_service/`. This story creates exactly that.
+The Structural Seed shows `src/django_apps/    # tenant — path root, no __init__.py (AD-6)` as a sibling of `config/` and `django_service/`. This story creates exactly that — and creates nothing else beside them, since AD-33's `src/features/` is retired.
 
 Variance today: neither `accelerator.toml` nor the disposition machinery exists, so Tasks 3–4 are edits to files Epic 7 and Epic 8 create. `src/config/settings/base.py:16-17` already carries the comment "src/ itself is the import root and is deliberately not a package", which is consistent with adding a second non-package root beside it; `APPS_DIR` at `base.py:18` points at `src/django_service` and must not be repurposed to point at the tenant root.
 
@@ -124,7 +128,8 @@ Variance today: neither `accelerator.toml` nor the disposition machinery exists,
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-2]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Structural Seed]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Consistency Conventions] — tenant app tests live inside the app
-- [Source: _bmad-output/planning-artifacts/epics.md#Story 1.6] — the five sites collapse to one; this story adds the second root without adding a second site
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-33] — retired in revision 3; no feature root, no third import root
+- [Source: _bmad-output/planning-artifacts/epics.md#Story 1.6] — the six sites collapse to one, the retained site is converted, and `tests.factories` resolves without the `"."` entry; this story adds the second root without adding a second site
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 7.8] — the orphan detectors this story must teach about `tenant`
 
 ## Dev Agent Record
