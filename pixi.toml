@@ -26,11 +26,9 @@ django-anymail = ">=15.1,<16"
 # impossible to install together. The solver enforces this on its own: an
 # older build cannot satisfy both constraints, so it will not be selected.
 #
-# Known cost, accepted: the recipe still lists pytest under run requirements
-# rather than test, so pytest and its dependencies land in the runtime
-# environment. feedstock PR #19 moves it; until that builds, a deployed
-# component carries four pure-Python packages it never imports.
-# https://github.com/conda-forge/django-celery-beat-feedstock/pull/19
+# Build pyhcf101f3_2 moved pytest from run requirements to test, so it no
+# longer lands in the runtime environment (feedstock PR #19). The version pin
+# below is build-agnostic; the lock file is what holds the resolved build.
 #
 # Also watch: the recipe caps `django <6.1`, which will block a Django 6.1
 # upgrade until it is relaxed.
