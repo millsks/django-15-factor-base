@@ -8,17 +8,22 @@ here is one both backends must satisfy -- what changes between them is only how
 much of the declared schema is genuinely being enforced, which is the parity gap
 R-5 names and the reason the gate runs on PostgreSQL at all.
 
-Each test relies on pytest-django's transactional `db` fixture, so the database
-is left exactly as it was found. The writes expected to fail are wrapped in an
-inner `transaction.atomic()` block: on PostgreSQL a failed statement poisons the
-enclosing transaction until it is rolled back to a savepoint, which sqlite does
-not require -- itself an instance of the permissiveness this story is about.
+Each test relies on pytest-django's `db` fixture, which wraps the test in a
+transaction and rolls it back, so the database is left exactly as it was found.
+Not `transactional_db`, which is a different fixture with the opposite property
+-- it commits and truncates afterwards -- and must not be substituted here on
+the strength of the word "transaction" in this paragraph. The writes expected to
+fail are wrapped in an inner `transaction.atomic()` block: on PostgreSQL a
+failed statement poisons the enclosing transaction until it is rolled back to a
+savepoint, which sqlite does not require -- itself an instance of the
+permissiveness this story is about.
 """
 
 from __future__ import annotations
 
 import os
 
+import environ
 import pytest
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
@@ -32,9 +37,16 @@ pytestmark = pytest.mark.integration
 NAME_MAX_LENGTH = User._meta.get_field("name").max_length  # noqa: SLF001
 assert NAME_MAX_LENGTH is not None, "users.User.name must declare a max_length for this module to assert anything"
 
-# `django-environ` accepts both spellings; `config/settings/base.py:57` hands
-# whichever it finds to `env.db()`.
-POSTGRES_URL_SCHEMES = ("postgres://", "postgresql://")
+# Every URL scheme `django-environ` resolves to a PostgreSQL backend, read from
+# the library rather than listed here. `postgres://` and `postgresql://` are not
+# the only ones -- `psql://`, `pgsql://` and `postgis://` are all accepted and
+# all report `connection.vendor == "postgresql"` -- and a developer using one of
+# them is correctly configured. A hand-written pair would have failed their run
+# for it, which is the same mistake as deriving the expectation from
+# `DATABASE_URL` while ignoring the `POSTGRES_DB` branch.
+POSTGRES_URL_SCHEMES = tuple(
+    f"{scheme}://" for scheme, backend in environ.Env.DB_SCHEMES.items() if backend.endswith(("postgresql", "postgis"))
+)
 
 # Sentinel distinguishing "the column reports no width" from "there is no such
 # column" -- a bare `next()` default of None would conflate the two.

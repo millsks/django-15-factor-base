@@ -123,31 +123,56 @@ model, the view, the form, or a new migration — never by narrowing the gate.
 Skipping such a test, marking it `xfail`, or branching on the engine inside it
 would convert a refusal into a warning, which the project forbids.
 
-To reproduce a CI-only failure, run the gate against a real PostgreSQL. The
+To reproduce a CI-only failure, run the suite against a real PostgreSQL. The
 host port is deliberately not 5432 — that one is often already taken by a local
 PostgreSQL — and `--rm` means the container disposes of itself on stop:
 
 ```sh
-docker rm -f pg-local 2>/dev/null
+docker rm -f pg-local >/dev/null 2>&1 || true
 docker run -d --rm --name pg-local -e POSTGRES_USER=gateuser \
   -e POSTGRES_PASSWORD=gatepass -e POSTGRES_DB=gatedb -p 55432:5432 postgres:18
-trap 'docker stop pg-local >/dev/null 2>&1' EXIT
 
+ready=""
 for _ in $(seq 30); do
-  docker exec pg-local pg_isready -h localhost -U gateuser -d gatedb && break
+  docker exec pg-local pg_isready -h localhost -U gateuser -d gatedb && { ready=1; break; }
   sleep 1
 done
 
-DATABASE_URL=postgres://gateuser:gatepass@localhost:55432/gatedb pixi run ci
+if [ -n "$ready" ]; then
+  DATABASE_URL=postgres://gateuser:gatepass@localhost:55432/gatedb pixi run test-cov
+  status=$?
+else
+  echo "pg-local never became ready; see 'docker logs pg-local'" >&2
+  status=1
+fi
+
+docker stop pg-local >/dev/null 2>&1
+echo "exit status: $status"
 ```
 
-The readiness loop is bounded and the cleanup is a `trap`, because the case
-this recipe exists for is the one where `pixi run ci` **fails** — a trailing
-`docker stop` would not run, and would leave port 55432 held by the container
-you are about to start again on the next attempt. `pg_isready -h localhost`
-rather than the bare form for the same reason the gate uses it: the postgres
-image's init phase runs a socket-only server that answers the bare check while
-TCP is still closed.
+Three details are load-bearing, and each is there because its absence bites in
+the failing case — which is the only case this recipe exists for:
+
+- **The readiness loop records whether it succeeded.** Falling out of it after 30
+  seconds and running anyway would test against a database that never came up,
+  producing a connection-refused failure that looks nothing like the one you came
+  to reproduce.
+- **The container is stopped explicitly, on both paths, and nothing calls
+  `exit`.** A `trap … EXIT` is wrong here: pasted into an interactive shell it
+  fires when the *shell* exits rather than when the run finishes, so it leaves
+  the container holding port 55432 for the rest of the session — and leaves the
+  trap installed too. A bare `exit` is wrong for the mirror-image reason: it
+  would close the shell you pasted into.
+- **`pg_isready -h localhost` rather than the bare form**, for the same reason
+  the gate uses it: the postgres image's init phase runs a socket-only server
+  that answers the bare check while TCP is still closed.
+
+The recipe runs `pixi run test-cov`, not `pixi run ci`. The database behaviour
+is what you are reproducing, and `test-cov` is the gate step that exercises it;
+the gate's first step is `pre-commit run --all-files`, which reformats and
+auto-fixes your working tree, which is not something a debugging recipe should
+do behind your back. Run the full `pixi run ci` against the same URL when you
+want the gate itself.
 
 `--reuse-db` is set in `pyproject.toml`, which is right for a CI service
 container recreated on every run but hides schema drift across repeated local

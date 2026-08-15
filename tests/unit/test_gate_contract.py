@@ -11,6 +11,7 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 from urllib.parse import urlsplit
 
 import pytest
@@ -46,20 +47,34 @@ THREE_OS_RUNNERS = {"ubuntu-latest", "windows-latest", "macos-latest"}
 # a server pin and must not be described as one. The tag in ci.yml is a choice
 # made to match that client, and it is the workflow's comment -- not a test --
 # that carries the reason.
-POSTGRES_IMAGE_PREFIX = "postgres:"
-
-# URL schemes that select PostgreSQL, as `urlsplit().scheme` reports them.
-# `django-environ` accepts both spellings, and `config/settings/base.py:57`
-# branches on the variable being truthy, so an empty or sqlite URL would revert
-# the whole gate to the substitution while every other assertion here passed.
-POSTGRES_URL_SCHEMES = frozenset({"postgres", "postgresql"})
+#
+# Matched on the image's repository segment rather than a `postgres:` prefix so
+# that a registry-qualified mirror is not rejected for being mirrored. Pulling
+# `postgres:18` from a mirror is the ordinary remedy for Docker Hub's
+# unauthenticated pull limit on shared runners, and nothing about FR-32 cares
+# where the image came from.
+POSTGRES_IMAGE_NAMES = frozenset({"postgres", "postgresql", "postgis", "pgvector", "timescaledb"})
 
 # Image families that constitute "a database service" for the exclusivity checks
-# below. Broader than POSTGRES_IMAGE_PREFIX on purpose: the reason the matrix
-# may not have a database is that GitHub Actions `services:` containers are
-# Linux-only, and that reason does not care which database it is. Matched on the
-# repository segment so a registry-qualified or untagged image cannot slip past.
-DATABASE_IMAGE_NAMES = frozenset({"postgres", "postgis", "mysql", "mariadb"})
+# below. Broader than POSTGRES_IMAGE_NAMES on purpose: the reason the matrix may
+# not have a database is that GitHub Actions `services:` containers are
+# Linux-only, and that reason does not care which database it is.
+DATABASE_IMAGE_NAMES = POSTGRES_IMAGE_NAMES | frozenset({"mysql", "mariadb", "cockroachdb", "mssql"})
+
+# URL schemes that select PostgreSQL, as `urlsplit().scheme` reports them.
+# `django-environ` accepts several spellings, and `config/settings/base.py:57`
+# branches on the variable being truthy, so an empty or sqlite URL would revert
+# the whole gate to the substitution while every other assertion here passed.
+POSTGRES_URL_SCHEMES = frozenset({"postgres", "postgresql", "psql", "pgsql", "postgis"})
+
+# The variables that move a job off the sqlite substitution. There are two, not
+# one: `config/settings/base.py:57-69` selects PostgreSQL from `DATABASE_URL`
+# *or* from `POSTGRES_DB` alone, and this suite treats both branches as live
+# (tests/unit/test_database_selection.py pins each). A guard that knew only
+# about `DATABASE_URL` would let the second branch put a database on a job that
+# must not have one -- and, worse, would let the sqlite leg below stop being a
+# sqlite leg while still counting as one.
+DATABASE_SELECTOR_VARS = frozenset({"DATABASE_URL", "POSTGRES_DB"})
 
 
 @pytest.fixture(scope="module")
@@ -186,40 +201,71 @@ def test_gate_steps_run_only_inside_the_gate(task: str, workflows: Workflows) ->
     assert offenders == [], f"{task} must run only in the gate, found in {offenders}"
 
 
-def _is_database_image(image: str) -> bool:
-    """Report whether a service image is a database, registry prefix or not.
+def _image_repository(image: str) -> str:
+    """Return an image's repository name, without registry, tag or digest.
 
-    Matched on the repository segment rather than a string prefix so that
-    `ghcr.io/example/postgres:18` and an untagged `postgres` are both caught.
+    `ghcr.io/example/postgres:18`, `postgres:18` and a bare `postgres` all
+    reduce to `postgres`. The tag is stripped only after the final `/`, because
+    a registry may itself carry a port -- `registry:5000/example/postgres` is a
+    repository named `postgres`, not one named `registry`.
     """
-    repository = image.split("@", 1)[0].rsplit(":", 1)[0]
-    return repository.rsplit("/", 1)[-1].lower() in DATABASE_IMAGE_NAMES
+    repository = image.split("@", 1)[0]
+    name = repository.rsplit("/", 1)[-1]
+    return name.rsplit(":", 1)[0].lower() if ":" in name else name.lower()
+
+
+def _is_database_image(image: str) -> bool:
+    """Report whether a service image is a database, registry prefix or not."""
+    return _image_repository(image) in DATABASE_IMAGE_NAMES
+
+
+def _is_postgres_image(image: str) -> bool:
+    """Report whether a service image is a PostgreSQL, registry prefix or not."""
+    return _image_repository(image) in POSTGRES_IMAGE_NAMES
 
 
 def _postgres_service(workflows: Workflows) -> dict[str, Any]:
     """Return the gate job's PostgreSQL service definition."""
     services = workflows["ci.yml"]["jobs"]["gate"].get("services", {})
     for service in services.values():
-        if str(service.get("image", "")).startswith(POSTGRES_IMAGE_PREFIX):
+        if _is_postgres_image(str(service.get("image", ""))):
             return service
     return {}
+
+
+def _database_selectors(job: dict[str, Any]) -> list[str]:
+    """Return every database-selecting variable a job sets, at job or step level.
+
+    Step-level `env:` counts as well as job-level: the two are interchangeable
+    for this purpose, and pinning only one of them leaves the obvious way in.
+    """
+    found = set(DATABASE_SELECTOR_VARS & job.get("env", {}).keys())
+    for step in job.get("steps", []):
+        found |= DATABASE_SELECTOR_VARS & step.get("env", {}).keys()
+    return sorted(found)
 
 
 def test_the_gate_declares_a_postgresql_service(workflows: Workflows) -> None:
     """FR-32: CI declares a PostgreSQL service, which no workflow did before."""
     services = workflows["ci.yml"]["jobs"]["gate"].get("services", {})
-    images = [service.get("image", "") for service in services.values()]
-    assert any(image.startswith(POSTGRES_IMAGE_PREFIX) for image in images), (
+    images = [str(service.get("image", "")) for service in services.values()]
+    assert any(_is_postgres_image(image) for image in images), (
         f"the gate job declares no postgres service, got images {images}"
     )
 
 
 def _published_host_port(service: dict[str, Any]) -> str:
-    """Return the host side of the service's `host:container` port mapping."""
+    """Return the host side of the service's port mapping for 5432.
+
+    Docker accepts `container`, `host:container` and `ip:host:container`, so
+    the host side is the second field from the right rather than the first
+    field from the left. A bare `container` mapping publishes an ephemeral
+    port and so names no host port at all.
+    """
     for port in service.get("ports", []):
-        host, _, container = str(port).partition(":")
-        if container == "5432":
-            return host
+        head, _, container = str(port).rpartition(":")
+        if container == "5432" and head:
+            return head.rsplit(":", 1)[-1]
     return ""
 
 
@@ -283,10 +329,15 @@ def test_the_database_url_names_the_declared_postgresql_service(workflows: Workf
     missing = {"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"} - service_env.keys()
     assert not missing, f"the postgres service must declare its own credentials, missing {sorted(missing)}"
 
-    assert parsed.username == str(service_env["POSTGRES_USER"]), (
+    # Percent-decoded before comparing, matching what `django-environ` does to
+    # the same string: a password containing `@`, `:` or `/` *must* be encoded
+    # in the URL to parse at all, and comparing the encoded form against the
+    # service's plain value would fail a correct configuration -- pressure
+    # toward a weaker password, from a test.
+    assert unquote(parsed.username or "") == str(service_env["POSTGRES_USER"]), (
         f"the gate's DATABASE_URL user is not the service's POSTGRES_USER: {url!r}"
     )
-    assert parsed.password == str(service_env["POSTGRES_PASSWORD"]), (
+    assert unquote(parsed.password or "") == str(service_env["POSTGRES_PASSWORD"]), (
         f"the gate's DATABASE_URL password is not the service's POSTGRES_PASSWORD: {url!r}"
     )
     assert parsed.path.rstrip("/") == f"/{service_env['POSTGRES_DB']}", (
@@ -311,10 +362,12 @@ def test_no_other_job_declares_a_database_service(workflows: Workflows) -> None:
     Scoped to *database* services on purpose: a future non-database service --
     a Redis for Celery integration tests, say -- is legitimate work that this
     check has no business blocking, and the Linux-runner reasoning above does
-    not extend to it. It is not scoped to `postgres:` though: the reason the
+    not extend to it. It is not scoped to PostgreSQL though: the reason the
     matrix may not have a database does not care which database it is, and a
     `mysql:8` or a registry-qualified `ghcr.io/.../postgresql:18` would break
-    the same two legs for the same reason.
+    the same two legs for the same reason -- so both are matched, by repository
+    segment, rather than by the `postgres:` spelling this repository happens to
+    use today.
     """
     offenders = [
         f"{name}:{job_name}"
@@ -328,26 +381,46 @@ def test_no_other_job_declares_a_database_service(workflows: Workflows) -> None:
 
 
 def test_no_other_job_points_itself_at_a_database(workflows: Workflows) -> None:
-    """A `DATABASE_URL` elsewhere would move a job off sqlite without a service.
+    """A database selector elsewhere would move a job off sqlite without a service.
 
     The sibling check above bans the service; this one bans the other half of
-    the same mistake. A matrix leg that set `DATABASE_URL` with no service to
+    the same mistake. A matrix leg that selected a database with no service to
     back it would fail on connection rather than run on the substitution, and
     the three-OS claim in ci.yml's comment would quietly stop being true.
 
-    Step-level `env:` is checked as well as job-level, because the two are
-    interchangeable for this purpose and only pinning one of them leaves the
-    obvious way in.
+    Both selectors are checked, not just `DATABASE_URL`: `base.py:59` selects
+    PostgreSQL from `POSTGRES_DB` alone, so a guard that knew only the first
+    branch would leave the second one open.
     """
     offenders = [
-        f"{name}:{job_name}"
+        f"{name}:{job_name} sets {selectors}"
         for name, workflow in workflows.items()
         for job_name, job in workflow.get("jobs", {}).items()
         if not (name == "ci.yml" and job_name == "gate")
-        if "DATABASE_URL" in job.get("env", {})
-        or any("DATABASE_URL" in step.get("env", {}) for step in job.get("steps", []))
+        if (selectors := _database_selectors(job))
     ]
-    assert offenders == [], f"only the gate job may set DATABASE_URL: {offenders}"
+    assert offenders == [], f"only the gate job may select a database: {offenders}"
+
+
+def test_no_gate_step_overrides_the_gate_database_url(workflows: Workflows) -> None:
+    """The gate's own steps must not shadow the job-level `DATABASE_URL`.
+
+    The sibling checks above police every job *except* the gate, so the gate
+    was the one job where a step-level `env: DATABASE_URL: ""` would revert
+    FR-32 with the whole contract still green: `test_the_gate_sets_...` and
+    `test_the_database_url_names_...` both read the job-level value, which
+    would still be correct, and `test_the_connection_is_the_backend_...` in the
+    integration suite derives its expectation from the same emptied variable it
+    then checks, so it would agree that sqlite was expected. Nothing observed
+    the shadowing itself. This does.
+    """
+    gate = workflows["ci.yml"]["jobs"]["gate"]
+    offenders = [
+        step.get("name", step.get("run", "<unnamed step>"))
+        for step in gate.get("steps", [])
+        if DATABASE_SELECTOR_VARS & step.get("env", {}).keys()
+    ]
+    assert offenders == [], f"the gate's DATABASE_URL must not be shadowed at step level: {offenders}"
 
 
 def test_some_job_still_exercises_the_sqlite_substitution(workflows: Workflows) -> None:
@@ -355,7 +428,7 @@ def test_some_job_still_exercises_the_sqlite_substitution(workflows: Workflows) 
 
     Once the gate moved onto PostgreSQL this became a real hole rather than a
     theoretical one: the unit tests open no database connection at all, so
-    without an integration run somewhere without a `DATABASE_URL`, nothing in
+    without an integration run somewhere that selects no database, nothing in
     CI touches sqlite and PostgreSQL-only ORM code passes every job while
     breaking `pixi run ci` for every developer with nothing running.
 
@@ -363,15 +436,19 @@ def test_some_job_still_exercises_the_sqlite_substitution(workflows: Workflows) 
     part of this change with nothing asserting it -- deleting it was silent,
     while its sibling checks above guarded loudly against a database appearing
     where it should not. This is the symmetric half.
+
+    "Selects no database" means neither selector, for the same reason as the
+    check above: a leg given `POSTGRES_DB` is on PostgreSQL, and counting it as
+    the sqlite leg would leave sqlite untested while this test stayed green.
     """
-    offenders = [
+    qualifying = [
         f"{name}:{job_name}"
         for name, workflow in workflows.items()
         for job_name, job in workflow.get("jobs", {}).items()
-        if "DATABASE_URL" not in job.get("env", {})
+        if not _database_selectors(job)
         if any(_invokes(step.get("run", ""), "test-integration") for step in job.get("steps", []) if step.get("run"))
     ]
-    assert offenders != [], "no CI job runs pixi run test-integration without a DATABASE_URL; sqlite is untested"
+    assert qualifying != [], "no CI job runs pixi run test-integration without a database; sqlite is untested"
 
 
 def test_reference_application_keeps_its_three_os_matrix(workflows: Workflows) -> None:
