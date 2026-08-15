@@ -54,8 +54,9 @@ so that adopting an application does not cost me the local development contract.
 - [ ] Task 3 — Extend the two refusals to iterate every configured database (AC: #3, #4)
   - [ ] Stage 1's sqlite condition (refusal-table condition 1, built today only for the `default` alias at `src/config/settings/production.py:26-28` and moved into `src/config/startup/` by Story 4.2) must iterate `settings.DATABASES` and refuse on **any** alias whose `ENGINE` resolves to the sqlite backend when the runtime is deployed. Report every offending alias, not the first.
   - [ ] Stage 2's unapplied-migrations condition (Story 4.3) must iterate every configured alias and refuse if any has unapplied migrations, honouring the router: use `MigrationExecutor(connections[alias])` per alias.
-  - [ ] Both are reachable only because stage 1 runs as the last statement of every settings module, after composition (AD-26). Do not move either check earlier.
-  - [ ] These are edits inside `src/config/startup/`, not new conditions. The refusal count stays at nine; this story widens the domain two of them iterate over, exactly as the epics' refusal table describes.
+  - [ ] Both are reachable only because stage 1 runs as the last statement of every **leaf** settings module — `local.py`, `production.py`, `test.py` — after composition, and because **`base.py` does not call it** (AD-26). A call at the end of `base.py` would fire before the leaf composes and would never see a contributed alias at all. Do not move either check earlier.
+  - [ ] These are edits inside `src/config/startup/`, not new conditions. This story widens the domain two existing conditions iterate over, exactly as the epics' refusal table describes; it adds none.
+  - [ ] The widening is combination-invariant: neither condition depends on `celery`, `redis` or `storage`, so both iterate identically across **all six** valid combinations, and the tests must not be parameterized by feature selection.
 
 - [ ] Task 4 — Readiness, requiredness, and the release-stage declaration (AC: #5, #6)
   - [ ] Extend the readiness endpoint (Story 5.3) to check every database the component declares required. A contributed alias is **required unless** `component.toml` marks it optional — the default is required, and an absent declaration means required.
