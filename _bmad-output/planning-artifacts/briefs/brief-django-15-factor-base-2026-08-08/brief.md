@@ -9,7 +9,7 @@ updated: 2026-08-14
 
 ## Executive Summary
 
-`django-15-factor-base` is an accelerator template for generating Django application components inside an enterprise platform. A lead developer selects the features a component needs from a dropdown, and the generator emits a working service that already satisfies 15-factor principles: the twelve factors plus API-first, telemetry, and authentication/authorization. A CI pipeline containerizes that component and deploys it to a platform such as OpenShift.
+`django-15-factor-base` is an accelerator template for generating Django application components inside an enterprise platform. A lead developer orders a component through the enterprise developer portal, selecting the features it needs, and the generator emits into a fresh repository a working service that already satisfies 15-factor principles: the twelve factors plus API-first, telemetry, and authentication/authorization. A CI pipeline containerizes that component and deploys it to a platform such as OpenShift.
 
 The product is not the Django code, which anyone could write in an afternoon. The product is the **set of decisions already made and proven**: which packages, resolved from which channel, wired in which order, with which traps already hit and documented. A generated component emits correlated structured logs, exports OpenTelemetry traces, authenticates against the corporate IdP, and passes a 90% coverage gate on the day it is created — without its author knowing why any of that was hard. It also runs on the developer's machine the moment it is generated, with no database, broker, cache, or identity provider installed alongside it.
 
@@ -36,7 +36,7 @@ The product moves through two lifecycle phases:
 1. **Reference application (now).** A working Django application whose full gate — tests, coverage including templates, strict type checking, lint, build — passes on every change, with every feature present and exercised.
 2. **Template (later).** Once scaffolding, configuration, and default features are settled, the same repository becomes the FreeMarker template the accelerator consumes.
 
-That transition is a one-way boundary and the most consequential fact in this brief: **the gate that makes phase 1 trustworthy cannot run against phase 2 source.** Once FreeMarker directives are interleaved into Python, TOML, and templates, the files stop being valid inputs to `mypy`, `pytest`, or `ruff`. Verification must move from the template to what the template generates.
+That transition is a one-way boundary and the most consequential fact in this brief: **the gate that makes phase 1 trustworthy cannot run against phase 2 source.** Once FreeMarker directives are interleaved into Python, TOML, and templates, the files stop being valid inputs to `mypy`, `pytest`, or `ruff`. Verification must move from the template to what the template generates: the gate ships inside each generated component, and the template's own pipeline renders all 12 combinations and runs it against every one.
 
 ## What Makes This Different
 
@@ -50,7 +50,7 @@ This section is deliberately unflattering, because inflated claims here would mi
 
 ## Who This Serves
 
-**The lead developer** is the primary user, at one moment: standing up a component and choosing its capabilities. Success is that their first commit after generation is business logic.
+**The lead developer** is the primary user, at one moment: ordering a component and choosing its capabilities. Success is that their first commit after generation is business logic — everything before it, including a passing pipeline and a deployable image, arrives with the repository.
 
 **The platform and architecture group** needs every component consistent, current, and auditable without policing teams individually. **Operators** need every component to emit the same correlated telemetry, so a request can be followed across services built by teams that never coordinated.
 
@@ -133,7 +133,7 @@ The promise is that the *generated* component works. A green gate on this reposi
 
 **Local development proves less than running the component suggests.** sqlite accepts schemas and queries that PostgreSQL rejects; eager Celery never exercises delivery, retries, or serialization; synthetic claims never exercise JWKS retrieval or key rotation. The gate covers all three, so this is a slower feedback loop rather than an unverified product — but a component running locally is not evidence it will run deployed.
 
-**Phase 2 blinds the gate.** Verification against generated output must exist *before* the repository becomes a template, or the central quality claim goes dark exactly when the product starts being used.
+**Phase 2 blinds the gate until the harness exists.** Verification against generated output must be built *before* the repository becomes a template, or the central quality claim goes dark exactly when the product starts being used. The mechanism is settled — the template's CI renders all 12 combinations and runs each generated repository's own gate — but none of it is built, and the transition must not happen first.
 
 **Orphan detection depends on coverage.** The 0%-coverage signal that catches incomplete feature removal must survive into generated-output verification, or extraction defects ship silently.
 
@@ -143,15 +143,13 @@ The promise is that the *generated* component works. A green gate on this reposi
 
 ## What Is Not Yet Decided
 
-This brief records the decisions made, not a finished design — but the gaps left in it are now few and specific. An audit against the fifteen factors found four unaccounted for; all four are settled in the addendum's deployment interface, along with the health signal, the local persona and signing-key provisioning, the full refusal list, and how local runnability is verified.
+One question, and one thing to watch.
 
-Three questions remain genuinely open, and they cluster:
+**Should the cache keep failing silently?** The Redis cache is configured to swallow its own exceptions, so a cache outage degrades to silent misses rather than an error. That is defensible for a cache — a cache outage should not be an application outage — but it is the single place this product degrades quietly, in a design whose posture everywhere else is to refuse to start. It was inherited from `cookiecutter-django` rather than chosen, and it deserves to be chosen.
 
-- **How generated output is verified** once this repository becomes a template — the largest piece of downstream work, and the one the central quality claim depends on
-- **How the component's own name is parameterized**, which is the same problem seen from the template's side
-- **Where the shared claims-to-groups mapper lives**, so all three authentication paths consume one implementation. The requirement is settled; only its placement is not
+**Watching, not deciding:** the one supply-chain exception is pending upstream. Pull requests against both the conda-forge recipe and `django-celery-beat` itself remove the constraint that forces a single dependency to resolve from PyPI. When either lands, the exception disappears on its own.
 
-The first two are the template transition. The third is module layout. Both are architecture work, which is where this brief hands off.
+Everything else this brief raised is settled. What remains is not decisions but work: none of the authentication rewire is implemented, no health endpoint exists, no startup refusal beyond the database one is built, and no combination has ever been generated. The addendum states, factor by factor, which of those are designed and which are running.
 
 ## Vision
 

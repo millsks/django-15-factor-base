@@ -11,6 +11,8 @@ Depth captured during brief discovery that belongs to downstream documents — P
 
 **Reading convention.** Present tense describes what is true in the repository today. `must` and `will` describe what the work has to deliver and is not yet built.
 
+**Two things abbreviate to IDP; only one is abbreviated here.** `IdP` always means the **identity provider** — the OpenID Connect issuer a deployed component authenticates against. The enterprise **developer portal**, where a lead developer places the order that drives generation, is always written out in full. They appear in the same sentences often enough that collapsing both to three letters would make the security posture unreadable.
+
 ## 1. Authentication rewire — findings and target design
 
 ### 1.1 Credential paths that currently bypass the IdP
@@ -60,6 +62,37 @@ Channel check (resolved): both are on conda-forge — `pyjwt` 2.13.0 and `crypto
 - **`populate_user()` alone is insufficient.** It runs at account population, not on every authentication. Group mapping placed there means IdP-side revocation never reaches the component and permissions persist indefinitely. Sync must occur on every login.
 - Both the interactive and programmatic flows must share one claims-to-groups mapper. Divergence produces a component whose API and admin disagree about a user's authorization.
 - A designated IdP group must drive `is_staff` for admin access. `createsuperuser` will cease to be a usable bootstrap path — the first administrator signs in via the IdP and is promoted by group claim.
+
+### 1.4.1 The shared mapper
+
+One function turns *claims about an identity* into *authorization state in Django*. It is the only thing in the component permitted to decide what a user may do.
+
+**Three callers, none of which owns it:**
+
+| Path | Claims originate from | Caller |
+|---|---|---|
+| Interactive | ID token or userinfo, after the OIDC redirect | allauth's `SocialAccountAdapter` (`users/adapters.py`) |
+| Programmatic | A Bearer JWT already verified against the JWKS (§1.3) | The DRF `BaseAuthentication` subclass |
+| Local | A declared persona (§1.6) | The local sign-in path and the seeding task |
+
+Independent mapping in each produces a component whose API and admin disagree about the same user — the API treating them as read-only while the admin treats them as staff. That is the default outcome, not an unlikely one, because the natural place to put mapping is wherever the developer happens to be working.
+
+**What it does, on every authentication:**
+
+1. Resolve or create the `User`
+2. Add the group memberships the claims assert
+3. **Remove the memberships the claims no longer assert**
+4. Set `is_staff` from the designated group
+5. Leave a structured log line recording what changed
+
+Step 3 is the one that is easy to omit and expensive to omit. Without it, revoking a group at the IdP never reaches the component: the person keeps admin indefinitely and nothing reports a problem. Steps 3 and 5 together are what make IdP-side revocation real rather than nominal, and they are why mapping cannot live in `populate_user()`, which runs once at account creation.
+
+**Placement: `src/config/authorization/`.** It sits beside `src/config/observability/`, which is already this repository's home for a cross-cutting concern with several independent consumers and no natural owner among them. Two properties decide it:
+
+- Every one of the three callers imports it; none of them contains it. Placing it in the users app would make the DRF authentication class import from a package the server-rendered UI toggle also edits.
+- Nothing under `config/` is behind a feature toggle, so the mapper survives all 12 combinations by construction. Authorization behaviour must not vary with a cache or UI selection.
+
+**The claims contract is configuration.** Which claim carries group membership differs by issuer — `groups`, `roles`, and `realm_access.roles` are all in use — so the claim name and the group-to-`is_staff` mapping are environment configuration, not code. IdP realm configuration itself stays out of scope; the component only declares what it reads.
 
 ### 1.5 Consequences already applied
 
@@ -173,6 +206,27 @@ Four toggles suggest 16 combinations. The broker constraint eliminates one of fo
 | on | off | no — no broker |
 
 3 valid pairings × UI (2) × Object storage (2) = **12 valid combinations.**
+
+### 4.2.1 Where a generated component goes
+
+Generation produces a **new repository** for the new component. It runs that repository's CI, and can then run CD and deploy — as generated, before anyone adds a line of application code. The first commit a developer makes lands on something already built, tested, and deployable.
+
+The consequence for verification is the useful part: **the gate ships inside the generated component rather than living beside the template.** There is no separate harness to maintain, and no risk of the harness and the component drifting apart, because the thing that proves a component is sound is the component's own pipeline.
+
+### 4.2.2 Two levels of verification
+
+The generated repository's CI answers "is *this* component sound." It does not answer "are all twelve combinations sound," and only the second is a claim this product makes. Left there, the first developer to order an untried combination is the one who discovers the defect.
+
+So the template's own CI generates every valid combination and runs each generated repository's gate against it:
+
+| Level | Runs | Proves |
+|---|---|---|
+| Template CI | On every template change: render all 12 with test values, run each one's full gate and local smoke check | Success criterion 1 — every valid combination builds and passes |
+| Component CI | In the generated repository, on every change | That this component is sound, including after developers begin changing it |
+
+This is the answer to the phase-2 problem stated in the brief. The gate cannot run against FreeMarker-interleaved source, and it never needs to: it runs against what that source *renders*, twelve times, before a template change is allowed to ship.
+
+Two consequences worth stating plainly. Rendering requires test values for every parameter the developer portal would supply, so the template carries a fixture set that has to stay current with the order form. And a template change costs twelve generate-and-gate runs, which is the price of the criterion meaning what it says — §4.4 governs what happens when that becomes too expensive.
 
 ### 4.3 What each combination is verified against
 
@@ -326,10 +380,9 @@ The four that were open when this table was first written — 5, 6, 8 and 9 — 
 
 ## 8. Open items carried forward
 
-1. The phase-2 verification harness — how generated output is built and gated once the repository becomes a FreeMarker template
-2. Where the shared claims-to-groups mapper lives so all three authentication paths — interactive, programmatic, and local synthetic (§1.6) — consume one implementation
-3. How the component's own name is parameterized. The tree is `src/django_service/`, and every generated component needs its own package name, module paths, and `service.name` on the telemetry resource. The generator engine is out of scope, but making the name a template parameter is the template's job, not the engine's
-4. Whether the Redis cache should keep `IGNORE_EXCEPTIONS: True` (§6.3). It is the one place the product degrades silently by design, and it was inherited rather than chosen
-5. Tracking, not a decision: the single supply-chain exception is pending upstream. `django-celery-beat` resolves from PyPI because the conda-forge recipe transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"` without the environment marker, making the cap unconditional and irreconcilable with `opentelemetry-api`'s `>=6.0,<8.8.0`. [conda-forge/django-celery-beat-feedstock#18](https://github.com/conda-forge/django-celery-beat-feedstock/pull/18) removes the cap, and [celery/django-celery-beat#1080](https://github.com/celery/django-celery-beat/pull/1080) removes it upstream — executing a `TODO` upstream had already written against its own requirement. On merge and build, the dependency moves to conda-forge and the exception in the brief disappears
+1. Whether the Redis cache should keep `IGNORE_EXCEPTIONS: True` (§6.3). It is the one place the product degrades silently by design, and it was inherited rather than chosen
+2. Tracking, not a decision: the single supply-chain exception is pending upstream. `django-celery-beat` resolves from PyPI because the conda-forge recipe transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"` without the environment marker, making the cap unconditional and irreconcilable with `opentelemetry-api`'s `>=6.0,<8.8.0`. [conda-forge/django-celery-beat-feedstock#18](https://github.com/conda-forge/django-celery-beat-feedstock/pull/18) removes the cap, and [celery/django-celery-beat#1080](https://github.com/celery/django-celery-beat/pull/1080) removes it upstream — executing a `TODO` upstream had already written against its own requirement. On merge and build, the dependency moves to conda-forge and the exception in the brief disappears
 
-Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6. Factors 5, 6, 8 and 9, raised by the audit in §7 and settled in §5 — session state is database-backed in every combination, the process model is declared per combination, migrations are a release-stage step guarded by a startup refusal, and shutdown drains on SIGTERM. The health signal is two asymmetric endpoints (§5.4); the development keypair is generated on demand and never committed (§1.6); local personas are seeded from declared claims (§1.6); the refusal list is settled at six conditions (§6.3); and local runnability is verified by a smoke check per combination (§4.3).
+Everything else this brief raised is decided. What remains is implementation, and the architecture work that sequences it.
+
+Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6. Factors 5, 6, 8 and 9, raised by the audit in §7 and settled in §5 — session state is database-backed in every combination, the process model is declared per combination, migrations are a release-stage step guarded by a startup refusal, and shutdown drains on SIGTERM. The health signal is two asymmetric endpoints (§5.4); the development keypair is generated on demand and never committed (§1.6); local personas are seeded from declared claims (§1.6); the refusal list is settled at six conditions (§6.3); and local runnability is verified by a smoke check per combination (§4.3). Phase-2 verification — the template's CI renders all 12 and runs each generated repository's own gate (§4.2.2). Package-name parameterization — FreeMarker expands it from the developer-portal order. The shared mapper's placement — `src/config/authorization/`, beside the observability package (§1.4.1).
