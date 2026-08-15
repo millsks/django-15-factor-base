@@ -28,8 +28,12 @@ WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 GATE_SEQUENCE = ["precommit", "build", "typecheck", "lint", "test-cov"]
 
 # Gate steps that must not be invoked by any workflow other than the gate job.
-# `build` is checked separately because its rule is about cron specifically.
-GATE_ONLY_TASKS = ["test-cov", "lint", "typecheck"]
+# `build` also has its own narrower check for cron specifically
+# (test_no_scheduled_workflow_invokes_build), which AC #3 asks for by name;
+# it is included here too so the exclusivity guarantee matches AC #5's full
+# intent -- "no step exists only in CI or only locally" -- rather than only
+# the schedule-triggered case.
+GATE_ONLY_TASKS = ["precommit", "build", "test-cov", "lint", "typecheck"]
 
 THREE_OS_RUNNERS = {"ubuntu-latest", "windows-latest", "macos-latest"}
 
@@ -46,7 +50,8 @@ def manifest() -> dict[str, Any]:
 def workflows() -> Workflows:
     """Return every parsed workflow file, keyed by filename."""
     parsed: dict[str, dict[str, Any]] = {}
-    for path in sorted(WORKFLOW_DIR.glob("*.yml")):
+    paths = sorted(WORKFLOW_DIR.glob("*.yml")) + sorted(WORKFLOW_DIR.glob("*.yaml"))
+    for path in paths:
         with path.open(encoding="utf-8") as handle:
             parsed[path.name] = yaml.safe_load(handle)
     return parsed

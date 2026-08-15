@@ -72,6 +72,8 @@ jobs:
     - name: Set up pixi
       uses: prefix-dev/setup-pixi@v0.9.5
       with:
+        # Project-wide pixi version. Must read lock-file format v7 -- the
+        # upstream v0.67.2 pin caps out at v6 and cannot read this lock.
         pixi-version: v0.70.2
         environments: dev
         cache: true

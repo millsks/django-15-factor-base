@@ -31,8 +31,27 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      checks: read # required to verify the commit's Gate check-run before releasing
 
     steps:
+      # Fail before touching any release mechanics if the commit being
+      # released never passed the gate. ci.yml's `Gate` job is what makes
+      # `pixi run ci` mean anything for a given commit; without this check
+      # nothing here ever verified that.
+      - name: Verify the gate passed for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          conclusion=$(gh api "repos/${REPO}/commits/${SHA}/check-runs" \
+            --jq '[.check_runs[] | select(.name == "Gate")] | sort_by(.started_at) | last | .conclusion')
+          echo "Gate conclusion for ${SHA}: ${conclusion:-<no Gate check-run found>}"
+          if [ "${conclusion}" != "success" ]; then
+            echo "::error::Refusing to release ${SHA} -- its Gate check-run did not succeed (conclusion: ${conclusion:-none})."
+            exit 1
+          fi
+
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v1

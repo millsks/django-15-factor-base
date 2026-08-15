@@ -49,7 +49,7 @@ story_location: _bmad-output/implementation-artifacts
 
 development_status:
   epic-1: in-progress
-  1-1-the-full-gate-runs-in-ci-through-one-invocation: review
+  1-1-the-full-gate-runs-in-ci-through-one-invocation: done
   1-2-the-gate-runs-against-postgresql: ready-for-dev
   1-3-strict-type-checking-is-a-gate-condition: ready-for-dev
   1-4-no-network-surface-exists-beneath-djangos-routing: ready-for-dev

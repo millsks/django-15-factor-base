@@ -4,7 +4,7 @@ baseline_commit: b704abe3a57db26b5682a7d324fbce2a4d21ed6e
 
 # Story 1.1: The full gate runs in CI through one invocation
 
-Status: review
+Status: done
 
 ## Story
 
@@ -69,6 +69,31 @@ so that "this component passed its gate" is a statement the pipeline makes rathe
   - [x] In the same file, parse every file under `.github/workflows/` with `yaml.safe_load` and assert: exactly one workflow contains a step whose `run` invokes `pixi run ci`; no workflow triggered by `schedule` contains a step invoking `pixi run build`; no workflow other than the gate invokes `pixi run test-cov`, `pixi run lint` or `pixi run typecheck`.
   - [x] Assert the reference-application matrix job still declares all three of `ubuntu-latest`, `windows-latest`, `macos-latest`.
   - [x] `PyYAML` is not declared in `pixi.toml` today. `check-yaml` comes from `pre-commit-hooks`, which is a different package. If `yaml` is not importable in the `dev` environment, add `pyyaml` to `[feature.dev.dependencies]` from conda-forge — never to `[pypi-dependencies]` (Story 1.7 asserts that block holds only the editable self-install).
+
+### Review Findings
+
+Reviewed 2026-08-16: Blind Hunter + Edge Case Hunter + Acceptance Auditor, in parallel, against the diff from `baseline_commit` to HEAD on `feature/gate-consolidation` (3 commits). Each finding below was independently re-verified against the live repository before severity was assigned.
+
+- [x] [Review][Decision] The reviewed diff spans 3 commits; the story's own File List documented only 1 — resolved: fold the two `chore:` commits (`4c4519e`, `2ef07a4`) into this story's File List and Change Log, since they now live in its branch history. Done above.
+
+- [x] [Review][Patch] `sonarqube.yml`'s `workflow_run` trigger exposes secrets to fork-PR code and likely breaks PR decoration [.github/workflows/sonarqube.yml] — Fixed: job-level `if:` now guards on `head_repository.full_name == github.repository`, refusing to run at all for fork-originated `workflow_run` events, so no step ever executes fork code with `SONAR_TOKEN` available. PR decoration restored explicitly: a new "Determine pull request context" step reads `workflow_run.pull_requests[0]` from the event JSON (not interpolated into the shell) and passes `sonar.pullrequest.key/branch/base` to the scan action when present.
+
+- [x] [Review][Patch] `release.yml` tags and ships without ever confirming the released commit passed the gate [.github/workflows/release.yml] — Fixed: a new first step queries the Checks API for the release commit's `Gate` check-run conclusion via `gh api repos/{repo}/commits/{sha}/check-runs` and fails the job (`exit 1`) before any release mechanics run if it isn't `success`. Added `checks: read` to the job's permissions.
+
+- [x] [Review][Patch] `sonarqube.yml`'s `if: conclusion == 'success'` reads the whole `ci.yml` run, not the `gate` job specifically [.github/workflows/sonarqube.yml] — Fixed: a new first step queries `gh api repos/{repo}/actions/runs/{run_id}/jobs`, selects the job named `Gate` by name, and gates every remaining step on that job's own conclusion via a `passed` output — a `compatibility`-only flake no longer skips Sonar.
+
+- [x] [Review][Patch] Gate-step exclusivity enforcement is narrower than AC #5's intent [tests/unit/test_gate_contract.py:32] — Fixed: `GATE_ONLY_TASKS` now includes `precommit` and `build` alongside `test-cov`/`lint`/`typecheck`; the narrower schedule-specific `build` check (AC #3's literal text) is kept alongside it, not replaced.
+
+- [x] [Review][Patch] `compatibility` job's `pixi-version` pin lost its rationale comment [.github/workflows/ci.yml:71-73] — Fixed: the "Project-wide pixi version. Must read lock-file format v7…" comment is restored on the `compatibility` job's `setup-pixi` step.
+
+- [x] [Review][Patch] Workflow-contract tests glob only `*.yml`, silently missing `*.yaml` [tests/unit/test_gate_contract.py:47] — Fixed: the `workflows` fixture now globs both `*.yml` and `*.yaml`.
+
+- [x] [Review][Defer] `sonar-project.properties` comment names a nonexistent task `pixi run cov` (real task: `test-cov`) [sonar-project.properties:20] — deferred, pre-existing and not touched by this diff, though it sits directly in the coverage.xml pipeline this diff modifies at both ends.
+- [x] [Review][Defer] Tests never exercise `pixi`'s runtime fail-fast `depends-on` behavior, only the static manifest [tests/unit/test_gate_contract.py] — deferred, out of this story's stated unit-test scope ("no I/O beyond reading repository files"); verified manually and recorded in Debug Log References.
+- [x] [Review][Defer] `_invokes()` is a string-matcher fragile to `pixi run -e dev <task>`, chained (`&&`), or piped invocations [tests/unit/test_gate_contract.py:74] — deferred, no current workflow uses these patterns; hardening backlog.
+- [x] [Review][Defer] Contract-test blind spots with no current instances: reusable `uses:` workflow calls, target-scoped pixi tasks, duplicate top-level YAML keys, artifact-retention-expiry error clarity [tests/unit/test_gate_contract.py] — deferred, hardening backlog.
+
+Dismissed as noise (4): _bmad-output/Sonar exclusion mismatch (false — `sonar.sources=src` excludes it structurally regardless of the exclusions list); upload-warn/download-hard-fail asymmetry (working as intended — the warn only matters when the gate already failed); `compatibility` job name "overstating" scope (already clarified by its own inline comment); Story 1.2 Postgres follow-up "untracked" (sprint-status.yaml is this project's actual tracking mechanism).
 
 ## Dev Notes
 
@@ -192,17 +217,29 @@ gate doing its job on the change that created it.
 
 ### File List
 
+Includes two `chore:` commits (`4c4519e`, `2ef07a4`) made on this branch after the story's own implementation commit (`2e65d2e`), at direct instruction — folded in here per the code-review decision on 2026-08-16 rather than left undocumented in this story's record.
+
 | Path | Change |
 | --- | --- |
 | `pixi.toml` | `ci` rebuilt as the ordered five-step gate; `pyyaml` declared in `[feature.dev.dependencies]` |
-| `.github/workflows/ci.yml` | `test`/`lint` jobs replaced by a `gate` job invoking `pixi run ci` and a three-OS `compatibility` job; gate uploads `coverage.xml` |
-| `.github/workflows/sonarqube.yml` | Coverage run removed; triggers on `workflow_run` after CI and consumes the gate's artifact |
-| `.github/workflows/release.yml` | Four gate steps removed (`lint`, `typecheck`, `test-cov`, `build`); cron and release mechanics kept |
+| `.github/workflows/ci.yml` | `test`/`lint` jobs replaced by a `gate` job invoking `pixi run ci` and a three-OS `compatibility` job; gate uploads `coverage.xml`; *(review patch)* `compatibility`'s `pixi-version` rationale comment restored |
+| `.github/workflows/sonarqube.yml` | Coverage run removed; triggers on `workflow_run` after CI and consumes the gate's artifact; *(review patch)* job-level fork guard on `head_repository.full_name`; a first step checks the `Gate` job's own conclusion via the Actions API rather than the run-level aggregate; a PR-context step passes `sonar.pullrequest.*` from `workflow_run.pull_requests[0]` |
+| `.github/workflows/release.yml` | Four gate steps removed (`lint`, `typecheck`, `test-cov`, `build`); cron and release mechanics kept; *(review patch)* new first step verifies the release commit's `Gate` check-run succeeded via the Checks API before any release mechanics run; `checks: read` added to permissions |
 | `docs/development.md` | New "The gate" section; task table entry updated |
-| `tests/unit/test_gate_contract.py` | NEW — 9 tests asserting the gate contract against `pixi.toml` and the workflows |
+| `tests/unit/test_gate_contract.py` | NEW — 11 tests asserting the gate contract against `pixi.toml` and the workflows; *(review patch)* `GATE_ONLY_TASKS` extended to `precommit`/`build`; `workflows` fixture globs `*.yaml` too |
+| `pyproject.toml` | *(chore, `4c4519e`)* `[tool.ruff] line-length = 120` set explicitly; `_bmad-output` added to `extend-exclude` (ruff was rewriting quoted upstream source in review docs); *(chore, `2ef07a4`)* `COM812` added to `lint.ignore` — conflicts with the formatter's own trailing-comma handling |
+| `src/config/observability/telemetry.py` | *(chore, `4c4519e`)* Reformatted only — one expression rejoined onto a single line under the new 120-char width |
+| `src/config/settings/base.py` | *(chore, `4c4519e`)* `# ruff: noqa: ERA001, E501` → `# ruff: noqa: ERA001` — the `E501` half is unnecessary once the line-length change lands |
+| `src/django_service/__init__.py` | *(chore, `4c4519e`)* Reformatted only — no logic change |
+| `tests/integration/test_request_logging.py` | *(chore, `4c4519e`)* Reformatted only — no logic change |
+| `tests/unit/test_observability_init.py` | *(chore, `4c4519e`)* Reformatted only — an import block rejoined onto one line |
+| `tests/unit/users/test_api_urls.py` | *(chore, `4c4519e`)* Reformatted only — no logic change |
+| `tests/unit/users/test_urls.py` | *(chore, `4c4519e`)* Reformatted only — no logic change |
 
 ## Change Log
 
 | Date | Change |
 | --- | --- |
 | 2026-08-16 | Consolidated the quality gate onto a single `pixi run ci` invocation (Story 1.1). Gate steps removed from `release.yml` and `sonarqube.yml`; SonarCloud moved to `workflow_run`. |
+| 2026-08-16 | Set `ruff` `line-length = 120` project-wide and excluded `_bmad-output` from ruff; ignored `COM812` (conflicts with the formatter). Folded into this story's record per code-review decision. |
+| 2026-08-16 | Applied 6 code-review patches: fork-secrets guard and gate-job-specific conclusion check plus PR decoration in `sonarqube.yml`; gate-verification step in `release.yml`; restored `compatibility` job comment; extended `GATE_ONLY_TASKS`; `.yaml` glob support. |
