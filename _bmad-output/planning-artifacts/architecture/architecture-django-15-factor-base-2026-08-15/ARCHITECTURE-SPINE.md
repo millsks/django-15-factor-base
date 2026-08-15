@@ -9,7 +9,7 @@ status: final
 created: '2026-08-15'
 updated: '2026-08-15'
 binds:
-  - FR-1..FR-50
+  - FR-1..FR-56
   - NFR-1..NFR-8
   - SC-1..SC-7
   - CG-1..CG-4
@@ -380,7 +380,7 @@ graph TD
 | Deployment interface (§4.7) | `pixi.toml` tasks, `component.toml` | AD-14, AD-15, AD-17, AD-22, AD-28, AD-32 |
 | Observability (§4.8) | `src/config/observability/` | Conventions; FR-45 and NFR-6 are open items below |
 | Supply chain (§4.9) | `pixi.toml` | Conventions; residual risk R-1 |
-| Reusable apps (new; not in the PRD) | `src/django_apps/` | AD-4, AD-5, AD-6, AD-7, AD-8, AD-9, AD-28, AD-29 |
+| Reusable apps / extension model (§4.10) | `src/django_apps/` | AD-4, AD-5, AD-6, AD-7, AD-8, AD-9, AD-28, AD-29 |
 
 ## Named Residual Risks
 
@@ -392,15 +392,19 @@ Accepted, not mitigated. Recorded so the next reader does not take the rest of t
 - **R-4 — The GitHub-template path ships from `main` HEAD** and carries the machinery Dockerfile and the materializer. AD-32 states the consequences; nothing prevents them.
 - **R-5 — Local development proves less than running suggests.** Inherited from the PRD's own risk register and not softened here: sqlite accepts schemas PostgreSQL rejects, eager execution never exercises delivery or retries, synthetic claims never exercise JWKS retrieval or rotation.
 
-## Divergences From the PRD
+## Divergences From the PRD — reconciled
 
-Each needs the PRD amended or this spine corrected; they must not silently disagree.
+**All five are closed.** They were raised against the PRD as it stood when this spine was written, and commit `b8a3fd9` ("docs: reconcile the PRD with the phase-1 architecture spine") amended the PRD six minutes later the same day, 2026-08-15. Each was re-checked against current PRD text; the PRD now states the spine's position in its own words. The history is kept so a later reader does not re-open a settled question.
 
-- **D-1 — FR-37 lists `src/django_service/` as parameterized.** It is a constant (AD-5). This also dissolves the readiness review's S-5.
-- **D-2 — FR-30 requires the materializer's declarations be "authored once and shared with the eventual template," cross-checkable during the transition.** The FreeMarker copy is one-way and out of tree, so this is "derived once, then drifts."
-- **D-3 — FR-9's "on every authentication" is narrowed by AD-10** to once per credential epoch for the programmatic flow. Deliberate, and the consequence is R-2.
-- **D-4 — §4.2 states the interactive flow "costs no new dependency."** It costs `requests`, which the channel recipe for `django-allauth` does not declare and which reaches the environment only transitively through the OTLP exporter.
-- **D-5 — The PRD does not know about reusable apps, `src/django_apps/`, or the GitHub-template consumer.** All three are user constraints gathered during this run and govern real invariants here.
+| # | Divergence as raised | Resolution in current PRD |
+| --- | --- | --- |
+| D-1 | FR-37 lists `src/django_service/` as parameterized; it is a constant (AD-5) | FR-37 now states it is a constant, "not parameterized, and this is load-bearing." Also dissolved the readiness review's S-5 |
+| D-2 | FR-30 requires the materializer's declarations be "authored once and shared with the eventual template," cross-checkable during the transition | FR-30 now states "what this does not buy is an ongoing cross-check" — the FreeMarker copy is one-way and out of tree, so the two drift and neither validates the other |
+| D-3 | FR-9's "on every authentication" is narrowed by AD-10 to once per credential epoch for the programmatic flow | FR-9 now states that resolution and re-sync run at different frequencies and that the difference is a requirement. **The consequence remains R-2** |
+| D-4 | §4.2 states the interactive flow "costs no new dependency"; it costs `requests` | §4.2 now says it costs no new *framework* and names `requests` explicitly, including that the channel recipe for `django-allauth` does not declare it and it reaches the environment only transitively |
+| D-5 | The PRD does not know about reusable apps, `src/django_apps/`, or the GitHub-template consumer | §4.10 The Extension Model (FR-51..FR-56) now exists, as do the template-repository non-goal in §5 and the code-host-as-template-repository entry in §10 |
+
+No open divergence remains. A new one is recorded here rather than resolved silently in either document.
 
 ## Open Items
 

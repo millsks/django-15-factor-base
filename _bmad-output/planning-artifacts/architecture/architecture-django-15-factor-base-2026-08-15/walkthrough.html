@@ -592,29 +592,29 @@
     </section>
 
     <section id="diverge">
-      <p class="kicker">05 — Diverges from the PRD</p>
-      <h2>Five places the documents disagree</h2>
-      <p>Each needs the requirements amended or this spine corrected. They must not be left to disagree silently.</p>
+      <p class="kicker">05 — Diverged from the PRD, now reconciled</p>
+      <h2>Five disagreements, all closed</h2>
+      <p>These were raised against the PRD as it stood when the spine was written. The PRD was amended the same day, six minutes later, and now states the spine's position in its own words. Kept here so nobody re-opens a settled question.</p>
 
       <div class="flag diverge">
-        <span class="tag">D-1</span>
-        <p>The PRD parameterizes <code>src/django_service/</code>. It is a constant — see <code>AD-5</code>. This also dissolves a work item the readiness review ranked medium-high.</p>
+        <span class="tag">D-1 · closed</span>
+        <p>The PRD parameterized <code>src/django_service/</code>. It is a constant — see <code>AD-5</code>. This also dissolved a work item the readiness review ranked medium-high. <strong>The PRD now states it is a constant, "not parameterized, and this is load-bearing."</strong></p>
       </div>
       <div class="flag diverge">
-        <span class="tag">D-2</span>
-        <p>The PRD requires the materializer's declarations be authored once and shared with the eventual template, cross-checkable during the transition. The FreeMarker copy is one-way and out of tree, so it is really "derived once, then drifts."</p>
+        <span class="tag">D-2 · closed</span>
+        <p>The PRD required the materializer's declarations be authored once and shared with the eventual template, cross-checkable during the transition. The FreeMarker copy is one-way and out of tree, so it is really "derived once, then drifts." <strong>The PRD now says so directly: "what this does not buy is an ongoing cross-check."</strong></p>
       </div>
       <div class="flag diverge">
-        <span class="tag">D-3</span>
-        <p>"On every authentication" is narrowed to once per credential epoch for the API flow. Deliberate; the consequence is <code>R-2</code>.</p>
+        <span class="tag">D-3 · closed</span>
+        <p>"On every authentication" is narrowed to once per credential epoch for the API flow. Deliberate; the consequence is <code>R-2</code>, which still stands. <strong>The PRD now states that resolution and re-sync run at different frequencies and that the difference is a requirement.</strong></p>
       </div>
       <div class="flag diverge">
-        <span class="tag">D-4</span>
-        <p>The PRD says the browser flow costs no new dependency. It costs <code>requests</code> — imported directly by the OIDC provider, absent from the channel recipe's declared dependencies, and reaching the environment only transitively through the telemetry exporter.</p>
+        <span class="tag">D-4 · closed</span>
+        <p>The PRD said the browser flow costs no new dependency. It costs <code>requests</code> — imported directly by the OIDC provider, absent from the channel recipe's declared dependencies, and reaching the environment only transitively through the telemetry exporter. <strong>The PRD now says no new <em>framework</em> and names <code>requests</code> explicitly.</strong></p>
       </div>
       <div class="flag diverge">
-        <span class="tag">D-5</span>
-        <p>The PRD does not know about reusable apps, <code>src/django_apps/</code>, or the GitHub-template consumer. All three govern real invariants here.</p>
+        <span class="tag">D-5 · closed</span>
+        <p>The PRD did not know about reusable apps, <code>src/django_apps/</code>, or the GitHub-template consumer. All three govern real invariants here. <strong>The PRD now carries the Extension Model as its own section, plus the template-repository non-goal and the code-host integration entry.</strong></p>
       </div>
     </section>
 
