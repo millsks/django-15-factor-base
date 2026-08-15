@@ -23,3 +23,11 @@ at the time they were raised. Each entry records why.
 - source_spec: `1-2-the-gate-runs-against-postgresql.md`
   summary: `ATOMIC_REQUESTS` is applied to the `default` alias only, so AD-9's forecast second database would be served non-atomically without anything in the source noticing.
   evidence: `src/config/settings/base.py:80` sets `DATABASES["default"]["ATOMIC_REQUESTS"] = True` against one hardcoded key, while AD-9 states that Epic 9's refusals "iterate every configured database" — the architecture already expects more than one alias. This story's `test_every_branch_sets_atomic_requests` asserts the setting across *every* configured alias and names the offenders, so the day a second database is added the suite reports which one is missing it; but the assertion is currently vacuous beyond `default`, and the fix is a one-line loop in `base.py`. Not made here: the story's own Task 4 forbids touching `base.py`, and Dev Notes state "do not add a second database in this story". Belongs with the Epic 9 work that introduces the second alias.
+
+### DW-1: Follow-up review still recommended for 1-2-the-gate-runs-against-postgresql after the damping cap was spent
+origin: review-budget-followup
+source_spec: `1-2-the-gate-runs-against-postgresql.md`
+location: n/a
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260815-155824-9f6b; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
