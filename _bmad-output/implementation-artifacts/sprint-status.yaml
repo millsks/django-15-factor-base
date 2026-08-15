@@ -106,14 +106,14 @@ development_status:
   7-1-the-carrier-exists-and-every-path-carries-exactly-one-disposition: ready-for-dev
   7-2-a-core-path-carries-feature-owned-regions-by-declared-markers: ready-for-dev
   7-3-parameterization-is-declared-as-an-axis-orthogonal-to-disposition: ready-for-dev
-  7-4-django-service-is-core-in-its-entirety-and-the-ui-surface-leaves-it: ready-for-dev
+  7-4-django-service-is-core-in-its-entirety-and-the-interface-mechanism-is-core-with-it: ready-for-dev
   7-5-object-storage-attaches-an-s3-compatible-backend-with-a-local-substitution: ready-for-dev
-  7-6-four-features-are-selectable-with-the-broker-constraint-and-three-presets-declared: ready-for-dev
+  7-6-three-features-are-selectable-with-the-broker-constraint-and-three-presets-declared: ready-for-dev
   7-7-every-features-surface-is-complete-and-independently-removable: ready-for-dev
   7-8-the-orphan-detectors-exist-for-all-three-residue-categories: ready-for-dev
   epic-7-retrospective: optional
   epic-8: in-progress
-  8-1-twelve-pre-locked-environments-come-from-one-lock-file: ready-for-dev
+  8-1-six-pre-locked-environments-come-from-one-lock-file: ready-for-dev
   8-2-the-materializer-copies-the-reference-application-and-prunes-by-path: ready-for-dev
   8-3-the-materializer-prunes-feature-owned-regions-inside-core-paths: ready-for-dev
   8-4-materialization-is-deterministic-and-equivalent-to-the-reference-application: ready-for-dev
