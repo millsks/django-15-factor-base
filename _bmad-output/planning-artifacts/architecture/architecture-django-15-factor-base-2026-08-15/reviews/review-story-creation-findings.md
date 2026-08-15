@@ -4,10 +4,41 @@ type: architecture-review
 subject: 'ARCHITECTURE-SPINE.md — django-15-factor-base'
 method: 'Nine independent per-epic readings of the spine against the reference application, performed during phase-1 story creation'
 created: '2026-08-15'
-status: open
+updated: '2026-08-16'
+status: resolved
 ---
 
 # Spine Corrections — findings from phase-1 story creation
+
+> **Resolved 2026-08-16.** Every finding below has been dispositioned. The spine is at revision 3,
+> the PRD and epic breakdown are amended to match, and all 68 story files are reconciled against
+> both. **The two blocking findings were dissolved rather than fixed** — see *Disposition* directly
+> below. The findings are kept in their original form because the reasoning that produced them is
+> what justified the amendment, and a reader who meets `AD-33` or a `feature:ui` reference in an
+> older artifact needs this record to interpret it.
+
+## Disposition
+
+| Finding | Outcome |
+| --- | --- |
+| **C-1** — `base.html` reverses UI-feature routes; AD-29 and AD-30 cannot both hold | **Dissolved.** Revision 3 makes the interface mechanism immovable core, so those reversals target `core` routes and cannot fail. The navigation bar became a contributed registry anyway, which removes `NoReverseMatch` structurally rather than by shadowing — and, unlike the revision-2 stub, lets an adopted app appear in the base navigation. |
+| **D-1** — AD-29 requires UI surface to move somewhere no document names | **Dissolved.** Nothing moves. `src/features/` was established in revision 2 (AD-33) and retired unused in revision 3, since no remaining feature has a code surface. |
+| **A-1, A-2, A-3** — three live defects | **Open by design.** Assigned to Stories 6.5, 6.3 and 3.6 so each lands with the tests those stories specify. Still the first real code of phase 1. |
+| **B-1..B-6** — spine describes the tree incorrectly | **Fixed** in revision 2, carried into revision 3. B-2's framing correction (`telemetry.py:134-137` is two single-line regions plus imports, not one region) proved the most consequential. |
+| **C-2..C-5** — internal contradictions | **Fixed.** The contributable surface is authoritative in `src/config/startup/` and mirrored into the carrier; stage 1 runs on *leaf* settings modules only; AD-21 distinguishes shipping from mounting; AD-23's trust-anchor check is stated as syntactic. |
+| **D-2..D-7** — obligations with no mechanism | **Fixed or scheduled.** D-2 is `component.toml`'s selected-feature list; D-3 is AD-2's enumeration clause; D-4 and D-5 are named in the Structural Seed; D-6 and D-7 remain in the spine's Open Items, which is the honest place for them. |
+| **E-1..E-7** — cross-story collisions | **Recorded in the owning stories.** None required a spine change. |
+| **§G** — smaller items | **Folded into revision 2 or 3**, except `MEDIA_ROOT`'s writable path, which Story 5.6 asserts against and Epic 7's storage story removes. |
+
+**Three corrections were found after revision 3 by the reconciliation pass itself** and are fixed at
+source: AD-24's *Prevents* clause still said "eight combinations"; the Structural Seed mermaid still
+had a twelve-tree node; and AD-25's `production.py` line ranges were wrong in revision 2 — the real
+literals are at `:91-94`, `:98-101` and `:156-158`, and the cited `:104-107` is the `# ADMIN` block,
+whose value is already environment-driven and is therefore not a parameterization site at all.
+
+**One finding in this document is itself superseded.** §C-1's proposed fix — a `core` navbar stub
+shadowed by a `feature:ui` partial — was replaced by the contributed navigation registry. The
+original text is left below as written.
 
 ## How these were found
 
