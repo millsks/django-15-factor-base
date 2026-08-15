@@ -1097,9 +1097,11 @@ So that the guard cannot be skipped by the very failure it exists to catch.
 **And** it is not split across the deployed settings module
 
 **Given** stage 1
-**When** a settings module is imported
-**Then** stage 1 is invoked as the last statement of that settings module
-**And** every settings module invokes it, so none can skip it by not being loaded
+**When** a leaf settings module is imported
+**Then** stage 1 is invoked as the last statement of that leaf module — `local.py`, `production.py`, `test.py`
+**And** every leaf module invokes it, so none can skip it by not being loaded
+**And** `base.py` does not invoke it, since it is imported via `from .base import *` and a call there would fire before the leaf composes, destroying the after-composition property the rule exists to guarantee
+**And** a paired gate test asserts both halves
 
 **Given** stage 2
 **When** a serving process starts
@@ -1193,7 +1195,7 @@ So that a reachable credential route or an unrecognized schema stops the process
 **Then** `ImproperlyConfigured` is raised
 **And** the misconfiguration surfaces as a configuration error rather than as a mysterious permissions problem
 
-**Given** stage 1 runs as the last statement of every settings module
+**Given** stage 1 runs as the last statement of every leaf settings module
 **When** stage 1 and stage 2 iterate databases
 **Then** both iterate every configured database
 
@@ -1201,7 +1203,7 @@ So that a reachable credential route or an unrecognized schema stops the process
 
 As a lead developer,
 I want the cache and task refusals scoped to the features that make them meaningful,
-So that four valid combinations are not rejected for legitimately having no cache.
+So that the two valid combinations with no Redis are not rejected for legitimately having no cache.
 
 **Requirements:** FR-14 · AD-24 · SC-5
 
