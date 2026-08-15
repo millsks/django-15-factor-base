@@ -15,7 +15,7 @@ Depth captured during brief discovery that belongs to downstream documents — P
 
 ### 1.1 Credential paths that currently bypass the IdP
 
-Three defaults survived the fork from `cookiecutter-django`. All three are verified in the source, not inferred.
+Four paths survived the fork from `cookiecutter-django`. All four are verified in the source, not inferred.
 
 The defect is not that these paths exist — §1.6 keeps every one of them available for local development. It is that they are **enabled by default and unguarded**, so a deployed component bypasses the IdP unless someone remembers to configure it not to. The remediation inverts that: available where they are configured on, refused at startup where they are not permitted.
 
@@ -24,6 +24,9 @@ The defect is not that these paths exist — §1.6 keeps every one of them avail
 | 1 | `src/config/settings/base.py:274`, implemented at `src/django_service/users/admin.py:11` | `DJANGO_ADMIN_FORCE_ALLAUTH` defaults to `False` | `/admin/` serves Django's own username+password form via `ModelBackend`; the IdP is never involved |
 | 2 | `src/config/settings/base.py` — `REST_FRAMEWORK.DEFAULT_AUTHENTICATION_CLASSES`, plus `rest_framework.authtoken` in `INSTALLED_APPS` | `TokenAuthentication` enabled | Static, locally issued API tokens with no issuer, expiry, or claims |
 | 3 | `src/config/settings/base.py:343` | `ACCOUNT_LOGIN_METHODS = {"username"}` | Local username/password login enabled in allauth |
+| 4 | `src/config/urls.py:11,38` | `obtain_auth_token` routed at `/api/auth-token/` | A live endpoint that mints a static token from a username and password |
+
+**Path 4 is a URL, not a setting, and that distinction matters.** Removing `TokenAuthentication` from `DEFAULT_AUTHENTICATION_CLASSES` disables token *acceptance* and leaves this route still issuing them. The route has to be deleted, and `rest_framework.authtoken` removed from `INSTALLED_APPS`, or the component keeps a credential-to-token exchange the IdP knows nothing about. A refusal that inspects only settings will not see it.
 
 Mitigating detail for #1: the remediation is already written. `users/admin.py` wraps `admin.site.login` with allauth's `secure_admin_login` — it is gated behind a flag that is off by default. Forcing admin through the IdP is a default flip, not new code.
 
@@ -78,6 +81,7 @@ The check must cover every path in the §1.1 table, since each is a separate mec
 | allauth local login | a non-empty `ACCOUNT_LOGIN_METHODS` |
 | Admin bypass | `DJANGO_ADMIN_FORCE_ALLAUTH` not true |
 | Static API tokens | `rest_framework.authtoken` installed, or `TokenAuthentication` in the DRF defaults |
+| Token-minting route | `obtain_auth_token` reachable in the URL conf — a check over settings alone cannot see this one |
 
 Two failure modes escape the refusal on its own, and therefore need explicit tests: a component deployed with `DJANGO_SETTINGS_MODULE` pointing at the local settings module never reaches the production checks at all; and a credential path added later is unguarded until someone extends the check. Tests must assert that production settings *refuse*, not merely that they start.
 
@@ -197,6 +201,32 @@ Deployment configuration lives in a separate repository outside the control of t
 - OTLP export controlled by environment; traces are dropped rather than retried when no collector is configured
 - PostgreSQL required in every deployed environment; production settings already raise if the sqlite path is reached
 
+### 5.1 Process types
+
+The process model varies by combination, so the component has to declare it rather than let the deployment repository guess:
+
+| Process | Present when | Command |
+|---|---|---|
+| web | always | gunicorn with the uvicorn worker class |
+| worker | background tasks selected | `celery -A config.celery_app worker` |
+| beat | background tasks selected | `celery -A config.celery_app beat`, backed by `DatabaseScheduler` (`base.py:329`) |
+
+Beat must run as exactly one replica. `DatabaseScheduler` keeps the schedule in PostgreSQL rather than a local file, which makes the process replaceable but not duplicable — two beat processes produce duplicate task dispatches.
+
+### 5.2 Lifecycle
+
+**Migrations are a release-stage step.** The deployment pipeline runs `manage.py migrate` before new pods begin serving; no component migrates itself at startup. Running them at entrypoint would race across replicas and collapse the boundary between the release and run stages.
+
+**A component refuses to start against a schema it does not recognise.** Unapplied migrations raise `ImproperlyConfigured`, the same shape as the sqlite and credential refusals in §1.6 and §6.3. Without it, a component started before its release step surfaces the mismatch as scattered runtime errors instead of a failed boot.
+
+**Shutdown drains.** On `SIGTERM` a web process stops accepting connections, finishes in-flight requests, and exits; a worker finishes its current task and declines new ones. The platform's termination grace period must exceed the longest expected drain, and readiness must flip before the drain begins so traffic stops arriving first. The grace values and the readiness contract belong with the health signal, which is still open.
+
+### 5.3 Scheduled admin processes
+
+Sessions are database-backed in every combination (§7, factor 6), and Django does not prune expired rows on its own. `manage.py clearsessions` must run periodically, as a one-off admin process the platform schedules.
+
+It is deliberately *not* a Celery beat task: beat exists in only 8 of the 12 combinations, and a component whose session table grows without bound in the other 4 would make session hygiene a property of an unrelated toggle.
+
 ## 6. Local development interface
 
 The counterpart to §5. Where the deployment interface states what a component must present to the platform, this states what it must not demand of a developer: **nothing running alongside it.**
@@ -250,11 +280,11 @@ The product's name commits it to fifteen factors, so this is where each one is a
 | 2 | Dependencies | Declared in `pixi.toml`, resolved from conda-forge, pinned in `pixi.lock`; no reliance on system packages | Satisfied, with the one pending exception in §8 |
 | 3 | Config | `django-environ` reads `DJANGO_*` and `OTEL_*` from the environment; no configuration file is baked into the image (§5) | Satisfied |
 | 4 | Backing services | PostgreSQL, Redis, and object storage attach by environment variable. The §6 substitutions are the same contract pointed at a different endpoint, which is the factor working as intended | Satisfied |
-| 5 | Build, release, run | CI builds and containerizes; the deployment repository runs. **Migrations are unassigned** — whether they belong to the release stage or the run stage is undecided, and the deployment repository cannot infer it | **Open** |
-| 6 | Processes | No `SESSION_ENGINE` is set, so Django's database-backed sessions apply and no state lives in the process. Correct — but by default rather than by decision, and the Redis toggle offers a cache-backed alternative nobody has chosen | **Open** |
+| 5 | Build, release, run | CI builds and containerizes; the deployment repository runs. Migrations are a release-stage step, and a component refuses to start against an unmigrated schema (§5.2) | Decided, **not yet implemented** |
+| 6 | Processes | Stateless. Sessions are database-backed in every combination — the current default, now an explicit decision rather than an inherited one, so session behaviour never varies by toggle. Pruning is a scheduled admin process (§5.3) | Decided, **`SESSION_ENGINE` not yet set explicitly** |
 | 7 | Port binding | uvicorn and gunicorn bind a port directly; no web server is injected at runtime | Satisfied |
-| 8 | Concurrency | gunicorn with uvicorn workers serves the web process. The background-tasks toggle adds worker and beat process types, so **the process types a component declares vary by combination** and are unstated | **Open** |
-| 9 | Disposability | Startup fails fast on misconfiguration — the `production.py` refusals in §1.6 and §6.3 are exactly this. **Graceful shutdown is unaddressed**: SIGTERM handling for in-flight requests, and draining a Celery worker mid-task during a rolling deploy | **Open** |
+| 8 | Concurrency | gunicorn with uvicorn workers serves web. Background tasks add worker and beat process types; beat must run as exactly one replica. The process model per combination is declared in §5.1 | Satisfied, declared |
+| 9 | Disposability | Startup fails fast on misconfiguration — the `production.py` refusals in §1.6, §5.2 and §6.3. Shutdown drains on SIGTERM (§5.2); the grace values and readiness contract ride with the health signal, still open | Decided, **pending the health signal** |
 | 10 | Dev/prod parity | **Deliberately traded.** §6 varies the backing services between local development and deployment, which is the practice this factor exists to discourage. The reasoning and the mitigations are in the brief's risk register | Traded, knowingly |
 | 11 | Logs | structlog writes a JSON event stream to stdout; the component never manages files or rotation | Satisfied |
 | 12 | Admin processes | Management commands run as one-off processes (`pixi run manage`). Note that `createsuperuser` stops being the admin bootstrap in deployed environments (§1.4) | Satisfied |
@@ -262,13 +292,13 @@ The product's name commits it to fifteen factors, so this is where each one is a
 | 14 | Telemetry | structlog and OpenTelemetry, immovable, and not substituted locally (§6.1.1) | Satisfied |
 | 15 | Authentication and authorization | IdP-only in deployed components, guarded by startup refusal (§1.6) | Designed, **not yet implemented** |
 
-Four factors are open, and none of them is a deployment-repository concern that §5 can defer: each one requires a decision inside the component. They are carried into §8.
+The four that were open when this table was first written — 5, 6, 8 and 9 — are now decided and recorded in §5. None was a deployment-repository concern that §5 could defer; each needed a decision inside the component, and factor 9 is the only one still carrying a dependency, on the health signal in §8.
 
 ## 8. Open items carried forward
 
 1. The phase-2 verification harness — how generated output is built and gated once the repository becomes a FreeMarker template
 2. Where the shared claims-to-groups mapper lives so all three authentication paths — interactive, programmatic, and local synthetic (§1.6) — consume one implementation
-3. The health-signal contract expected by the deployment repository
+3. The health-signal and lifecycle contract expected by the deployment repository: readiness, liveness, and a termination grace period that exceeds the longest drain (§5.2). No health route exists in `src/config/urls.py` today
 4. How local personas are defined and seeded: where the synthetic claims live, and whether the first local admin arrives via `createsuperuser` or a seeding task that can express several developers with different group memberships
 5. Where the development signing keypair lives, how it is generated, and what keeps it out of a deployed component
 6. Whether the in-memory cache, eager Celery, and `OTEL_SDK_DISABLED` warrant startup refusals in production settings, as sqlite and local credentials do (§6.3)
@@ -276,9 +306,4 @@ Four factors are open, and none of them is a deployment-repository concern that 
 8. How the component's own name is parameterized. The tree is `src/django_service/`, and every generated component needs its own package name, module paths, and `service.name` on the telemetry resource. The generator engine is out of scope, but making the name a template parameter is the template's job, not the engine's
 9. The single supply-chain exception is pending upstream, not permanent. `django-celery-beat` resolves from PyPI because the conda-forge recipe transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"` without the environment marker, making the cap unconditional and irreconcilable with `opentelemetry-api`'s `>=6.0,<8.8.0`. [conda-forge/django-celery-beat-feedstock#18](https://github.com/conda-forge/django-celery-beat-feedstock/pull/18) removes the cap, and [celery/django-celery-beat#1080](https://github.com/celery/django-celery-beat/pull/1080) removes it upstream — executing a `TODO` upstream had already written against its own requirement. On merge and build, the dependency moves to conda-forge and the exception in the brief disappears
 
-10. **Where session state lives (factor 6).** No `SESSION_ENGINE` is set, so Django's database backend applies by default. Whether that is the intended answer, and whether a component with the Redis toggle should move sessions to the cache, is undecided — and the two differ in durability, eviction, and what a Redis outage costs
-11. **Which process types each combination declares (factor 8).** A web process always; worker and beat only when background tasks are selected. The deployment repository has to know what to run, so the process model is part of the interface in §5 rather than an implementation detail
-12. **Graceful shutdown (factor 9).** SIGTERM handling for in-flight requests, and draining a Celery worker mid-task during a rolling deploy. Startup already fails fast; shutdown has no stated behavior
-13. **Whether migrations are a release-stage or a run-stage step (factor 5).** The deployment repository cannot infer this, and the two choices behave differently under rolling deploys and multi-replica starts
-
-Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6.
+Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6. Factors 5, 6, 8 and 9, raised by the audit in §7 and settled in §5 — session state is database-backed in every combination, the process model is declared per combination, migrations are a release-stage step guarded by a startup refusal, and shutdown drains on SIGTERM.

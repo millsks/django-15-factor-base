@@ -143,7 +143,7 @@ The promise is that the *generated* component works. A green gate on this reposi
 
 ## What Is Not Yet Decided
 
-This brief records the decisions made, not a finished design. Thirteen questions remain open in the addendum — four of them raised by the factor audit, which found factors 5, 6, 8, and 9 unaccounted for. These shape what comes next most directly:
+This brief records the decisions made, not a finished design. An audit against the fifteen factors found four unaccounted for — build/release/run, stateless processes, concurrency, and disposability — and all four are now settled in the addendum's deployment interface. Nine questions remain open. These shape what comes next most directly:
 
 - How generated output is verified once this repository becomes a template
 - Where the shared claims-to-groups mapper lives, given three authentication paths must consume one implementation
