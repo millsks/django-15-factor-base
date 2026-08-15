@@ -2,7 +2,7 @@
 title: "Product Brief: django-15-factor-base"
 status: draft
 created: 2026-08-08
-updated: 2026-08-14
+updated: 2026-08-15
 ---
 
 # Product Brief: django-15-factor-base
@@ -43,7 +43,7 @@ That transition is a one-way boundary and the most consequential fact in this br
 This section is deliberately unflattering, because inflated claims here would mislead the architecture work downstream. The project began as `cookiecutter-django` and was restructured; all of it is technically reproducible, and there is no moat in the code. The genuine differentiators:
 
 - **Decisions live where they are enforced.** The dependency manifest carries the reasoning for its own non-obvious lines — why one package comes from PyPI when every other comes from conda-forge, why a coverage core is pinned. Rationale cannot drift from configuration when it lives inside the configuration.
-- **A single audited supply chain.** Every dependency resolves from conda-forge, with one documented exception.
+- **A single audited supply chain.** Every dependency resolves from conda-forge, with no exceptions. The one that existed cleared upstream on 2026-08-14.
 - **Observability is structural.** Correlated logs and distributed traces are core; no feature selection removes them.
 - **The gate detects, it does not decorate.** Removing a feature during this audit orphaned two template overrides that no import graph, linter, or dependency analyzer would flag. Only the coverage gate caught them, by reporting 0%. That property is what will keep feature extraction honest as the model grows.
 - **The component runs before anything else does.** No compose file, no services, no IdP realm — where the project this was forked from expects a developer to bring an environment up first. What a developer exercises locally is not a mock of the deployed behaviour; it is the deployed behaviour, minus the network hops.
@@ -88,6 +88,7 @@ So a generated component runs on a developer's machine with **no external servic
 | PostgreSQL | sqlite | The ORM, migrations, and the full test suite |
 | Redis cache | in-memory cache | The cache API and every call site |
 | Celery and its broker | eager, in-process execution | Task code paths, invoked synchronously |
+| Object storage | filesystem-backed storage | The storage API and every call site |
 | Corporate IdP | local users and admins, with synthetic claims | The claims-to-groups mapper, unchanged |
 
 **Observability is the exception that needs no substitute.** Nothing about it is stubbed, swapped, or disabled locally — only the final export step is absent, so spans are discarded when they end instead of being exported. That makes it immovable in a stronger sense than the rest of the core: it is the one capability a developer cannot accidentally work without.
@@ -110,7 +111,7 @@ The promise is that the *generated* component works. A green gate on this reposi
 - The Django base: the immovable core and the four selectable features
 - Grouping code, dependencies, settings, templates, and tests so a feature can be excluded cleanly
 - Rewiring authentication so that a deployed component authenticates exclusively against the IdP, and refuses to start if a local credential path is enabled
-- The local development contract: the four substitutions, the synthetic-claims path, and the locally signed development token
+- The local development contract: the five substitutions, the synthetic-claims path, and the locally signed development token
 - The feature model, its constraint, and the presets
 - Verification of generated combinations, against PostgreSQL and locally on sqlite
 - The interface a component presents to the deployment pipeline: environment-variable configuration, a health signal, OTLP export settings
@@ -145,7 +146,7 @@ The promise is that the *generated* component works. A green gate on this reposi
 
 No decisions remain open.
 
-**One thing to watch:** the single supply-chain exception is pending upstream. Pull requests against both the conda-forge recipe and `django-celery-beat` itself remove the constraint that forces one dependency to resolve from PyPI. When either lands, the exception disappears on its own.
+**The supply-chain exception is closed.** It resolved on 2026-08-14: conda-forge build `django-celery-beat 2.9.0 pyhcf101f3_1` dropped the unconditional `importlib-metadata` cap, and the dependency now resolves from conda-forge like everything else. The project carries no supply-chain exceptions.
 
 **One capability is named but unbuilt:** propagating an accelerator change into components already generated, described in Vision. The version stamp makes those components enumerable; the mechanism that would act on that is out of scope.
 
