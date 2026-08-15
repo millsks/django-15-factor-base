@@ -1,24 +1,33 @@
 name: SonarCloud Analysis
 
+# Runs after the gate, not alongside it. AD-18 puts every gate step inside the
+# single `pixi run ci` invocation, so this workflow must not measure the suite
+# itself -- it consumes the coverage.xml the gate produced. Cross-workflow
+# artifacts are only reachable through `workflow_run`, which is why the trigger
+# is shaped this way rather than mirroring ci.yml's push/pull_request triggers.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    types: [opened, synchronize, reopened]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
 
 jobs:
   sonarcloud:
     name: SonarCloud Scan
     runs-on: ubuntu-latest
+    # A failed gate has nothing worth scanning, and its coverage.xml would
+    # describe a build nobody is going to merge.
+    if: github.event.workflow_run.conclusion == 'success'
     permissions:
       contents: read
       pull-requests: write
       checks: write
+      actions: read # required to download an artifact from another run
 
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # Shallow clones should be disabled for better analysis
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up Pixi
         uses: prefix-dev/setup-pixi@v0.9.5
@@ -30,11 +39,20 @@ jobs:
       - name: Install dependencies
         run: pixi install -e dev
 
-      # `cov` runs the full suite and writes coverage.xml, which
-      # sonar-project.properties points at via sonar.python.coverage.reportPaths.
-      - name: Run tests with coverage
-        run: pixi run test-cov
+      # sonar-project.properties points at coverage.xml via
+      # sonar.python.coverage.reportPaths, so the file must land at the
+      # repository root under that exact name. No `continue-on-error` here: a
+      # missing report means the scan would silently claim zero coverage, which
+      # is a worse signal than a failed workflow.
+      - name: Download coverage report from the gate
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-xml
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # ruff-report is not a gate step: `lint` gates on findings and runs inside
+      # the gate, while this writes the same findings as JSON for the scanner.
       - name: Run ruff linting with JSON output
         run: pixi run ruff-report
 

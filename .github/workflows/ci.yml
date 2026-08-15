@@ -6,15 +6,26 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# The gate is one task invoked in one place (AD-18). `pixi run ci` runs
+# precommit, build, typecheck, lint and test-cov in that order, and a developer
+# running it locally executes the identical sequence -- no step exists only here
+# or only there. No other workflow may run a gate step on its own.
+#
+# Why the split below is a split and not a narrowed gate: GitHub Actions
+# `services:` containers run only on Linux runners, so the PostgreSQL service
+# the gate needs (Story 1.2, FR-32) cannot be attached to a three-OS matrix.
+# The gate therefore runs on ubuntu only, and a separate matrix job keeps the
+# three-OS claim by running the suite against the sqlite substitution. The two
+# jobs assert different things and neither replaces the other.
+#
+# Any future six-combination job is Linux-only for a second, independent reason:
+# `gunicorn` has no win-64 build, and pixi.toml scopes gunicorn/uvicorn-worker
+# to linux-64 and osx-arm64 only.
+
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        # Informational only: pixi pins the interpreter (python = "3.14.*") and
-        # setup-python is never invoked, so every leg runs Python 3.14.
-        python-version: ['3.14']
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v6
@@ -28,12 +39,32 @@ jobs:
         environments: dev
         cache: true
 
-    - name: Run tests
-      run: |
-        pixi run test
+    # Story 1.2 attaches a PostgreSQL `services:` block and DATABASE_URL to this
+    # job. Keep it shaped so that is a pure insertion.
+    - name: Run the gate
+      run: pixi run ci
 
-  lint:
-    runs-on: ubuntu-latest
+    # sonarqube.yml consumes this rather than running coverage itself, so the
+    # gate stays the only place the suite is measured.
+    - name: Upload coverage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-xml
+        path: coverage.xml
+        if-no-files-found: warn
+        retention-days: 7
+
+  compatibility:
+    name: Compatibility (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Informational only: pixi pins the interpreter (python = "3.14.*") and
+        # setup-python is never invoked, so every leg runs Python 3.14.
+        python-version: ['3.14']
 
     steps:
     - uses: actions/checkout@v6
@@ -45,10 +76,8 @@ jobs:
         environments: dev
         cache: true
 
-    - name: Lint with ruff
-      run: |
-        pixi run lint
-
-    - name: Type check with mypy
-      run: |
-        pixi run typecheck
+    # Unit tests only, against the sqlite substitution. This job claims "the
+    # reference application runs on all three platforms", not "the gate passed";
+    # the gate job above is what makes that second claim.
+    - name: Run unit tests
+      run: pixi run test
