@@ -16,7 +16,7 @@ sources: []
 
 An **opportunity to capture** with a **mandate** attached. A lead developer inside the enterprise platform should be able to order a Django component from the enterprise developer portal and have their first commit be business logic — the component already emits correlated logs and traces, already authenticates against the corporate identity provider and nothing else, and already passed a full quality gate on the day it was created. The product is not the Django code; it is the set of decisions already made and proven, living where they are enforced so rationale cannot drift from configuration.
 
-Phase 1 is where those decisions become real and provable. It delivers the reference application with every capability present and exercised, the authentication rewire that makes the IdP the only credential path in a deployed component, the startup refusals that keep local convenience out of deployment, and the harness that proves all twelve valid combinations build, pass, and run. The harness is the load-bearing part: the quality gate cannot run against FreeMarker-interleaved source, so verification has to move to what the template renders — and it has to move **before** the phase-2 transition, or the central quality claim goes dark exactly when the product starts being used.
+Phase 1 is where those decisions become real and provable. It delivers the reference application with every capability present and exercised, the authentication rewire that makes the IdP the only credential path in a deployed component, the startup refusals that keep local convenience out of deployment, and the harness that proves all six valid combinations build, pass, and run. The harness is the load-bearing part: the quality gate cannot run against FreeMarker-interleaved source, so verification has to move to what the template renders — and it has to move **before** the phase-2 transition, or the central quality claim goes dark exactly when the product starts being used.
 
 The measure is that the accelerator becomes the fastest way to start a Django component inside the platform, so compliance is a side effect of convenience rather than a review gate. A standard slower than the fork it replaces does not get adopted; it gets routed around.
 
@@ -24,7 +24,7 @@ The measure is that the accelerator becomes the fastest way to start a Django co
 
 - **CAP-1 — Immovable core**
   - **intent:** Every valid combination provides the same fixed capability set — PostgreSQL, allauth with OIDC, DRF with drf-spectacular, the Django admin, CORS, structlog, OpenTelemetry, environment-based configuration, static file serving, and a uvicorn/gunicorn process — defined by capability rather than by package list, so instrumentation flexes with the capabilities that exist while the guarantee does not.
-  - **success:** All twelve materialized combinations serve an API described by their generated schema, render the admin, emit correlated structured logs, and produce spans for ASGI requests; the dependency manifest of each carries exactly the instrumentation packages its capabilities require and no others. *(SC-7)*
+  - **success:** All six materialized combinations serve an API described by their generated schema, render the admin, emit correlated structured logs, and produce spans for ASGI requests; the dependency manifest of each carries exactly the instrumentation packages its capabilities require and no others. *(SC-7)*
 
 - **CAP-2 — IdP-only authentication through one shared mapper**
   - **intent:** A person authenticates interactively by redirect to the IdP and an API client authenticates programmatically by Bearer JWT, and both resolve authorization through a single mapper keyed on one stable identity claim, which re-syncs group membership, staff, and superuser status on every credential epoch including removals.
@@ -39,12 +39,12 @@ The measure is that the accelerator becomes the fastest way to start a Django co
   - **success:** Every valid combination starts, serves, returns 200 from readiness, and authenticates a persona into a rendered admin index with no external service running; a locally minted JWT is verified for signature, `iss`, `aud`, and `exp` by the real Bearer authentication class. *(SC-4)*
 
 - **CAP-5 — Feature model and clean extraction**
-  - **intent:** A lead developer selects any subset of four features — background task processing, Redis cache, server-rendered UI, object storage — whose entire surface is declared in one carrier, and an unselected feature is absent rather than present-and-disabled.
+  - **intent:** A lead developer selects any subset of three features — background task processing, Redis cache, object storage — whose entire surface is declared in one carrier, and an unselected feature is absent rather than present-and-disabled.
   - **success:** No materialized combination contains a dependency, template, static asset, settings fragment, or test belonging to a feature it did not select, and an orphaned template override introduced deliberately fails that combination's gate. *(SC-2)*
 
 - **CAP-6 — Materializer and two-level verification**
-  - **intent:** A developer or CI job materializes the complete source of any valid combination deterministically from the reference application, so the twelve-combination claim is provable before the FreeMarker transition rather than after it.
-  - **success:** All twelve valid combinations are materialized and pass the full gate — tests, coverage at or above ninety percent including templates, strict type checking, lint, build — against PostgreSQL, with no partial pass; materializing one combination twice produces byte-identical trees; and an invalid pairing is refused with the broker constraint named. *(SC-1)*
+  - **intent:** A developer or CI job materializes the complete source of any valid combination deterministically from the reference application, so the six-combination claim is provable before the FreeMarker transition rather than after it.
+  - **success:** All six valid combinations are materialized and pass the full gate — tests, coverage at or above ninety percent including templates, strict type checking, lint, build — against PostgreSQL, with no partial pass; materializing one combination twice produces byte-identical trees; and an invalid pairing is refused with the broker constraint named. *(SC-1)*
 
 - **CAP-7 — Deployment interface**
   - **intent:** A component declares to a deployment repository it does not own which process types it runs, what its health endpoints mean, how it drains, and that migration is a release-stage step — and never migrates itself.
@@ -52,7 +52,7 @@ The measure is that the accelerator becomes the fastest way to start a Django co
 
 - **CAP-8 — Observability**
   - **intent:** Every component writes a JSON event stream to stdout carrying request, trace, and span identifiers, produces spans for ASGI requests, and makes swallowed degradation visible — none of which any feature selection can remove.
-  - **success:** Correlation identifiers are present on log lines emitted during a request in all twelve combinations and propagate into task execution where background processing is selected; the ASGI instrumentor is active in all twelve; every swallowed cache failure emits a correlated log event; and the OTLP export path is exercised end to end against a collector stub. *(SC-7)*
+  - **success:** Correlation identifiers are present on log lines emitted during a request in all six combinations and propagate into task execution where background processing is selected; the ASGI instrumentor is active in all twelve; every swallowed cache failure emits a correlated log event; and the OTLP export path is exercised end to end against a collector stub. *(SC-7)*
 
 - **CAP-9 — Supply chain policy**
   - **intent:** Every dependency in every combination resolves from the approved channel with its reasoning recorded at the point of declaration, and a new feature is not committed to until its dependencies are proven both present on the channel and fit against the pinned runtime.
@@ -75,7 +75,7 @@ The measure is that the accelerator becomes the fastest way to start a Django co
 - Nothing on the local start path reaches the network at boot: OIDC discovery and JWKS retrieval are lazy, on first use only.
 - No network surface exists beneath Django's URL routing. A protocol handled below the resolver is invisible to the authentication allowlist and is never an inherited handler.
 - Configuration is exclusively environmental — no configuration file is baked into the image — and a materialized component ships no Dockerfile.
-- All twelve pixi environments share one solve-group. Without it the four Celery combinations resolve a different Django from the other eight and the twelve-combination claim stops meaning what it says.
+- All six pixi environments share one solve-group. Without it the two Celery combinations resolve a different Django from the other four and the six-combination claim stops meaning what it says.
 - Dev/prod parity is deliberately traded. Backing services differ between local and deployed; the trade is bounded by the gate running against PostgreSQL, authorization code paths shared rather than mocked, and observability not substituted at all.
 - Concrete non-functional numbers — probe timings, startup budget, termination grace, resource limits, JWKS cache TTL — are outside this contract and are pinned against the real platform.
 
@@ -93,17 +93,17 @@ The measure is that the accelerator becomes the fastest way to start a Django co
 - Becoming a general-purpose Django starter. The enterprise platform assumptions are load-bearing throughout.
 - Carrying the platform's guarantees into a template repository. Consuming this repository through the code host's create-from-template facility produces a fork of the base, not a component, and is outside every guarantee here.
 - Scheduling the session-pruning process. The schedule lives in the deployment repository; the component-side requirement is in scope.
-- All-pairs verification as the standing policy. Exhaustive verification of twelve is correct until the space grows past roughly thirty-two.
+- All-pairs verification as the standing policy. Exhaustive verification of six is correct until the space grows past roughly thirty-two.
 
 ## Success signal
 
 A lead developer orders a Django component from the enterprise developer portal, clones it, and their first commit is business logic — because the pipeline that goes green on that commit was already green before they wrote it, and they never opened a decision about logging, tracing, or authentication.
 
-Demonstrable in one CI run: all twelve valid combinations materialize from the reference application, pass the full gate against PostgreSQL, and boot-and-authenticate a persona locally with nothing installed — and a deliberately introduced orphan or forbidden configuration fails its combination rather than passing quietly.
+Demonstrable in one CI run: all six valid combinations materialize from the reference application, pass the full gate against PostgreSQL, and boot-and-authenticate a persona locally with nothing installed — and a deliberately introduced orphan or forbidden configuration fails its combination rather than passing quietly.
 
 ## Assumptions
 
-- The channel's `django-storages` build works against the pinned Django 6.0 and Python 3.14. Its released version predates both and declares support for neither. *Owner:* architecture. Object storage appears in six of twelve combinations and dropping it is not an available answer, so this is carried as a named risk rather than avoided.
+- The channel's `django-storages` build works against the pinned Django 6.0 and Python 3.14. Its released version predates both and declares support for neither. *Owner:* architecture. Object storage appears in three of six combinations and dropping it is not an available answer, so this is carried as a named risk rather than avoided.
 - Session lifetime is short enough that per-authentication re-sync is the accepted revocation latency. *Owner:* platform group.
 - The platform's termination grace period exceeds the longest expected drain. *Owner:* deployment repository.
 - A platform startup-time budget exists. The substantive requirement — that the nine refusal checks are cheap enough to be irrelevant to startup — does not depend on knowing its value. *Owner:* architecture.

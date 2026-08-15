@@ -80,6 +80,8 @@ And its **Out of Scope**: "Environment installation, which downloads packages by
 
 This story owns the "boot that reaches the network" half as an assertion. Story 2.7 owns the retrieval, the `kid` cache and the rate limiter. Do not build a second retrieval path here, and do not weaken the rate limiter to make a test simpler.
 
+**The trust-anchor check is syntactic, and this story is why.** AD-23: "Verifying a JWKS location against the issuer's published discovery document requires fetching it, which is the boot-time network call FR-23 forbids — so startup can only apply a string-derivation rule over the configured issuer. An issuer whose real `jwks_uri` does not match the derivation surfaces on the first Bearer request, not at boot." "Derived from" is not "confirmed against". If an assertion in this story fails because something fetches a discovery document at boot, the fix is to make that fetch lazy — never to accept the fetch and narrow the guard.
+
 **AD-31 — Identity-provider configuration is settings-resident.** "allauth's OIDC provider is configured from `SOCIALACCOUNT_PROVIDERS` populated from the environment, never from database-resident `SocialApp` rows, which a component forbidden to migrate itself could never create." Configuration-from-environment is what makes AC #1 achievable: a provider whose configuration lives in the database would need a query at boot, and a provider that resolved its endpoints by discovery would need a request.
 
 **NFR-1 — Startup fails fast and cheaply.** "Misconfiguration surfaces at boot as `ImproperlyConfigured`, never as scattered runtime errors; the checks make no network call and no query beyond migration state." The refusal contract Epic 4 adds to the boot path inherits this story's property; Task 6's comment is what carries it forward.
@@ -104,7 +106,7 @@ This story owns the "boot that reaches the network" half as an assertion. Story 
 
 **`tests/unit/conftest.py` today (verified).** Docstring only: "Unit tests must not touch the database, the network or the filesystem; add fixtures here only if they hold to that." This story's guard is the enforcement of the network half; put it in `tests/conftest.py` because the integration seeding test needs it too.
 
-**`manage.py` today (verified, 37 lines).** Sets `DJANGO_SETTINGS_MODULE` default to `config.settings.local` at `:11`, inserts `src/` on `sys.path` at `:22-25`, then imports and calls `configure_observability()` at `:29-31` before `execute_from_command_line`. **Do not remove the `sys.path` insert here** — collapsing the five import-root declaration sites to one is AD-7 and Epic 1's work, and doing it in this story would break the boot path this story is asserting about.
+**`manage.py` today (verified, 37 lines).** Sets `DJANGO_SETTINGS_MODULE` default to `config.settings.local` at `:11`, inserts `src/` on `sys.path` at `:23-25` (its explanatory comment at `:22`), then imports and calls `configure_observability()` at `:29-31` before `execute_from_command_line`. **Do not remove the `sys.path` insert here** — collapsing the **six** import-root declaration sites to one is AD-7 and Epic 1's work, and doing it in this story would break the boot path this story is asserting about. Note for the `tests/conftest.py` edit below: one of those six is `pyproject.toml [tool.pytest.ini_options] pythonpath` at `:149`, whose `"."` entry is what makes `tests.factories` importable from `tests/conftest.py`; when Epic 1 removes it, this file is the one that breaks. Do not pre-empt that work here.
 
 **`src/config/celery_app.py` today (verified, 37 lines).** Sets the settings-module default at `:10`, calls `configure_observability()` at `:12` **at module import**, constructs the `Celery` app, adds `DjangoStructLogInitStep`, configures from Django settings with the `CELERY_` namespace, and autodiscovers tasks at `:37`. The import-time `configure_observability()` call is exactly why Task 2's third assertion matters.
 
@@ -133,7 +135,7 @@ Aligned with the spine's test-location convention: accelerator and base tests li
 
 - [Source: _bmad-output/planning-artifacts/prds/prd-django-15-factor-base-2026-08-14/prd.md#FR-23] — the three consequences and the out-of-scope line.
 - [Source: _bmad-output/planning-artifacts/prds/prd-django-15-factor-base-2026-08-14/prd.md#NFR-1]
-- [Source: _bmad-output/planning-artifacts/prds/prd-django-15-factor-base-2026-08-14/prd.md:189] — "Retrieval is lazy: JWKS is fetched on the first Bearer request that needs it, never at import or at boot. A component must boot with no route to the IdP."
+- [Source: _bmad-output/planning-artifacts/prds/prd-django-15-factor-base-2026-08-14/prd.md:197] — "Retrieval is lazy: JWKS is fetched on the first Bearer request that needs it, never at import or at boot. A component must boot with no route to the IdP."
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-23] · [#AD-31] · [#AD-26] · [#AD-13] · [#AD-7]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Named Residual Risks] — R-5.
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 3.7] · [#Story 2.7] · [#Story 3.3] · [#Story 3.5]

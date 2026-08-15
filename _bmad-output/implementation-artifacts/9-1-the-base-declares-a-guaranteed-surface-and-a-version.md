@@ -18,8 +18,8 @@ so that a routine tidy-up inside the base does not become an estate-wide break.
    **And** anything inside `django_service` not enumerated is internal and may change without a version bump
 
 2. **Given** the guaranteed surface
-   **When** any of the twelve combinations is inspected
-   **Then** it is present in all twelve
+   **When** any of the six combinations is inspected
+   **Then** it is present in all six
    **And** no feature selection may remove part of it
 
 3. **Given** `django_service.__api_version__`
@@ -49,6 +49,7 @@ so that a routine tidy-up inside the base does not become an estate-wide break.
 - [ ] Task 2 — Enumerate the guaranteed surface in the carrier (AC: #1, #2, #4)
   - [ ] Add a `[base_surface]` table to `accelerator.toml` (created by Story 7.1) declaring, by explicit dotted path, every module, class and settings key a reusable app may depend on. Never by namespace or glob — an enumeration by prefix would make "anything not enumerated is internal" unenforceable.
   - [ ] Populate it from the tree as it stands after Epics 2–7: at minimum `django_service.users.models.User`, `django_service.users.apps.UsersConfig`, and the settings keys `AUTH_USER_MODEL`, `MIGRATION_MODULES`. Enumerate concrete names, not directories.
+  - [ ] **The interface mechanism is part of the guaranteed surface** (AD-29, revision 3). It is `core` and present in all six combinations, so a reusable app with its own templates, forms and views may rely on it: enumerate the navigation-registry entry type and its registration callable in `django_service` (the names an app's contribution module imports to build entries, Story 9.4), and add a `guaranteed_templates` key listing the template names an app may `{% extends %}` or `{% include %}` — `base.html` and the form-styling elements — since a template name is a contract an app depends on and is not expressible as a dotted path. The 403/404/500 templates are `core` but are Django-resolved, not app-extended, so they are internal to this enumeration.
   - [ ] Add a `guaranteed_settings` key inside the same table listing the settings names that count as guaranteed, so AC #4's "renaming a guaranteed setting" is decidable by the test rather than by argument.
   - [ ] Add the rationale beside the declaration in `accelerator.toml` itself (spine Consistency Conventions: reasoning lives beside the configuration it constrains), stating that everything inside `src/django_service/` not listed here is internal.
 
@@ -57,11 +58,12 @@ so that a routine tidy-up inside the base does not become an estate-wide break.
   - [ ] For every dotted path in `[base_surface]`, import the module with `importlib.import_module` and `getattr` the attribute; a name that does not resolve fails the test. This is what makes "moving a module within the guaranteed surface" a detectable breaking change rather than a convention.
   - [ ] Assert every enumerated path lies inside `django_service.` — the guaranteed surface may not name `config` or a tenant app.
   - [ ] Assert each name in `guaranteed_settings` is present in the imported Django settings.
+  - [ ] For every name in `guaranteed_templates`, assert `django.template.loader.get_template` resolves it; a guaranteed template that no loader finds is the same breaking change as a moved module.
 
-- [ ] Task 4 — Gate test: presence in all twelve combinations is structural (AC: #2, #6)
-  - [ ] In the same test module, assert that every path inside `src/django_service/` carries disposition `core` in `accelerator.toml` and that no `feature:*` disposition applies anywhere under it (AD-29). This is the mechanism by which "present in all twelve" is true: a `core` path travels into every combination, so no separate twelve-way check is needed and none should be invented.
+- [ ] Task 4 — Gate test: presence in all six combinations is structural (AC: #2, #6)
+  - [ ] In the same test module, assert that every path inside `src/django_service/` carries disposition `core` in `accelerator.toml` and that no `feature:*` disposition applies anywhere under it (AD-29). This is the mechanism by which "present in all six" is true: a `core` path travels into every combination, so no separate six-way check is needed and none should be invented.
   - [ ] Assert the mapper epoch table's model (Story 2.5, `django_service`-owned) is **not** enumerated in `[base_surface]` — it is internal, and adding it is not an API bump.
-  - [ ] Note in the test docstring that Story 7.4 owns the AD-29 disposition assertion; this test asserts the same property from the surface side and the two are allowed to overlap.
+  - [ ] Note in the test docstring that Story 7.4 owns the AD-29 disposition assertion — including that the interface mechanism is `core` with it; this test asserts the same property from the surface side and the two are allowed to overlap.
 
 - [ ] Task 5 — Gate test: the package name is a constant (AC: #5)
   - [ ] Assert `django_service` appears in no `[parameters]` entry of `accelerator.toml`, and that no parameter's substitution sites include a path under `src/django_service/`. AD-25 states `src/django_service/` is not a parameter; divergence D-1 settled this in the PRD.
@@ -75,7 +77,8 @@ so that a routine tidy-up inside the base does not become an estate-wide break.
 ### Architecture Constraints
 
 - **AD-5 (binding):** "The package name `django_service` is a constant, never parameterized — reusable apps import from it by that name in every deployment. Moving a module within the guaranteed surface (AD-29), changing `AUTH_USER_MODEL`, or renaming a guaranteed setting is a breaking change. `django_service.__api_version__` is a single integer, bumped by hand on any breaking change and on the removal of any guaranteed surface." *Prevents:* "a reusable app silently breaking on a component whose base moved beneath it; a routine tidy-up inside the base becoming an estate-wide break."
-- **AD-29 (binding):** "No `feature:*` disposition may be applied to any path inside `src/django_service/`; it is `core` in its entirety, and a gate test asserts that. … `accelerator.toml` enumerates the guaranteed surface explicitly; anything inside `django_service` not enumerated is internal and may change without a version bump." *Prevents:* "a reusable app importing a module present in six combinations and absent from six, with a combination-invariant version constant that cannot express the difference."
+- **AD-29 (binding):** "No `feature:*` disposition may be applied to any path inside `src/django_service/`; it is `core` in its entirety, and a gate test asserts that. … `accelerator.toml` enumerates the guaranteed surface explicitly; anything inside `django_service` not enumerated is internal and may change without a version bump." *Prevents:* "a reusable app importing a module present in some combinations and absent from others, with a combination-invariant version constant that cannot express the difference."
+- **AD-29 (revision 3) — the interface mechanism is part of the guaranteed surface.** "`base.html`, `_navbar.html` and the navigation registry, the 403/404/500 templates, the form-styling configuration, static-file serving and the user profile views are all `core` and present in every combination." The consequence for this story is direct: "With the interface mechanism now core, an app with its own templates, forms and views relies on it freely: it extends `base.html`, uses the form styling, and contributes its own navigation entries." That is a dependency a reusable app takes on the base, so the names it depends on belong in this enumeration. An app that instead requires a *remaining* feature — background task processing, Redis or object storage — names that feature in its contribution module and is refused at settings import where unselected (AD-8, Story 9.4); it does not get to rely on feature-owned surface silently.
 - **AD-1:** the guaranteed surface is declared in `accelerator.toml` "and nowhere else." Do not create a second enumeration in `src/`, in docs, or in a test constant — the test reads the carrier.
 - **AD-10:** the epoch record "is internal surface (AD-29), so adding it is not an API version bump."
 - **AD-25:** "`src/django_service/` is **not** a parameter (AD-5)."
@@ -91,10 +94,10 @@ so that a routine tidy-up inside the base does not become an estate-wide break.
 | Path | NEW/UPDATE | What changes |
 |---|---|---|
 | `src/django_service/__init__.py` | UPDATE | 18 lines today: a module docstring plus `__version__` read from distribution metadata via `importlib.metadata.version("django-15-factor-base")` with a `PackageNotFoundError` fallback, and a derived `__version_info__`. **Preserve all of it.** Add `__api_version__: int = 1` plus the bump-rule docstring paragraph and comment. |
-| `accelerator.toml` | UPDATE | **Does not exist in the repo today**; created by Story 7.1 at the repository root, disposition `machinery`. Add the `[base_surface]` table (enumerated dotted paths, `guaranteed_settings`) and its rationale comment. |
+| `accelerator.toml` | UPDATE | **Does not exist in the repo today**; created by Story 7.1 at the repository root, disposition `machinery`. Add the `[base_surface]` table (enumerated dotted paths, `guaranteed_settings`, `guaranteed_templates`) and its rationale comment. |
 | `tests/unit/test_base_surface.py` | NEW | The four gate assertions of Tasks 3–5. |
 
-Verified: `src/django_service/__init__.py` exists (18 lines). `src/django_service/` contains `users/`, `contrib/sites/`, `templates/`, `static/`. `AUTH_USER_MODEL = "users.User"` is at `src/config/settings/base.py:138`; `MIGRATION_MODULES` at `:128`. There is no `accelerator.toml`, no `[base_surface]` table, and no `__api_version__` anywhere in the tree today.
+Verified: `src/django_service/__init__.py` exists (18 lines). `src/django_service/` contains `users/`, `contrib/sites/`, `templates/`, `static/`. `src/django_service/templates/base.html` exists; `_navbar.html` does not yet — Story 7.4 extracts it. `AUTH_USER_MODEL = "users.User"` is at `src/config/settings/base.py:138`; `MIGRATION_MODULES` at `:128`. There is no `accelerator.toml`, no `[base_surface]` table, and no `__api_version__` anywhere in the tree today.
 
 ### Testing Requirements
 
@@ -106,6 +109,7 @@ Verified: `src/django_service/__init__.py` exists (18 lines). `src/django_servic
   - every path under `src/django_service/` is disposed `core`, none `feature:*` (AC #2);
   - `type(django_service.__api_version__) is int` (AC #3);
   - `guaranteed_settings` names all exist in the imported settings (AC #4);
+  - every `guaranteed_templates` name resolves through the template loader (AC #1, #2);
   - no `[parameters]` entry names `django_service` or a path beneath it (AC #5);
   - the epoch model is absent from `[base_surface]` (AC #6).
 - AD-20: the coverage floor is ninety percent including templates, global, with `COVERAGE_CORE=ctrace` in force. `pixi run cov` / `pixi run ci` must exit 0.
@@ -115,7 +119,7 @@ Verified: `src/django_service/__init__.py` exists (18 lines). `src/django_servic
 
 The Structural Seed places `src/django_service/` as "core in its entirety — no feature:* dispositions (AD-29)" and `accelerator.toml` at the root as the machinery catalogue. This story adds no directory; it adds one constant and one carrier table.
 
-Variance from the seed as the repo stands today: `accelerator.toml` does not exist (Story 7.1), `src/config/authorization/`, `src/config/startup/` and `src/django_apps/` do not exist, and `src/django_service/` still contains user-facing UI surface that Story 7.4 moves out. This story must be implemented after Story 7.1 and Story 7.4 land, because the enumeration would otherwise name paths that are about to move — which is exactly the breaking change AC #4 defines.
+Variance from the seed as the repo stands today: `accelerator.toml` does not exist (Story 7.1), and `src/config/authorization/`, `src/config/startup/` and `src/django_apps/` do not exist. There is **no `src/features/`** and no feature root — AD-33 is retired in revision 3, and nothing moves out of `src/django_service/`: the interface mechanism stays inside it as `core`. What Story 7.4 does change there is shape, not residency — `base.html` loses its hardcoded navigation to `_navbar.html` and the registry, and `templates/pages/` (`home`, `about`) and `users/tasks.py` are deleted. This story must still be implemented after Story 7.1 and Story 7.4 land, because the enumeration would otherwise name templates and modules that are about to change or disappear — which is exactly the breaking change AC #4 defines.
 
 Python 3.14 only; PEP 8 at 120 columns; full type hints on public signatures; `X | Y` / `list[X]` / `dict[K, V]`; no `print()`; `structlog` only if logging is needed (it is not, here).
 
@@ -129,7 +133,9 @@ Python 3.14 only; PEP 8 at 120 columns; full type hints on public signatures; `X
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-25]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Divergences From the PRD] — D-1, `src/django_service/` is a constant, "not parameterized, and this is load-bearing"
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 7.1] — `accelerator.toml` is created there
-- [Source: _bmad-output/planning-artifacts/epics.md#Story 7.4] — AD-29 disposition assertion and the UI-surface move
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Revision 3 — the interface mechanism becomes core] — six combinations; the interface mechanism is `core`; AD-33 retired
+- [Source: _bmad-output/planning-artifacts/epics.md#Story 7.4] — AD-29 disposition assertion, and the interface mechanism being `core` with it
+- [Source: _bmad-output/planning-artifacts/epics.md#Story 9.4] — the navigation registry an app contributes entries to
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 2.5] — the epoch record lives in a `django_service`-owned table
 
 ## Dev Agent Record

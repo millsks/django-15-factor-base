@@ -83,11 +83,11 @@ so that a deployed component with local convenience configured never reaches a s
 
 ### Architecture Constraints
 
-- **AD-26:** the refusal contract is one module, `src/config/startup/`, with one location, one owner and a fixed order. Stage 1 is the last statement of every settings module, "which places it after the AD-8 composition step by construction and is why AD-9's iteration over every configured database is reachable."
+- **AD-26:** the refusal contract is one module, `src/config/startup/`, with one location, one owner and a fixed order. Stage 1 is the last statement of every **leaf** settings module — `local.py`, `production.py`, `test.py` — "which places it after the AD-8 composition step by construction and is why AD-9's iteration over every configured database is reachable." **`base.py` must not call it**; Story 4.1 places the calls and the paired gate test. This matters directly here: `base.py` configures four of the five states this story refuses, so a stage-1 call there would fire before the leaf composes and refuse in every combination.
 - **AD-9 (binding rule):** "The stage-2 unapplied-migrations refusal and the sqlite refusal both iterate every configured database — which is only possible because stage 1 runs *after* composition (AD-26)." This is why Task 1 iterates aliases rather than reading `DATABASES["default"]`.
   **Prevents:** "six enforcement points each being answered differently by six epics."
 - **AD-1:** every declaration has exactly one site. The claims-contract setting names and the OIDC issuer / JWKS location setting names are Epic 2's declarations; this story consumes them and must not re-declare them.
-- **AD-23:** "The trust anchor is derived from the configured OIDC issuer; a JWKS location not derived from it is refused at startup." Condition 4 is that refusal.
+- **AD-23:** "The trust anchor is derived from the configured OIDC issuer; a JWKS location not derived from it is refused at startup. **That check is syntactic and can be nothing else.**" Condition 4 is that refusal, and its scope is exactly that: a string-derivation rule over the configured issuer. "Derived from" is not "confirmed against" — verifying the JWKS location against the issuer's published discovery document would require fetching it, which is the boot-time network call FR-23 forbids. An issuer whose real `jwks_uri` does not match the derivation surfaces on the **first Bearer request, not at boot** (recorded as L-4). Do not widen this condition to close that gap.
 - **CG-3:** "Do not soften a refusal into a warning. A refusal that logs and continues makes deployment smoother and puts local credentials into production."
 - **NFR-1:** "The nine checks are settings and URL-configuration inspection with no network call and no query beyond the migration state." **Stage 1 issues zero queries.**
 - **NFR-7:** secrets never live in source and never appear in a refusal message.
@@ -95,7 +95,7 @@ so that a deployed component with local convenience configured never reaches a s
 
 ### The settled refusal count
 
-Reproduced from `_bmad-output/planning-artifacts/epics.md:308-326`. **Nine conditions — seven unconditional, two conditional — across fourteen distinct forbidden states**, each tested separately under FR-16.
+Reproduced from `_bmad-output/planning-artifacts/epics.md:310-328`. **Nine conditions — seven unconditional, two conditional — across fourteen distinct forbidden states**, each tested separately under FR-16.
 
 | # | Condition | Stage | Forbidden states |
 |---|---|---|---|
@@ -146,12 +146,12 @@ This story owns conditions 1, 2, 3, 4 and the stage-1 half of 5 — **eight of t
 
 Consistent with the Structural Seed: `src/config/settings/` is annotated "base + local + production + test; composition, then stage 1 last (AD-8, AD-26)", and `src/config/startup/` is "both refusal stages + the FR-17 allowlist (AD-26)". No variance.
 
-One structural note worth recording: `src/config/settings/base.py:296-335` is the Celery block. AD-24 cites it as `:296-313`; line 296 is indeed the `# Celery` banner, but the block now runs to `:335` (`CELERY_WORKER_HIJACK_ROOT_LOGGER = False`). The citation's start is correct and its end has drifted by twenty-two lines. This story does not touch that block — Story 4.4 and Epic 7 do — but the drift is recorded so the region markers are placed against the current extent rather than the cited one.
+One structural note worth recording: `src/config/settings/base.py:296-335` is the Celery block — `:296` is the `# Celery` header and `:335` is `CELERY_WORKER_HIJACK_ROOT_LOGGER`, the block's last line. AD-24 now cites that extent correctly; an earlier revision cited `:296-313`, which would have left `CELERY_BEAT_SCHEDULER` behind in every combination with no `django_celery_beat`. This story does not touch that block — Story 4.4 and Epic 7 do — but the corrected extent is recorded so the region markers are placed against it.
 
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 4.2]
-- [Source: _bmad-output/planning-artifacts/epics.md#Resolved during story creation: the refusal count] — lines 308-326
+- [Source: _bmad-output/planning-artifacts/epics.md#Resolved during story creation: the refusal count] — lines 310-328
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-26]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-9]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-23]

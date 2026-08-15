@@ -25,7 +25,7 @@ Identifiers are used verbatim from their source documents: `FR-n` / `NFR-n` / `S
 
 - **FR-1:** Every valid combination provides the immovable core, and no feature selection removes any part of it.
 - **FR-2:** The immovable set is defined by capability, not by package — a materialized combination's dependency manifest carries exactly the instrumentation packages its capabilities require and no others.
-- **FR-3:** The Django admin is orthogonal to the server-rendered UI feature; omitting the UI feature removes only the end-user surface.
+- **FR-3:** The interface mechanism is immovable core — template loading, `base.html`, the navigation bar and its contribution registry, the error templates, form styling, static-file serving and the user profile views are present in every component and are not selectable.
 
 **§4.2 Authentication and Authorization** — *Phase-1 must-have; none of it is implemented*
 
@@ -53,14 +53,14 @@ Identifiers are used verbatim from their source documents: `FR-n` / `NFR-n` / `S
 - **FR-19:** Personas are seeded from declared claims by a development task that refuses to run in a deployed environment; local sign-in constructs synthetic claims and passes them to the mapper.
 - **FR-20:** The local programmatic flow validates for real — a development task mints a JWT signed by a locally generated, gitignored keypair that the real Bearer authentication class verifies.
 - **FR-21:** Observability is not substituted locally — same code, only the terminal export step absent; spans discarded at the processor.
-- **FR-22:** The broker constraint is a statement about deployment only; all twelve combinations run locally with no broker.
+- **FR-22:** The broker constraint is a statement about deployment only; all six combinations run locally with no broker.
 - **FR-23:** Nothing on the local start path reaches the network at boot — OIDC discovery and JWKS retrieval are lazy.
 
 **§4.5 The Feature Model and Clean Extraction** — *Phase-1 must-have*
 
-- **FR-24:** Four selectable features declared in one carrier with a single declared location and format, which is the only place a feature's extent is defined.
+- **FR-24:** Three selectable features declared in one carrier with a single declared location and format, which is the only place a feature's extent is defined.
 - **FR-25:** Object storage attaches an S3-compatible backend configured from environment variables alone (`django-storages`, `boto3`); user media is out of scope.
-- **FR-26:** The broker constraint is enforced at selection — twelve valid combinations, not sixteen.
+- **FR-26:** The broker constraint is enforced at selection — six valid combinations, not eight.
 - **FR-27:** Presets pre-select without constraining; every valid combination is reachable without a preset.
 - **FR-28:** Excluded features leave nothing behind — no dependency, template, static asset, settings fragment, or test, and nothing present-but-skipped.
 - **FR-29:** The orphan-detection property survives into the harness — template-inclusive coverage with `COVERAGE_CORE` pinned to the C trace core, plus carrier reconciliation for static assets and settings fragments.
@@ -90,7 +90,7 @@ Identifiers are used verbatim from their source documents: `FR-n` / `NFR-n` / `S
 **§4.8 Observability** — *Phase-1 must-have; largely satisfied today*
 
 - **FR-46:** Correlated structured logging — JSON to stdout carrying `request_id`, `trace_id`, `span_id`, propagating into task execution where selected.
-- **FR-47:** ASGI request tracing — the ASGI instrumentor active in all twelve combinations.
+- **FR-47:** ASGI request tracing — the ASGI instrumentor active in all six combinations.
 - **FR-48:** Degradation is visible — swallowed cache failures emit correlated log events.
 
 **§4.9 Supply Chain and Dependency Policy** — *Phase-1 must-have*
@@ -100,7 +100,7 @@ Identifiers are used verbatim from their source documents: `FR-n` / `NFR-n` / `S
 
 **§4.10 The Extension Model** — *Phase-1 must-have; none of it exists*
 
-- **FR-51:** The base package is a stable import surface with a declared guaranteed surface present in all twelve combinations; changes to it are breaking and versioned.
+- **FR-51:** The base package is a stable import surface with a declared guaranteed surface present in all six combinations; changes to it are breaking and versioned.
 - **FR-52:** A component extends through a declared tenant space the accelerator neither supplies nor judges, never pruned and never reported as an orphan.
 - **FR-53:** A reusable app graduates without changing its import path; adoption is explicit and nothing self-registers.
 - **FR-54:** A reusable app adds configuration and never changes it — additive on a closed declared surface, appending to ordered configuration in adoption order, refused at startup when it names an unselected feature.
@@ -134,7 +134,7 @@ Extracted from `ARCHITECTURE-SPINE.md`. These constrain *how* stories are built 
 **Materialization and environments**
 
 - Materialization is subtractive: copy the reference application and remove what was not selected, at path and region granularity (AD-3). The reference application stays a real, runnable, gateable Django application throughout.
-- The four features are pixi features with an `[environments]` matrix; one `pixi.lock` yields twelve pre-locked environments. **All twelve share one `solve-group`** — without it `django-celery-beat`'s `django <6.1` cap makes the four Celery combinations resolve a different Django (AD-3).
+- The three features are pixi features with an `[environments]` matrix; one `pixi.lock` yields six pre-locked environments. **All six share one `solve-group`** — without it `django-celery-beat`'s `django <6.1` cap makes the two Celery combinations resolve a different Django (AD-3).
 - Determinism is asserted by a gate test that materializes one combination twice and requires byte-identical trees (AD-3, NFR-5).
 - The provenance stamp is `.accelerator.json` at materialized-output root: version, source ref, order values, sorted keys, **no timestamp**, a declared generated artifact. The reference application carries no stamp (AD-17).
 
@@ -143,11 +143,13 @@ Extracted from `ARCHITECTURE-SPINE.md`. These constrain *how* stories are built 
 - Three territories with a fixed dependency direction: tenant apps may import `django_service`; `django_service` may never import a tenant app; `config` reaches tenant apps only through settings composition; a feature's code may never import another feature's (AD-4).
 - `django_service` is public API with `__api_version__` as a single hand-bumped integer; the guaranteed surface is enumerated in the carrier (AD-5). No `feature:*` disposition may apply to any path inside `src/django_service/` — it is `core` in its entirety, asserted by a gate test (AD-29). UI-owned surface must move out of `django_service` before the UI feature is extracted; `base.html` and error templates stay.
 - `src/django_apps/` is a path root with no `__init__.py`; an app there is imported unqualified (AD-6).
-- Import roots collapse from five declaration sites to one: `[tool.hatch.build.targets.wheel]` with a `sources` remapping. Removed — `sys.path` inserts in `manage.py:24-26`, `asgi.py:18-20` and `wsgi.py`; pytest `pythonpath`; `--app-dir src` in the `serve` task (AD-7).
+- No feature owns a package. The server-rendered interface is immovable core (revision 3), and background task processing, Redis and object storage own settings blocks, dependency entries and instrumentor calls — all feature-owned *regions* of `core` paths under AD-24. `src/features/` was proposed in revision 2 and retired unused (AD-33).
+- The guaranteed surface is the contract for tenant apps as well as for graduation. With the interface mechanism core, a reusable app with its own templates, forms and views relies on it freely — it extends `base.html`, uses the form styling, and **contributes its own navigation entries** through the navigation registry, an ordered append-only key on the closed contributable surface. An app requiring a remaining feature names it in its contribution module, and AD-8's refusal rejects it at settings import wherever that feature is unselected (AD-29, AD-8).
+- Import roots collapse from **six** declaration sites to one: `[tool.hatch.build.targets.wheel]` with a `sources` remapping declaring `src/` and `src/django_apps/`. Removed — `sys.path` inserts in `manage.py:23-25`, `asgi.py:18-20` and `wsgi.py`; pytest `pythonpath`; `--app-dir src` in **both** the `serve` (`pixi.toml:179`) and `serve-reload` (`:186`) tasks. The retained site is *converted* to the `sources` shape, which it does not have today (AD-7).
 
 **Authentication and authorization**
 
-- The mapper is two operations at different frequencies: **resolve** on every authentication (single indexed read), **sync** once per credential epoch inside one transaction. The epoch record lives in a `django_service`-owned database table, not `django.core.cache`, because eight of twelve combinations have no Redis. **A token with no `jti` is rejected with 401** (AD-10).
+- The mapper is two operations at different frequencies: **resolve** on every authentication (single indexed read), **sync** once per credential epoch inside one transaction. The epoch record lives in a `django_service`-owned database table, not `django.core.cache`, because two of six combinations have no Redis. **A token with no `jti` is rejected with 401** (AD-10).
 - One identity key, three separated roles: credential (IdP's), identity key (`User.idp_subject` — unique, indexed, nullable, sole store), attribute (`username`/`email`/`name`, never resolved by). `USERNAME_FIELD` remains `username`; `SocialAccount` is bookkeeping, not authority (AD-11).
 - Fixed mapper edge behaviours: a token lacking the group claim is 401, never zero-groups; a claim naming a nonexistent `Group` is ignored and logged, never created; `is_staff`/`is_superuser` each set from their own group and cleared; a `username` collision between distinct `idp_subject`s is refused and logged and the second identity authenticates normally (AD-12).
 - Designated `Group` rows and their `Permission` rows are provisioned by a data migration inside `django_service` seeded from the claims contract; the persona seeding task **calls that same mechanism** rather than reimplementing it; a designated group missing at startup is a stage-2 refusal (AD-27).
@@ -167,9 +169,9 @@ Extracted from `ARCHITECTURE-SPINE.md`. These constrain *how* stories are built 
 
 **Gate and verification**
 
-- A single workflow invokes `pixi run ci`, **which has never run in CI**. Template coverage moves out of the SonarCloud workflow and `build` off its fortnightly cron. The twelve-combination harness is Linux-only (`gunicorn` has no win-64 build); the three-OS matrix stays on the reference application. `[tool.mypy]` sets `check_untyped_defs` today, not `strict`, and three documents already assert otherwise (AD-18).
+- A single workflow invokes `pixi run ci`, **which has never run in CI** — though a wrongly-shaped `ci` task already exists at `pixi.toml:206`. The coverage *run invocation* moves out of the SonarCloud workflow; the template-coverage *configuration* is already correct in `pyproject.toml` and does not move. `build` comes off its fortnightly cron, which lives inside `release.yml` along with three other gate steps run inline. The six-combination harness is Linux-only (`gunicorn` has no win-64 build); the three-OS matrix stays on the reference application, and since GitHub Actions `services:` containers are Linux-only, the PostgreSQL gate is a separate ubuntu-only job. `[tool.mypy]` sets `check_untyped_defs` today, not `strict`, and three documents already assert otherwise (AD-18).
 - Verification is reduced on PR (a pinned all-pairs subset declared as data in the carrier, with a gate test asserting the pinned set satisfies the predicate) and full on merge to `main` (AD-19). Sound only because generation happens from a released tag, excepting AD-32.
-- The coverage floor is one global constant — ninety percent including templates, everywhere, with `COVERAGE_CORE=ctrace` in force and the omit/exclude list a **closed carrier-declared surface** asserted equal to the declared one. **Time-boxed bring-up mode:** materialized-combination gates run with the floor advisory until the materializer has reported all twelve numbers once; the exit condition is that report (AD-20).
+- The coverage floor is one global constant — ninety percent including templates, everywhere, with `COVERAGE_CORE=ctrace` in force and the omit/exclude list a **closed carrier-declared surface** asserted equal to the declared one. **Time-boxed bring-up mode:** materialized-combination gates run with the floor advisory until the materializer has reported all six numbers once; the exit condition is that report (AD-20).
 - The smoke check asserts, per combination, with nothing running: boot, readiness 200, persona interactive sign-in reaching a **rendered admin index**, one Bearer request through the real authentication class, and one **rendered 404**. Separately, a `core`-disposed immovable-core assertion suite runs inside every combination's gate and is never pruned — it is what defends SC-7, and nothing else does (AD-30).
 - Test location convention: accelerator and base tests live under `tests/` mirroring `src/` and carry the disposition of what they cover; a tenant app's tests live **inside the app** so they graduate with it.
 
@@ -179,13 +181,13 @@ Python 3.14 · Django 6.0 · django-allauth 65.19.1 (`requests` must be declared
 
 **Named residual risks carried into the work**
 
-- **R-1** `django-storages` fitness unproven against Django 6.0 / Python 3.14; object storage is in six of twelve combinations and cannot be dropped. Escalation is ordered: spike → conda-forge feedstock push with a time-boxed package-index exception → component-owned backend as last resort.
+- **R-1** `django-storages` fitness unproven against Django 6.0 / Python 3.14; object storage is in three of six combinations and cannot be dropped. Escalation is ordered: spike → conda-forge feedstock push with a time-boxed package-index exception → component-owned backend as last resort.
 - **R-2** Bearer revocation latency is the token's lifetime.
 - **R-3** A serving process started outside `pixi run web` does not fire the migrations refusal.
 - **R-4** The GitHub-template path ships from `main` HEAD carrying machinery (AD-32).
 - **R-5** Local development proves less than running suggests.
 
-**Open items with no owner** — FR-45's OTLP export end-to-end test and its collector stub design; NFR-6's telemetry-overhead measurement and its milestone; the enterprise developer portal's order-surface field list (until it exists, the fixture set covers the AD-25 parameters and the four feature booleans).
+**Open items with no owner** — FR-45's OTLP export end-to-end test and its collector stub design; NFR-6's telemetry-overhead measurement and its milestone; the enterprise developer portal's order-surface field list (until it exists, the fixture set covers the AD-25 parameters and the three feature booleans).
 
 **Spike, not a decision** — dropping `uvicorn-worker` for gunicorn 26's native ASGI worker.
 
@@ -193,9 +195,9 @@ Python 3.14 · Django 6.0 · django-allauth 65.19.1 (`requests` must be declared
 
 **Not applicable.** No UX design contract exists in `{planning_artifacts}` — no `ux-designs/ux-*/DESIGN.md` + `EXPERIENCE.md` spine pair, no legacy `*ux*.md`, no sharded `*ux*/index.md`.
 
-This is consistent with the product rather than a gap. The primary product surface is a repository, not an interface: the ordering surface is the enterprise developer portal (PRD §5 non-goal, §10 integration), and the only rendered surfaces a component owns are the Django admin, framework error pages, and the optional server-rendered UI feature — none of which this phase designs. PRD §2.3 states the journeys are deliberately downscaled to anchor requirements rather than feed UX work.
+This is consistent with the product rather than a gap. The primary product surface is a repository, not an interface: the ordering surface is the enterprise developer portal (PRD §5 non-goal, §10 integration), and the only rendered surfaces a component owns are the Django admin, framework error pages, and the base interface mechanism — none of which this phase designs. PRD §2.3 states the journeys are deliberately downscaled to anchor requirements rather than feed UX work.
 
-The visual-surface requirements that do exist are carried as functional requirements and are covered above: FR-3 (admin orthogonal to the UI feature; error-page and admin template rendering must work in every combination), AD-29 (`base.html` and error templates stay in `django_service`; user-facing page templates, form styling, views and forms move to a feature-owned location before the UI feature is extracted), and AD-30 (the smoke check asserts a rendered admin index and a rendered 404).
+The visual-surface requirements that do exist are carried as functional requirements and are covered above: FR-3 (the interface mechanism is immovable core; error-page and admin template rendering must work in every combination), AD-29 (`base.html`, the error templates, form styling and the profile views are all `core`, and `base.html` carries no hardcoded navigation), and AD-30 (the smoke check asserts a rendered admin index and a rendered 404).
 
 ### FR Coverage Map
 
@@ -217,7 +219,7 @@ All 56 FRs are mapped. No gaps, no duplicates.
 **Cross-epic threads.** Implemented in one epic and consumed in another; deliberately not double-counted above.
 
 - FR-41's unapplied-migrations refusal is *implemented* as a stage-2 condition in Epic 4; Epic 5 owns the release-stage contract and the no-entrypoint-migrates property.
-- FR-32's PostgreSQL service and the single `pixi run ci` invocation begin in Epic 1 against the reference application; Epic 8 extends both to twelve combinations.
+- FR-32's PostgreSQL service and the single `pixi run ci` invocation begin in Epic 1 against the reference application; Epic 8 extends both to six combinations.
 - FR-17's allowlist and AD-8's contributable surface are **one declaration** — authored in Epic 4, extended in Epic 9, never forked into two lists.
 - FR-29's orphan signal is declared in Epic 7 and exercised per combination in Epic 8, where the deliberate-orphan test lives because it needs a materialized combination to run against.
 - FR-18's fifth substitution — filesystem-backed object storage — is delivered in Epic 7's object-storage story rather than Epic 3, because the storage feature is greenfield and does not exist until then. Its other four substitutions are Epic 3.
@@ -232,7 +234,7 @@ Nine epics. The split follows the architecture's own ordering constraints — AD
 
 ### Epic 1: A gate that detects, and a supply chain that is proven
 
-The platform group gets a quality gate that runs, is strict, and cannot be narrowed — and the object-storage supply-chain risk is either cleared or escalated before anything depends on it. `pixi run ci` has never run in CI, `[tool.mypy]` sets `check_untyped_defs` while three documents assert `strict`, and the coverage `omit` list is open. Every later epic lands against this gate, so it goes first. Carries the R-1 spike as an early long-pole story, on FR-50's own rule that fitness is proven before a feature is committed to. Also collapses the five import-root declaration sites to one (AD-7) and deletes the sub-router network surface with its coverage `omit` entry (AD-16), both preconditions for Epic 4's allowlist to be complete rather than merely present.
+The platform group gets a quality gate that runs, is strict, and cannot be narrowed — and the object-storage supply-chain risk is either cleared or escalated before anything depends on it. `pixi run ci` has never run in CI, `[tool.mypy]` sets `check_untyped_defs` while three documents assert `strict`, and the coverage `omit` list is open. Every later epic lands against this gate, so it goes first. Carries the R-1 spike as an early long-pole story, on FR-50's own rule that fitness is proven before a feature is committed to. Also collapses the six import-root declaration sites to one (AD-7) and deletes the sub-router network surface with its coverage `omit` entry (AD-16), both preconditions for Epic 4's allowlist to be complete rather than merely present.
 
 **FRs covered:** FR-49, FR-50. *(NFR-4, NFR-5, NFR-7; AD-7, AD-16, AD-18, AD-20)*
 
@@ -266,15 +268,15 @@ An operator follows one request across services built by teams that never coordi
 
 **FRs covered:** FR-45, FR-46, FR-47, FR-48. *(SC-7, NFR-6)*
 
-### Epic 7: Four features that can actually be removed
+### Epic 7: Three features that can actually be removed
 
-A lead developer's selections mean something: an unselected feature is absent — no dependency, no template, no settings fragment, no skipped test — and the residue that no import graph, linter, or dependency analyzer can see is caught. Declares `accelerator.toml` (AD-1), the four dispositions and their two-way reconciliation (AD-2), the feature-owned region markers (AD-24), and parameterization as an orthogonal axis (AD-25, which must land before Epic 8). Moves UI-owned surface out of `django_service` (AD-29) and builds object storage greenfield on whatever Epic 1's R-1 spike concluded.
+A lead developer's selections mean something: an unselected feature is absent — no dependency, no template, no settings fragment, no skipped test — and the residue that no import graph, linter, or dependency analyzer can see is caught. Declares `accelerator.toml` (AD-1), the four dispositions and their two-way reconciliation (AD-2), the feature-owned region markers (AD-24), and parameterization as an orthogonal axis (AD-25, which must land before Epic 8). Confirms `django_service` is `core` in its entirety with nothing to relocate — the interface mechanism is immovable core (AD-29, revision 3) — deletes the `home`/`about` demonstration pages, replaces `base.html`'s hardcoded navigation with the contributed registry, and builds object storage greenfield on whatever Epic 1's R-1 spike concluded.
 
 **FRs covered:** FR-1, FR-2, FR-3, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29. *(SC-2, CG-1; AD-1, AD-2, AD-24, AD-25, AD-29)*
 
-### Epic 8: Twelve combinations, proven
+### Epic 8: Six combinations, proven
 
-A platform engineer updates the base for a Django security release, and the harness reports which of the twelve combinations broke — before a single lead developer orders it. The load-bearing epic and the reason phase 1 does not end at the reference application: materializer, fixture set, twelve pre-locked pixi environments sharing one solve-group, the provenance stamp, the smoke check that renders an admin index and a 404, and the unprunable immovable-core suite that is the only thing defending SC-7.
+A platform engineer updates the base for a Django security release, and the harness reports which of the six combinations broke — before a single lead developer orders it. The load-bearing epic and the reason phase 1 does not end at the reference application: materializer, fixture set, six pre-locked pixi environments sharing one solve-group, the provenance stamp, the smoke check that renders an admin index and a 404, and the unprunable immovable-core suite that is the only thing defending SC-7.
 
 **FRs covered:** FR-30, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37. *(SC-1, CG-2, NFR-5, NFR-8; AD-3, AD-17, AD-19, AD-20, AD-30)*
 
@@ -372,7 +374,7 @@ So that "this component passed its gate" is a statement the pipeline makes rathe
 **Given** gunicorn has no win-64 build
 **When** the workflows are reorganized
 **Then** the reference application keeps its three-OS matrix
-**And** any twelve-combination job is declared Linux-only
+**And** any six-combination job is declared Linux-only
 
 **Given** a developer runs `pixi run ci` locally
 **When** CI runs the same task
@@ -506,14 +508,20 @@ So that a source root cannot work under pytest and fail under gunicorn.
 
 **Acceptance Criteria:**
 
-**Given** five declaration sites exist today
+**Given** six declaration sites exist today
 **When** this story lands
-**Then** the `sys.path` inserts at `manage.py:24-26`, `asgi.py:18-20` and in `wsgi.py` are removed
-**And** the pytest `pythonpath` setting and `--app-dir src` in the `serve` task are removed
+**Then** the `sys.path` inserts at `manage.py:23-25`, `asgi.py:18-20` and in `wsgi.py` are removed
+**And** the pytest `pythonpath` setting and `--app-dir src` in **both** the `serve` and `serve-reload` tasks are removed
+
+**Given** the pytest `pythonpath` is `["src", "."]` and the `"."` entry is what makes `tests.factories` importable under `--import-mode=importlib`
+**When** the setting is removed
+**Then** `tests.factories` still resolves from `tests/conftest.py`
+**And** how it resolves is recorded rather than left to coincidence
 
 **Given** one site is retained
 **When** the root is declared
 **Then** it is `[tool.hatch.build.targets.wheel]` declaring it through a `sources` remapping
+**And** the site is *converted* to that shape, since it reads `packages = ["src/config", "src/django_service"]` today
 **And** the declaration is directory-level, needing no per-app edit
 
 **Given** the removals
@@ -557,7 +565,7 @@ So that a future supply-chain exception must be added deliberately rather than a
 
 As a lead developer,
 I want `django-storages` proven against the pinned Django and Python before object storage is built,
-So that a feature six of twelve combinations will select is not committed to on the strength of a package that cannot run.
+So that a feature three of six combinations will select is not committed to on the strength of a package that cannot run.
 
 **Requirements:** FR-50 · risk R-1
 
@@ -719,7 +727,7 @@ So that a revocation at the IdP reaches the component rather than persisting unt
 **Then** sync runs
 **And** when a Bearer credential is seen, sync runs once at first sighting of its `jti` and not on subsequent requests carrying the same `jti`
 
-**Given** eight of twelve combinations have no Redis
+**Given** two of six combinations have no Redis
 **When** the epoch record is stored
 **Then** it lives in a `django_service`-owned database table
 **And** never in `django.core.cache`
@@ -751,7 +759,7 @@ So that a revocation at the IdP reaches the component rather than persisting unt
 
 As a lead developer,
 I want browser sign-in to redirect to the IdP and establish a session through the shared mapper,
-So that the admin and the server-rendered UI have exactly one credential authority.
+So that the admin and the rendered interface have exactly one credential authority.
 
 **Requirements:** FR-4, FR-7 · AD-31 · SC-6
 
@@ -1089,9 +1097,11 @@ So that the guard cannot be skipped by the very failure it exists to catch.
 **And** it is not split across the deployed settings module
 
 **Given** stage 1
-**When** a settings module is imported
-**Then** stage 1 is invoked as the last statement of that settings module
-**And** every settings module invokes it, so none can skip it by not being loaded
+**When** a leaf settings module is imported
+**Then** stage 1 is invoked as the last statement of that leaf module — `local.py`, `production.py`, `test.py`
+**And** every leaf module invokes it, so none can skip it by not being loaded
+**And** `base.py` does not invoke it, since it is imported via `from .base import *` and a call there would fire before the leaf composes, destroying the after-composition property the rule exists to guarantee
+**And** a paired gate test asserts both halves
 
 **Given** stage 2
 **When** a serving process starts
@@ -1185,7 +1195,7 @@ So that a reachable credential route or an unrecognized schema stops the process
 **Then** `ImproperlyConfigured` is raised
 **And** the misconfiguration surfaces as a configuration error rather than as a mysterious permissions problem
 
-**Given** stage 1 runs as the last statement of every settings module
+**Given** stage 1 runs as the last statement of every leaf settings module
 **When** stage 1 and stage 2 iterate databases
 **Then** both iterate every configured database
 
@@ -1193,7 +1203,7 @@ So that a reachable credential route or an unrecognized schema stops the process
 
 As a lead developer,
 I want the cache and task refusals scoped to the features that make them meaningful,
-So that four valid combinations are not rejected for legitimately having no cache.
+So that the two valid combinations with no Redis are not rejected for legitimately having no cache.
 
 **Requirements:** FR-14 · AD-24 · SC-5
 
@@ -1335,8 +1345,8 @@ So that any component can be run the same way regardless of which features it se
 **And** a process type failing closed would deadlock the release stage on the migrations refusal
 
 **Given** `web`
-**When** any of the twelve combinations is inspected
-**Then** it is present in all twelve, served by gunicorn with the uvicorn worker class
+**When** any of the six combinations is inspected
+**Then** it is present in all six, served by gunicorn with the uvicorn worker class
 
 **Given** `worker` and `beat`
 **When** a combination without background task processing is inspected
@@ -1484,7 +1494,7 @@ So that session behaviour is never a property of an unrelated feature toggle.
 **Given** `SESSION_ENGINE`
 **When** settings are composed
 **Then** it is set explicitly in `base.py` to the database-backed engine
-**And** it is identical in all twelve combinations
+**And** it is identical in all six combinations
 
 **Given** the Redis cache feature
 **When** it is selected
@@ -1493,7 +1503,7 @@ So that session behaviour is never a property of an unrelated feature toggle.
 **Given** expired session rows and expired mapper epoch records
 **When** pruning is specified
 **Then** both are pruned by one declared admin process
-**And** deliberately not by a background task, since background task processing exists in only four of twelve combinations
+**And** deliberately not by a background task, since background task processing exists in only two of six combinations
 
 **Given** the scheduling of that admin process
 **When** scope is assigned
@@ -1524,7 +1534,7 @@ So that I can follow one request across services whose teams never coordinated.
 **Given** a log line emitted during a request
 **When** it is inspected
 **Then** it carries `request_id`, `trace_id` and `span_id`
-**And** this holds in all twelve combinations
+**And** this holds in all six combinations
 
 **Given** background task processing is selected
 **When** a task executes
@@ -1546,7 +1556,7 @@ So that request traces are not silently absent from components served the only w
 **Acceptance Criteria:**
 
 **Given** the ASGI instrumentor
-**When** any of the twelve combinations is inspected
+**When** any of the six combinations is inspected
 **Then** it is present and active
 **And** without it ASGI requests would produce no spans at all
 
@@ -1647,7 +1657,7 @@ So that the claim that it is acceptable rests on a number.
 **When** the story is picked up
 **Then** an owner and a milestone are named as part of it
 
-## Epic 7: Four features that can actually be removed
+## Epic 7: Three features that can actually be removed
 
 A lead developer's selections mean something: an unselected feature is absent — no dependency, no template, no settings fragment, no skipped test — and the residue that no import graph, linter, or dependency analyzer can see is caught.
 
@@ -1708,9 +1718,10 @@ So that a missed region cannot leave an instrumentor call in a combination whose
 **Then** it uses paired `feature:<name>` / `/feature:<name>` line comments in the file's own comment syntax
 **And** every region is declared in the carrier with its path and its feature
 
-**Given** the three known region-bearing paths
+**Given** the region-bearing paths known at declaration time, as an open set
 **When** they are declared
-**Then** they are `src/config/settings/base.py` (the Celery block at `:296-313` and the feature entries in the installed-app lists), `src/config/observability/telemetry.py` (the per-instrumentor calls at `:134-137`), and `pixi.toml`
+**Then** they are declared as an open `[[regions]]` array and include `src/config/settings/base.py` (the Celery block at `:296-335`, `REDIS_URL`/`REDIS_SSL` at `:293-294`, and the feature entries in the installed-app lists), `src/config/settings/production.py` (the `CACHES` block at `:31-44` and its import at `:12`), `src/config/settings/local.py` (`:75-80`), `src/config/observability/telemetry.py` (the celery call at `:135` and the redis call at `:137`, each with its import at `:21` and `:24` — **not** `:134-137` as one region, since `:134` and `:136` are core), `src/config/urls.py`, `src/config/startup/stage_one.py`, `pixi.toml` and `component.toml`
+**And** the reconciler encodes no fixed count of region-bearing paths
 
 **Given** region reconciliation
 **When** the gate runs
@@ -1723,7 +1734,7 @@ So that a missed region cannot leave an instrumentor call in a combination whose
 **Given** the instrumentation packages
 **When** a combination is materialized
 **Then** `opentelemetry-instrumentation-celery` is present in exactly the combinations that selected background task processing, `opentelemetry-instrumentation-redis` in exactly those that selected the Redis cache
-**And** the API, SDK, OTLP exporter, Django, ASGI and psycopg instrumentation packages are present in all twelve
+**And** the API, SDK, OTLP exporter, Django, ASGI and psycopg instrumentation packages are present in all six
 
 ### Story 7.3: Parameterization is declared as an axis orthogonal to disposition
 
@@ -1762,7 +1773,7 @@ So that a value correct for this repository and wrong for any other cannot trave
 **Then** nothing fails and every component's metrics merge silently into this project
 **And** that is precisely the consequence this story prevents
 
-### Story 7.4: django_service is core in its entirety and the UI surface leaves it
+### Story 7.4: django_service is core in its entirety and the interface mechanism is core with it
 
 As a lead developer,
 I want no feature-scoped disposition anywhere inside the base package,
@@ -1772,32 +1783,35 @@ So that a reusable app cannot import a module that exists in six combinations an
 
 **Acceptance Criteria:**
 
-**Given** that no source document enumerates which templates, static assets, views and forms constitute the server-rendered UI feature
+**Given** the interface mechanism is immovable core (revision 3)
 **When** this story begins
-**Then** that surface is enumerated by audit of the existing tree and recorded in the carrier before any file moves
-**And** the enumeration distinguishes user-facing surface from `base.html` and the error templates, which stay
+**Then** the rendering surface is audited and confirmed `core` in its entirety
+**And** no enumeration of a removable UI surface is produced, because none exists
 
 **Given** any path inside `src/django_service/`
 **When** its disposition is assigned
 **Then** it is `core`
 **And** a gate test asserts that no `feature:*` disposition applies to any path inside it
 
-**Given** surface that genuinely belongs to the server-rendered UI feature
-**When** the UI feature is prepared for extraction
-**Then** user-facing page templates, form styling, user-facing views and forms move out of `django_service` into a feature-owned location first
+**Given** the rendering surface inside `src/django_service/`
+**When** dispositions are assigned
+**Then** nothing moves out — the interface mechanism is immovable core (revision 3), so `base.html`, the error templates, form styling, static-file serving and the user profile views all stay
+**And** the `home` and `about` demonstration pages are deleted rather than made core
+**And** `base.html` carries no hardcoded navigation, its bar rendering the contributed navigation registry instead of literal links
+**And** `User.get_absolute_url()` and `LOGIN_REDIRECT_URL` stand unchanged, since `users:detail` and `users:redirect` are now core routes
 
 **Given** `base.html` and the error templates
-**When** the UI feature is absent
-**Then** they remain
+**When** any combination runs
+**Then** they are present, being `core`
 **And** the 403, 404 and 500 pages that extend `base.html` still render
 
-**Given** a combination with the server-rendered UI absent
+**Given** any of the six combinations
 **When** it runs
 **Then** the admin renders, static files serve, the messages framework is available, and template rendering works
-**And** what the UI feature removed is the end-user surface and nothing else
+**And** no feature selection can remove any of it
 
 **Given** the immovable core
-**When** any of the twelve combinations is inspected
+**When** any of the six combinations is inspected
 **Then** it declares PostgreSQL as its deployed database, DRF with drf-spectacular, the Django admin, CORS handling, structlog, OpenTelemetry, environment-based configuration, static file serving and a uvicorn/gunicorn process
 **And** no feature toggle can be set to a value that removes any of them
 
@@ -1838,31 +1852,31 @@ So that the six combinations that select it have both a real backing service and
 **When** it is inspected
 **Then** no storage configuration, dependency or call site remains
 
-### Story 7.6: Four features are selectable, with the broker constraint and three presets declared
+### Story 7.6: Three features are selectable, with the broker constraint and three presets declared
 
 As a lead developer,
-I want to select any subset of the four features, with invalid pairings named and presets that do not constrain,
+I want to select any subset of the three features, with invalid pairings named and presets that do not constrain,
 So that the selection surface accepts every legitimate request.
 
 **Requirements:** FR-24, FR-26, FR-27
 
 **Acceptance Criteria:**
 
-**Given** the four features
+**Given** the three features
 **When** they are declared
-**Then** background task processing, Redis cache, server-rendered UI and object storage are each independently selectable
+**Then** background task processing, Redis cache and object storage are each independently selectable
 **And** each is selected or absent, never present-and-disabled
 
 **Given** the broker constraint
 **When** the combination space is enumerated
-**Then** it is twelve valid combinations, not sixteen
+**Then** it is six valid combinations, not eight
 **And** background task processing without the Redis cache is the excluded pairing
 
 **Given** the three presets
 **When** they are declared
-**Then** *API-only*, *Full web app* and *Worker-enabled* set a starting selection and remain fully editable
+**Then** *Minimal*, *Cached* and *Worker-enabled* set a starting selection and remain fully editable
 
-**Given** a selection such as *API-only plus background task processing plus object storage*
+**Given** a selection such as *Minimal plus background task processing plus object storage*
 **When** it is requested
 **Then** it is accepted
 **And** presets do not act as a menu of permitted shapes
@@ -1932,33 +1946,33 @@ So that a category with no detector is not a category that ships.
 **Then** the combination's gate fails on the zero-percent coverage signal
 **And** the test that proves this runs in Epic 8, where a materialized combination exists to run it against
 
-## Epic 8: Twelve combinations, proven
+## Epic 8: Six combinations, proven
 
-A platform engineer updates the base for a Django security release, and the harness reports which of the twelve combinations broke — before a single lead developer orders it. The load-bearing epic, and the reason phase 1 does not end at the reference application.
+A platform engineer updates the base for a Django security release, and the harness reports which of the six combinations broke — before a single lead developer orders it. The load-bearing epic, and the reason phase 1 does not end at the reference application.
 
-### Story 8.1: Twelve pre-locked environments come from one lock file
+### Story 8.1: Six pre-locked environments come from one lock file
 
 As a platform engineer,
-I want the four features declared as pixi features in one environments matrix sharing a single solve group,
-So that twelve combinations are not twelve independent dependency solves testing two different Djangos.
+I want the three features declared as pixi features in one environments matrix sharing a single solve group,
+So that six combinations are not six independent dependency solves testing two different Djangos.
 
 **Requirements:** AD-3 · supports FR-32 · NFR-5 · SC-1
 
 **Acceptance Criteria:**
 
-**Given** the four selectable features
+**Given** the three selectable features
 **When** they are declared in `pixi.toml`
 **Then** each is a pixi feature
-**And** an `[environments]` matrix yields twelve pre-locked environments from one `pixi.lock`
+**And** an `[environments]` matrix yields six pre-locked environments from one `pixi.lock`
 
-**Given** all twelve environments
+**Given** all six environments
 **When** they are declared
 **Then** they share one `solve-group`
 
 **Given** `django-celery-beat`'s `django <6.1` cap
 **When** the solve group is absent
-**Then** the four Celery combinations resolve a different Django from the other eight
-**And** a test asserts that all twelve resolve the same Django version
+**Then** the two Celery combinations resolve a different Django from the other four
+**And** a test asserts that all six resolve the same Django version
 
 **Given** combination *n*'s gate
 **When** it runs
@@ -1969,7 +1983,7 @@ So that twelve combinations are not twelve independent dependency solves testing
 
 As a platform engineer,
 I want a materializer that produces a combination's source by removing the paths that combination did not select,
-So that the twelve-combination claim becomes provable before the FreeMarker transition rather than after it.
+So that the six-combination claim becomes provable before the FreeMarker transition rather than after it.
 
 **Requirements:** FR-30 · AD-2, AD-3
 
@@ -2007,7 +2021,7 @@ So that a combination does not boot into an `ImportError` from an instrumentor c
 **Then** the region between the paired `feature:<name>` / `/feature:<name>` markers is removed
 **And** the markers are removed with it
 
-**Given** the three declared region-bearing paths
+**Given** the declared region-bearing paths, as an open set
 **When** a combination without background task processing is materialized
 **Then** the Celery block in `src/config/settings/base.py`, the Celery instrumentor call in `src/config/observability/telemetry.py`, and the `worker` and `beat` tasks in `pixi.toml` are all absent
 
@@ -2074,7 +2088,7 @@ So that a parameter added to the order surface breaks materialization instead of
 **Given** the fixture set
 **When** it is authored
 **Then** it covers every parameterized value declared in Story 7.3, including the component package name and the code-quality project key
-**And** it covers the four feature booleans
+**And** it covers the three feature booleans
 
 **Given** a parameter with no corresponding fixture
 **When** materialization runs
@@ -2083,7 +2097,7 @@ So that a parameter added to the order surface breaks materialization instead of
 
 **Given** the portal's order-surface field list does not exist yet
 **When** the fixture set is scoped
-**Then** it covers the declared parameters and the four feature booleans
+**Then** it covers the declared parameters and the three feature booleans
 **And** the missing field list is recorded as an open item owned by the portal team
 
 ### Story 8.7: Output reconciliation proves the accelerator's machinery never reaches a component
@@ -2118,8 +2132,8 @@ So that the accelerator's own tooling and planning artifacts cannot travel into 
 **Then** it is absent
 
 **Given** the dependency manifest
-**When** the twelve combinations are compared
-**Then** it differs in eleven of the twelve
+**When** the six combinations are compared
+**Then** it differs in five of the six
 
 **Given** `COVERAGE_CORE`
 **When** a combination is materialized
@@ -2128,14 +2142,14 @@ So that the accelerator's own tooling and planning artifacts cannot travel into 
 ### Story 8.8: Every valid combination passes the full gate against PostgreSQL
 
 As a platform engineer,
-I want all twelve combinations gated against PostgreSQL,
+I want all six combinations gated against PostgreSQL,
 So that a defect is found before the first lead developer to order that combination finds it.
 
 **Requirements:** FR-32, FR-29 · AD-18, AD-20 · CG-1 · SC-1, SC-2
 
 **Acceptance Criteria:**
 
-**Given** all twelve valid combinations
+**Given** all six valid combinations
 **When** the harness runs
 **Then** each is materialized and put through tests, coverage at or above ninety percent including templates, strict type checking, lint and build, against PostgreSQL
 
@@ -2148,7 +2162,7 @@ So that a defect is found before the first lead developer to order that combinat
 **When** that combination's gate runs
 **Then** it fails
 
-**Given** the coverage floor before the materializer has reported all twelve numbers
+**Given** the coverage floor before the materializer has reported all six numbers
 **When** materialized-combination gates run
 **Then** the floor is advisory and the numbers are published as an artifact
 **And** the exit condition is that first full report
@@ -2175,7 +2189,7 @@ So that CI cost is bounded without a truncated set reading as full coverage.
 
 **Given** a merge to `main`
 **When** the harness runs
-**Then** it runs all twelve plus the smoke-check level
+**Then** it runs all six plus the smoke-check level
 
 **Given** several distinct sets satisfy the all-pairs predicate
 **When** the subset is chosen
@@ -2187,7 +2201,7 @@ So that CI cost is bounded without a truncated set reading as full coverage.
 **Then** it states the reduction and the combinations not covered
 **And** no reduction is ever silent
 
-**Given** the policy beyond twelve combinations
+**Given** the policy beyond six combinations
 **When** it is documented
 **Then** it states exhaustive verification while the space stays small, and all-pairs coverage plus unconditional verification of every preset past roughly thirty-two valid combinations
 
@@ -2201,7 +2215,7 @@ So that the local-runnability claim covers the combination I actually ordered.
 
 **Acceptance Criteria:**
 
-**Given** each of the twelve combinations
+**Given** each of the six combinations
 **When** the smoke check runs with no database, cache, broker, object store or identity provider available
 **Then** the process boots, readiness returns 200, a persona completes an interactive sign-in and reaches a rendered admin index, one Bearer request passes through the real authentication class, and one rendered 404 is produced
 
@@ -2212,7 +2226,7 @@ So that the local-runnability claim covers the combination I actually ordered.
 **Given** the database backend and the authentication mode
 **When** the combination space is counted
 **Then** neither is treated as a feature toggle
-**And** the space stays at twelve
+**And** the space stays at six
 
 **Given** the immovable-core assertion suite
 **When** any combination's gate runs
@@ -2273,8 +2287,8 @@ So that a routine tidy-up inside the base does not become an estate-wide break.
 **And** anything inside `django_service` not enumerated is internal and may change without a version bump
 
 **Given** the guaranteed surface
-**When** any of the twelve combinations is inspected
-**Then** it is present in all twelve
+**When** any of the six combinations is inspected
+**Then** it is present in all six
 **And** no feature selection may remove part of it
 
 **Given** `django_service.__api_version__`
@@ -2384,7 +2398,8 @@ So that installing a package cannot give it authority over every request.
 
 **Given** the contributable surface
 **When** it is declared
-**Then** it is closed and enumerated in the carrier by explicit key, never by namespace
+**Then** it is closed and enumerated by explicit key, never by namespace
+**And** its authoritative location is `src/config/startup/`, which a materialized component carries, mirrored into `accelerator.toml` with a gate test asserting equality (AD-26) — the carrier is machinery and never travels, so it cannot be the runtime authority for a rule that executes at settings import
 **And** it comprises additional `DATABASES` entries and their routers, `INSTALLED_APPS` entries, the application's own namespaced settings, and named non-global DRF and Celery keys
 
 **Given** a global-default key

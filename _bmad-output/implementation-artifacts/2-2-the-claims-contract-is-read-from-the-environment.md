@@ -112,7 +112,7 @@ Concretely: **do not write an `ImproperlyConfigured` raise in this story.** The 
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Consistency Conventions]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Structural Seed]
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 2.2]
-- [Source: _bmad-output/planning-artifacts/epics.md:299] — the forward-reference convention
+- [Source: _bmad-output/planning-artifacts/epics.md:301] — the forward-reference convention
 - [Source: _bmad-output/planning-artifacts/epics.md:314-326] — the refusal-count table; condition 5 is "The claims contract is unusable", owned by Epic 4
 - [Source: src/config/settings/base.py:19,130-159] — `env`, the AUTHENTICATION block, the PASSWORDS rationale comment
 - [Source: tests/unit/test_settings.py:22-29] — the `sys.modules` eviction fixture that makes fresh settings imports possible

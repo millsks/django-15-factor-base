@@ -8,6 +8,8 @@ scope: 'Phase 1: the reference application, the authentication rewire, the refus
 status: final
 created: '2026-08-15'
 updated: '2026-08-15'
+revision: 3
+revision_note: 'Rev 2 corrected the spine against the reference application (see reviews/review-story-creation-findings.md). Rev 3 makes the interface mechanism core, reducing four features to three and twelve combinations to six; AD-33 retired.'
 binds:
   - FR-1..FR-56
   - NFR-1..NFR-8
@@ -26,7 +28,7 @@ companions: []
 
 **Two products share one tree, and the disposition system is the boundary between them.**
 
-**The accelerator** is *manifest-driven projection*: one hand-authored catalogue, many derived artifacts. Twelve materialized source trees, the strip/parameterize/keep disposition, the orphan checks, the process-model assertions and the eventual FreeMarker copy are all projections of `accelerator.toml`. Nothing infers a feature's extent from naming or directory layout.
+**The accelerator** is *manifest-driven projection*: one hand-authored catalogue, many derived artifacts. Six materialized source trees, the strip/parameterize/keep disposition, the orphan checks, the process-model assertions and the eventual FreeMarker copy are all projections of `accelerator.toml`. Nothing infers a feature's extent from naming or directory layout.
 
 **The component** is *layered Django with a composition root*, plus an additive plugin space:
 
@@ -51,13 +53,13 @@ Two declarations, not one, and the split is load-bearing: `accelerator.toml` is 
 - **Binds:** FR-28, FR-29, FR-37
 - **Prevents:** an unlisted path silently travelling into every component; a developer's own app being deleted or reported as an orphan; a generated artifact having no legal existence.
 - **Rule:** Four *input* dispositions, exhaustive and mutually exclusive — `core` (always travels), `feature:<name>` (travels only where selected), `tenant` (never judged, never pruned), `machinery` (never travels). Unlisted defaults to `machinery`. Disposition answers only *does this path travel*; what is substituted inside it is the orthogonal parameter axis (AD-25), and feature-owned regions inside a `core` path are AD-24.
-  Two reconciliation checks, both in the gate. **Input**, against the reference application: a path claimed by no disposition fails; a claim naming a path that does not exist fails. **Output**, against each materialized tree: every path is either a copied path with a travelling disposition or a declared generated artifact, and nothing else.
+  Two reconciliation checks, both in the gate. **Input**, against the reference application: a path claimed by no disposition fails; a claim naming a path that does not exist fails. Unlisted defaulting to `machinery` settles *behaviour*, not *enumeration* — input reconciliation still requires every path present in the tree to be claimed, so the carrier's disposition list is the inventory. The Structural Seed below is a shape and not an inventory: `.github/`, `docs/`, `mkdocs.yml`, `sonar-project.properties`, `manage.py`, `CHANGELOG.md`, `LICENSE`, `README.md`, `_bmad/`, `_bmad-output/`, `.agents/`, `.bmad-loop/` and `.claude/` all exist and all need explicit entries despite the seed being silent on them. **Output**, against each materialized tree: every path is either a copied path with a travelling disposition or a declared generated artifact, and nothing else.
 
 ### AD-3 — Materialization is subtractive and carrier-driven; dependencies are native pixi features
 
 - **Binds:** FR-2, FR-30, FR-32, NFR-5, SC-1
-- **Prevents:** twelve independent dependency solves; a combination passing its gate in an environment fat enough to hide an import it should not have; twelve combinations silently testing two different Django versions.
-- **Rule:** The materializer copies the reference application and removes what the carrier says the combination did not select, at path granularity (AD-2) and region granularity (AD-24). The four selectable features are declared as pixi features with an `[environments]` matrix, so one `pixi.lock` yields twelve pre-locked environments; combination *n*'s gate runs its materialized source under environment *n*. **All twelve environments share one `solve-group`**, without which `django-celery-beat`'s `django <6.1` cap makes the four Celery combinations resolve a different Django from the other eight and SC-1 stops meaning what it says. Feature configuration is **subtractive**; reusable-app configuration is **compositional** (AD-8); the two are not interchangeable. The reference application remains a real, runnable, gateable Django application throughout. Determinism is asserted: a gate test materializes one combination twice and requires byte-identical trees.
+- **Prevents:** six independent dependency solves; a combination passing its gate in an environment fat enough to hide an import it should not have; six combinations silently testing two different Django versions.
+- **Rule:** The materializer copies the reference application and removes what the carrier says the combination did not select, at path granularity (AD-2) and region granularity (AD-24). The three selectable features — background task processing, Redis and object storage — are declared as pixi features with an `[environments]` matrix, so one `pixi.lock` yields six pre-locked environments; combination *n*'s gate runs its materialized source under environment *n*. **All six environments share one `solve-group`**, without which `django-celery-beat`'s `django <6.1` cap makes the two Celery combinations resolve a different Django from the other four and SC-1 stops meaning what it says. Feature configuration is **subtractive**; reusable-app configuration is **compositional** (AD-8); the two are not interchangeable. The reference application remains a real, runnable, gateable Django application throughout. Determinism is asserted: a gate test materializes one combination twice and requires byte-identical trees.
 
 ### AD-4 — Dependency direction across the three territories
 
@@ -72,8 +74,7 @@ graph TD
   C["src/config — composition root"]
   F1["feature: celery"]
   F2["feature: redis"]
-  F3["feature: ui"]
-  F4["feature: storage"]
+  F3["feature: storage"]
 
   T --> B
   C --> B
@@ -81,7 +82,6 @@ graph TD
   F1 --> B
   F2 --> B
   F3 --> B
-  F4 --> B
   B -.->|forbidden| T
   F1 -.->|forbidden| F2
 ```
@@ -102,16 +102,30 @@ graph TD
 
 - **Binds:** AD-6, FR-38
 - **Prevents:** a second source root working under `pytest` and failing under `gunicorn` — the failure this rule exists to stop, which survives a rule that names only `sys.path`.
-- **Rule:** There are five import-root declaration sites in this repository and after this AD there is one. Removed: the `sys.path` inserts in `manage.py:24-26`, `asgi.py:18-20` and `wsgi.py`; `pyproject.toml` `[tool.pytest.ini_options] pythonpath`; and `--app-dir src` in the `serve` task. Retained: `[tool.hatch.build.targets.wheel]`, which declares both roots via a `sources` remapping of `src/` and `src/django_apps/` — a directory-level construct, so adding an app needs no per-app edit and AD-6's graduation promise holds. `uvicorn --app-dir` accepts one directory and is therefore never a declaration mechanism.
+- **Rule:** There are **six** import-root declaration sites in this repository and after this AD there is one. Removed:
+
+  | Site | Verified location |
+  | --- | --- |
+  | `sys.path` insert in `manage.py` | **`:23-25`** (comment at `:22`) — an earlier revision cited `:24-26` |
+  | `sys.path` insert in `asgi.py` | `:18-20` |
+  | `sys.path` insert in `wsgi.py` | `src/config/wsgi.py:24-26` |
+  | `pyproject.toml [tool.pytest.ini_options] pythonpath` | `:149` |
+  | `--app-dir src` in the `serve` task | `pixi.toml:179` |
+  | `--app-dir src` in the **`serve-reload`** task | `pixi.toml:186` — an earlier revision named only `serve` |
+
+  Retained: `[tool.hatch.build.targets.wheel]`, which declares both roots via a `sources` remapping of `src/` and `src/django_apps/` (AD-6) — a directory-level construct, so adding an app needs no per-app edit and AD-6's graduation promise holds. **The retained site does not have that shape today**: `pyproject.toml:126-127` reads `packages = ["src/config", "src/django_service"]`, a per-package enumeration. Converting it is part of this AD, not a precondition of it. `uvicorn --app-dir` accepts one directory and is therefore never a declaration mechanism.
+  **Removing the pytest `pythonpath` removes a non-source-root entry with it.** `:149` reads `pythonpath = ["src", "."]`; the `"."` entry is what makes `tests.factories` importable from `tests/conftest.py` under `--import-mode=importlib`, and the `sources` remapping covers `src/`, not the repository root. The removal is not executable until `tests.factories` resolves without it.
 
 ### AD-8 — A reusable app contributes configuration additively, on a closed surface
 
 - **Binds:** FR-17, FR-38, FR-49, AD-5
 - **Prevents:** adopting an app being a hand edit repeated in every component; an installed package acquiring visibility of, or authority over, every request.
 - **Rule:** An app ships a declared contribution module. The composition step (AD-26) merges contributions from the `component.toml` adopted-app list. Introducing a new key is permitted; touching an existing key raises `ImproperlyConfigured`. Contributions to an **ordered sequence** — `INSTALLED_APPS`, `DATABASE_ROUTERS` — append only, in adopted-app-list order.
-  The contributable surface is closed and enumerated in `accelerator.toml`, **by explicit key, never by namespace**: additional `DATABASES` entries and their routers, `INSTALLED_APPS` entries, the app's own namespaced settings, and named non-global DRF and Celery keys. No global-default key is contributable — `DEFAULT_AUTHENTICATION_CLASSES`, `DEFAULT_PERMISSION_CLASSES`, `MIDDLEWARE`, `AUTHENTICATION_BACKENDS` are refused whether or not the base already sets them, because "introducing a new key is permitted" would otherwise hand an adopted app authorization over every API request. The permitted-key list and the FR-17 allowlist are **one declaration**, not two lists maintained apart.
-  A contribution naming a feature the combination did not select is refused at settings import, so an app cannot contribute `CELERY_BEAT_SCHEDULE` into a component with no Celery and have its scheduled work silently never run.
+  The contributable surface is closed and enumerated **by explicit key, never by namespace**: additional `DATABASES` entries and their routers, `INSTALLED_APPS` entries, the app's own namespaced settings, and named non-global DRF and Celery keys. Its authoritative location is `src/config/startup/`, mirrored into `accelerator.toml` and reconciled by a gate test (AD-26) — the composition step runs inside a materialized component, which does not carry the carrier. No global-default key is contributable — `DEFAULT_AUTHENTICATION_CLASSES`, `DEFAULT_PERMISSION_CLASSES`, `MIDDLEWARE`, `AUTHENTICATION_BACKENDS` are refused whether or not the base already sets them, because "introducing a new key is permitted" would otherwise hand an adopted app authorization over every API request. The permitted-key list and the FR-17 allowlist are **one declaration**, not two lists maintained apart.
+  A contribution naming a feature the combination did not select is refused at settings import, so an app cannot contribute `CELERY_BEAT_SCHEDULE` into a component with no Celery and have its scheduled work silently never run. **The selected-feature list is read from `component.toml` (AD-28)** — the only declaration present at settings import in both the reference application and a materialized component. `accelerator.toml` cannot serve: it is `machinery` and does not travel. `.accelerator.json` cannot serve either: AD-17 states the reference application carries no stamp, so a mechanism reading it would work in materialized components and fail in the tree that has to gate it.
   Adoption is explicit — a `pixi.toml` line and a `component.toml` entry. Nothing self-registers; entry-point discovery is forbidden because an in-repo app has no distribution metadata and the two residency modes would diverge.
+  **Navigation is a contributed ordered sequence, and it is on the surface.** `django_service` owns a navigation registry, contributed to exactly like `INSTALLED_APPS` — append only, in adopted-app-list order. An entry is **data, never markup**: a label, a URL *name*, and an optional permission the renderer filters on. This is the one contributable key rendered on every page, so it is permitted where `MIDDLEWARE` and `AUTHENTICATION_BACKENDS` are refused for a reason that holds here: it confers presentation and never authorization, labels are auto-escaped, and no entry carries raw HTML.
+  Every registered URL name must resolve in the URLconf, refused as `ImproperlyConfigured` at stage 2 — the stage that has a resolved URLconf (AD-26). An app that contributes a link to a route it forgot to mount fails at startup rather than rendering a 500 on whatever page carries the navigation bar.
 
 ### AD-9 — A contributed database is a chain, not a setting
 
@@ -124,7 +138,7 @@ graph TD
 - **Binds:** FR-5, FR-8, FR-9, SC-6
 - **Prevents:** the only two outcomes of conflating them — `auth_user_groups` write amplification on every API call, or stale authorization.
 - **Rule:** **Resolve** takes claims and returns the user by the identity key. It runs on every authentication, including every Bearer request, and is a single indexed read. **Sync** diffs asserted groups against stored ones, adds, removes, sets staff and superuser, and emits the structured log line. It runs once per credential epoch: every interactive login, and once per Bearer token at first sighting of its `jti`. Sync runs inside one transaction, which makes FR-9's add-then-remove ordering a detail rather than a security property.
-  **The epoch record lives in the database**, in a `django_service`-owned table, not in `django.core.cache`: eight of twelve combinations have no Redis, so the cache is Django's in-process backend and "first sighting" would degrade to first-sighting-per-worker-per-restart. The table is pruned by a declared admin process alongside sessions (AD-31). It is internal surface (AD-29), so adding it is not an API version bump.
+  **The epoch record lives in the database**, in a `django_service`-owned table, not in `django.core.cache`: two of six combinations have no Redis, so in those the cache is Django's in-process backend and "first sighting" would degrade to first-sighting-per-worker-per-restart. (Revision 2 said "eight of twelve have no Redis", which inverted the arithmetic — under the broker constraint the invalid combinations are exactly `celery AND NOT redis`, so Redis was present in eight of twelve, absent in four. The conclusion was never affected: one Redis-less combination is enough to disqualify the cache.) The table is pruned by a declared admin process alongside sessions (AD-31). It is internal surface (AD-29), so adding it is not an API version bump.
   **A token with no `jti` is rejected with 401.** Without this rule, one builder syncs every request and one never syncs again, delivering both of the outcomes this AD claims to prevent.
 
 ### AD-11 — One identity key, three separated roles
@@ -174,26 +188,27 @@ graph TD
 
 - **Binds:** FR-32, CG-1, CG-2, NFR-4, SC-1
 - **Prevents:** the orphan detector being disabled by a change nobody understood as security-relevant; thirty-six gate runs that cannot exercise the process model.
-- **Rule:** A single workflow invokes `pixi run ci`, which has never run in CI. Template coverage moves out of the SonarCloud workflow and `build` off its fortnightly cron. The twelve-combination harness is Linux-only, `gunicorn` having no win-64 build; the three-OS matrix stays on the reference application, where it claims something different. Type checking is strict — `[tool.mypy]` sets `check_untyped_defs` today, not `strict`, and three documents already assert otherwise.
+- **Rule:** A single workflow invokes `pixi run ci`, which has never run in CI. A `ci` task **already exists** at `pixi.toml:206` as `depends-on = ["test-cov", "lint", "typecheck", "build"]` — no pre-commit step and roughly the reverse of the fast-fail ordering, so this AD reshapes an existing task rather than creating one. The coverage *run invocation* moves out of the SonarCloud workflow (`sonarqube.yml:36`); the template-coverage *configuration* is already correct in `pyproject.toml` (`django_coverage_plugin`, `template_extensions`) and `pixi.toml [activation.env] COVERAGE_CORE=ctrace`, and does not move. `build` comes off its fortnightly cron, which lives inside `release.yml` (`cron: "0 0 7,21 * *"` at `:5`, `pixi run build` at `:213-215`) — that workflow also runs `lint`, `typecheck` and `test-cov` inline at `:173-181`, so four gate steps leave it, not one. The six-combination harness is Linux-only, `gunicorn` having no win-64 build; the three-OS matrix stays on the reference application, where it claims something different. **GitHub Actions `services:` containers are Linux-only**, so FR-32's PostgreSQL gate cannot run on that three-OS matrix: the gate job is ubuntu-only and a separate three-OS job runs `pixi run test` for platform compatibility. Type checking is strict — `[tool.mypy]` sets `check_untyped_defs` at `pyproject.toml:183` today, not `strict`, and three documents already assert otherwise.
+  Task names in this repository are `format` / `typecheck` / `test-cov` / `ci`, not the `fmt` / `check` / `cov` of the general standard; renaming them would break `.pre-commit-config.yaml`, `release.yml` and `sonarqube.yml`. This AD names steps, not identifiers.
 
 ### AD-19 — Verification is reduced on PR, full on merge, and the subset is pinned
 
 - **Binds:** FR-32, FR-35, CG-2, SC-1, NFR-5
 - **Prevents:** a silently truncated verification set reading as full coverage; an exclusion report that says something different every run and is therefore reported but not reviewable.
-- **Rule:** A pull request runs an all-pairs subset and reports which combinations it did not cover; merge to `main` runs all twelve plus the smoke-check level. Several distinct sets satisfy the all-pairs predicate, so the subset is **pinned as data in `accelerator.toml`**, with a gate test asserting the pinned set actually satisfies the predicate. This is sound only because generation happens from a released, tagged version and never from `main` HEAD; the exception is AD-32.
+- **Rule:** A pull request runs an all-pairs subset and reports which combinations it did not cover; merge to `main` runs all six plus the smoke-check level. Several distinct sets satisfy the all-pairs predicate, so the subset is **pinned as data in `accelerator.toml`**, with a gate test asserting the pinned set actually satisfies the predicate. This is sound only because generation happens from a released, tagged version and never from `main` HEAD; the exception is AD-32.
 
 ### AD-20 — The coverage floor is a single global constant, and what it measures is closed
 
 - **Binds:** FR-29, FR-32, CG-1, SC-1, SC-2
 - **Prevents:** a per-combination floor becoming the place a structurally sparse combination hides; and the narrowing that is already precedented in this tree — `[tool.coverage.run] omit` — being used to clear the floor while every stated rule still passes.
 - **Rule:** Ninety percent, including templates, everywhere. `COVERAGE_CORE=ctrace` travels with every combination and a test asserts it is in force during a gate run. Never a lower floor, a pragma, or a narrowed measurement. **The coverage `omit`/`exclude` list is a closed, carrier-declared surface** subject to two-way reconciliation, and the gate asserts the effective omit list equals the declared one — otherwise an epic clears its floor with one line and the only residue detector the product has goes blind.
-  **Bring-up mode, time-boxed:** `test-cov` already carries `--cov-fail-under=90`, so the floor is hard the moment the gate consolidates. Until the materializer has reported all twelve numbers once, materialized-combination gates run with the floor advisory and the numbers published as an artifact. The exit condition is that report; after it, the floor is hard everywhere and a combination that misses is answered with tests.
+  **Bring-up mode, time-boxed:** `test-cov` already carries `--cov-fail-under=90`, so the floor is hard the moment the gate consolidates. Until the materializer has reported all six numbers once, materialized-combination gates run with the floor advisory and the numbers published as an artifact. The exit condition is that report; after it, the floor is hard everywhere and a combination that misses is answered with tests.
 
 ### AD-21 — The local sign-in path is a URL route, and the refusal resolves its view
 
 - **Binds:** FR-13, FR-15, FR-17, FR-19, SC-4, SC-5
 - **Prevents:** the product's own credential path taking a shape the refusal contract cannot see; and — the subtler half — a route that satisfies this AD by name and still evades the refusal because the predicate matched a string.
-- **Rule:** Local persona sign-in is exposed as a URL route and by no other mechanism — not a development authentication backend, not a management command that writes a session, not a query-parameter shim. Its URL name and path prefix are fixed constants declared in `accelerator.toml`. The stage-2 predicate refuses any route whose **view callable belongs to the local sign-in module** (AD-26), never a name or prefix match, because a route named `local_persona_login` mounted under `/accounts/` would otherwise satisfy this AD and pass an allowlist that already permits `/accounts/` for allauth. It ships in every component and is refused wherever the component is deployed.
+- **Rule:** Local persona sign-in is exposed as a URL route and by no other mechanism — not a development authentication backend, not a management command that writes a session, not a query-parameter shim. Its URL name and path prefix are fixed constants declared in `accelerator.toml`. The stage-2 predicate refuses any route whose **view callable belongs to the local sign-in module** (AD-26), never a name or prefix match, because a route named `local_persona_login` mounted under `/accounts/` would otherwise satisfy this AD and pass an allowlist that already permits `/accounts/` for allauth. **The module ships in every component; the route is mounted only where locality is local.** The distinction is the whole rule: a route mounted unconditionally would make every deployed component refuse to start, since the stage-2 condition refuses the local sign-in route's reachability. Shipping is not mounting, and the refusal is the backstop for a route that is reachable anyway — through a URLconf edit, a misconfiguration, or a locality that failed open — not the expected path.
 
 ### AD-22 — Health, drain and migration ordering
 
@@ -205,48 +220,69 @@ graph TD
 
 - **Binds:** FR-5, FR-13, FR-23
 - **Prevents:** a cache TTL that must be tuned against an IdP policy nobody has published; a boot that reaches the network; and the assumption that the library already does this.
-- **Rule:** JWKS is fetched lazily on the first Bearer request that needs it, never at import or boot. Keys are cached by `kid`. A token presenting an uncached `kid` triggers one refetch, rate-limited so an attacker cannot drive fetches. TTL is a backstop for key removal only. The trust anchor is derived from the configured OIDC issuer; a JWKS location not derived from it is refused at startup.
+- **Rule:** JWKS is fetched lazily on the first Bearer request that needs it, never at import or boot. Keys are cached by `kid`. A token presenting an uncached `kid` triggers one refetch, rate-limited so an attacker cannot drive fetches. TTL is a backstop for key removal only. The trust anchor is derived from the configured OIDC issuer; a JWKS location not derived from it is refused at startup. **That check is syntactic and can be nothing else.** Verifying a JWKS location against the issuer's published discovery document requires fetching it, which is the boot-time network call FR-23 forbids — so startup can only apply a string-derivation rule over the configured issuer. An issuer whose real `jwks_uri` does not match the derivation surfaces on the first Bearer request, not at boot. Recorded as L-4 in the tech-verification review; "derived from" must not be read as "confirmed against".
   **PyJWT does not provide this.** `PyJWKClient.cache_keys` defaults to `False`, its unknown-`kid` refetch has no rate limiting or backoff, and its LRU has no TTL. This policy is component code wrapping PyJWT, and the tests belong to it.
 
 ### AD-24 — A `core` path carries feature-owned regions by declared markers, and by no other mechanism
 
 - **Binds:** FR-2, FR-28, FR-30, AD-2, AD-3
-- **Prevents:** two builders splitting on markers versus file-extraction and producing incompatible trees; a missed region leaving `CeleryInstrumentor().instrument()` in eight combinations whose environment no longer contains the instrumentor — an `ImportError` at boot that path-level reconciliation cannot see.
-- **Rule:** Three `core` paths carry feature-owned regions and are the reason this exists: `src/config/settings/base.py` (the Celery block at `:296-313`, feature entries in the installed-app lists), `src/config/observability/telemetry.py` (the per-instrumentor calls at `:134-137`), and `pixi.toml`. A region is delimited by paired line comments in the file's own comment syntax, `feature:<name>` / `/feature:<name>`, and every region is declared in `accelerator.toml` with its path and feature. Reconciliation extends to regions in both directions: a marker naming an undeclared feature fails; a declared region whose markers are absent from the named file fails; an unbalanced marker pair fails. No other sub-file removal mechanism is permitted — not conditional imports, not settings-module inheritance, not `try/except ImportError`.
+- **Prevents:** two builders splitting on markers versus file-extraction and producing incompatible trees; a missed region leaving `CeleryInstrumentor().instrument()` in the four combinations whose environment no longer contains the instrumentor — an `ImportError` at boot that path-level reconciliation cannot see; and a region declared against a stale line range or a fixed path count, which delivers the same failure while appearing to comply.
+- **Rule:** A region is delimited by paired line comments in the file's own comment syntax, `feature:<name>` / `/feature:<name>`, and every region is declared in `accelerator.toml` with its path and feature. Reconciliation extends to regions in both directions: a marker naming an undeclared feature fails; a declared region whose markers are absent from the named file fails; an unbalanced marker pair fails. No other sub-file removal mechanism is permitted — not conditional imports, not settings-module inheritance, not `try/except ImportError`.
+  **The set of region-bearing paths is open, and the carrier declares it as an open `[[regions]]` array — never as a fixed set of keys.** An earlier revision of this AD named three paths and was wrong; the reconciler must not encode a count. The paths known at the time of writing:
+
+  | Path | Region | Feature |
+  | --- | --- | --- |
+  | `src/config/settings/base.py:296-335` | the Celery block — **`:296` is the `# Celery` header and `:335` is `CELERY_WORKER_HIJACK_ROOT_LOGGER`**, the block's last line | `feature:celery` |
+  | `src/config/settings/base.py` | feature entries in the installed-app lists | per entry |
+  | `src/config/settings/base.py:293-294` | `REDIS_URL` / `REDIS_SSL`, consumed by the Celery block and by `production.py` | `feature:redis` |
+  | `src/config/settings/production.py:31-44` | the `CACHES` block, plus its `from .base import REDIS_URL` at `:12`. **`CACHES` is not defined in `base.py` at all** — the deployed Redis cache exists only here | `feature:redis` |
+  | `src/config/settings/local.py:75-80` | `CELERY_TASK_ALWAYS_EAGER` / `CELERY_TASK_EAGER_PROPAGATES` | `feature:celery` |
+  | `src/config/observability/telemetry.py:135` **and** `:137`, **plus the imports at `:21` and `:24`** | the celery and redis instrumentor calls and their imports | `feature:celery`, `feature:redis` |
+    | `src/config/startup/stage_one.py` | the two FR-14 conditional refusals | `feature:celery`, `feature:redis` |
+  | `pixi.toml` | the `worker` and `beat` tasks (AD-14), feature dependency entries | `feature:celery` |
+  | `component.toml` | the `worker`/`beat` replica and replacement constraints (AD-14) | `feature:celery` |
+
+  **`telemetry.py:134-137` is not one region.** `:134` `DjangoInstrumentor` and `:136` `PsycopgInstrumentor` are `core`; only `:135` and `:137` are feature-owned. Marking the range as a single region strips Django and psycopg instrumentation from every combination, violating FR-47 by following this AD literally. **A region covering a call must also cover its import**: pruning the call alone moves the `ImportError` from line 135 to line 21, which is the failure this AD exists to prevent, relocated rather than fixed.
 
 ### AD-25 — Parameterization is an orthogonal axis, not a disposition
 
 - **Binds:** FR-31, FR-36, FR-37, NFR-5
 - **Prevents:** `sonar-project.properties`'s hardcoded key travelling as `core` so every component's metrics merge into this project silently — nothing failing, which is the exact consequence FR-37 names; and FR-31's fail-on-missing-fixture rule having nothing to compare against.
-- **Rule:** A path has a disposition (AD-2) and, independently, a parameter set. `accelerator.toml` declares `[parameters]`: each parameter's name, its fixture value, and every exact path and token site it substitutes. Reconciliation covers it both ways — a declared parameter with no site fails, a site matching no declared parameter fails. The parameters are `sonar-project.properties` (project key), `README.md`, `CHANGELOG.md`, `LICENSE`, `pyproject.toml`, `mkdocs.yml`, and the component name — which is a multi-site substitution spanning `pixi.toml` `[workspace] name`, `pyproject.toml` `[project] name`, the `[pypi-dependencies]` self-install key and `[pypi-options] no-build-isolation`. `src/django_service/` is **not** a parameter (AD-5). Building the materializer before parameterization exists re-cuts every carrier entry, every fixture and every combination's gate output, so it does not happen in that order.
+- **Rule:** A path has a disposition (AD-2) and, independently, a parameter set. `accelerator.toml` declares `[parameters]`: each parameter's name, its fixture value, and every exact path and token site it substitutes. Reconciliation covers it both ways — a declared parameter with no site fails, a site matching no declared parameter fails. The parameters are `sonar-project.properties` (project key), `README.md`, `CHANGELOG.md`, `LICENSE`, `pyproject.toml`, `mkdocs.yml`, and the component name — which is a multi-site substitution spanning `pixi.toml` `[workspace] name`, `pyproject.toml` `[project] name`, the `[pypi-dependencies]` self-install key and `[pypi-options] no-build-isolation`.
+  **Reconciliation's second direction fails on first run unless these sites are declared too.** Each carries the identical defect the project-key entry names — a value belonging to this repository that would travel into every component — and none is in the list above: `sonar-project.properties:7` `sonar.organization`, `:10` `sonar.projectName`; `src/config/settings/base.py:266` `ADMINS` and `:374-375` the spectacular title and description; `src/config/settings/production.py:21` `ALLOWED_HOSTS` defaulting to `["millsks.github.io"]`, plus `:91-94` (`DEFAULT_FROM_EMAIL`, literal at `:93`), `:98-101` (`EMAIL_SUBJECT_PREFIX`, literal at `:100`) and `:156-158` (`SPECTACULAR_SETTINGS["SERVERS"]`, literal at `:157`); `src/config/observability/telemetry.py:31` `DEFAULT_SERVICE_NAME = "django-15-factor-base"`. `src/django_service/` is **not** a parameter (AD-5). Building the materializer before parameterization exists re-cuts every carrier entry, every fixture and every combination's gate output, so it does not happen in that order.
 
 ### AD-26 — The refusal contract has one location, one owner, and a fixed order
 
 - **Binds:** FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, SC-5, NFR-1
 - **Prevents:** the product's highest-consequence surface being split across two modules by two builders who both satisfy FR-12; stage 1 running before composition and never seeing a contributed database; an allowlist maintained apart from the conditions it backstops.
 - **Rule:** The refusal contract is one module, `src/config/startup/`, containing both stages and the FR-17 allowlist.
-  **Stage 1** is invoked as the **last statement of every settings module**, which places it after the AD-8 composition step by construction and is why AD-9's iteration over every configured database is reachable.
+  **Stage 1** is invoked as the **last statement of every leaf settings module** — `local.py`, `production.py`, `test.py` — which places it after the AD-8 composition step by construction and is why AD-9's iteration over every configured database is reachable. **`base.py` must not call it**, and a gate test asserts both halves: each leaf's last statement is the stage-1 call, and `base.py` contains none. The distinction is load-bearing rather than pedantic — `base.py` is imported via `from .base import *` and itself configures four forbidden states, so a call at its end fires *before* the leaf composes and destroys the after-composition property this rule exists to guarantee. "Every settings module" is the plausible reading and the wrong one.
   **Stage 2** is owned by the `AppConfig.ready()` of one named immovable-core app in `django_service`, declared in `accelerator.toml`; no adopted app may precede it in `INSTALLED_APPS`, and a gate test asserts that ordering.
   **Predicates resolve objects, never strings.** The credential-path and local-sign-in conditions resolve the URLconf and refuse any route whose view callable belongs to the forbidden module — `obtain_auth_token`'s and the local sign-in module's — so renaming a route or remounting it under another prefix cannot evade them.
-  The FR-17 allowlist and AD-8's permitted-contribution surface are the same declaration, so adding a credential path and adopting an app are checked by one mechanism rather than two that can disagree.
+  The FR-17 allowlist and AD-8's permitted-contribution surface are the same declaration, so adding a credential path and adopting an app are checked by one mechanism rather than two that can disagree. **`src/config/startup/` holds the authoritative copy and `accelerator.toml` mirrors it**, with a gate test asserting equality — the AD-20 precedent for a closed carrier-declared surface. This resolves against AD-1's "and nowhere else": the carrier is `machinery` and never travels, while the AD-8 composition step runs at settings import inside a materialized component that does not have it, so the carrier cannot be the runtime authority for a rule that must execute there. One declaration, one authoritative location, one reconciliation.
 
 ### AD-27 — Authorization data has an owner
 
 - **Binds:** FR-9, FR-11, FR-19, SC-6, SC-7
-- **Prevents:** the bootstrap deadlock in which every deployed component grants nobody any authorization and nobody can reach the admin, while all twelve local smoke checks pass.
+- **Prevents:** the bootstrap deadlock in which every deployed component grants nobody any authorization and nobody can reach the admin, while every local smoke check passes.
 - **Rule:** Django `Group` rows named by the claims contract, and the `Permission` rows attached to them, are provisioned by a data migration inside `django_service`, seeded from the claims contract, so they exist before the first authentication. The local persona seeding task **calls that same mechanism** rather than reimplementing it — a task that creates groups itself is what makes the deadlock invisible to the harness. A designated staff or superuser group absent from the database at startup is a stage-2 refusal condition, on AD-12's own reasoning: a misconfiguration must not present as a permissions bug.
 
 ### AD-28 — The component declares itself in `component.toml`
 
 - **Binds:** FR-36, FR-40, AD-8, AD-9, AD-14, AD-22
 - **Prevents:** a materialized component being unable to adopt a reusable app, declare an extra migration step, or state a database's requiredness, because every one of those rules lived in a file the component does not have.
-- **Rule:** `component.toml` is `core` and always travels. It carries what a component states about *itself*: the adopted-app list, per-database requiredness, per-database release-stage migration steps, and the process-model constraints. `accelerator.toml` carries what the *accelerator* knows about all components: feature surfaces, dispositions, parameters, presets, the closed contributable surface, and the pinned verification subset. A rule a component must obey at runtime belongs in `component.toml`; a rule only the materializer needs belongs in `accelerator.toml`.
+- **Rule:** `component.toml` is `core` and always travels. It carries what a component states about *itself*: the adopted-app list, per-database requiredness, per-database release-stage migration steps, the process-model constraints, and **the selected-feature list** — which AD-8's settings-import refusal reads, and which nothing else in a materialized component can supply. Because the process-model constraints describe process types that exist in only two of six combinations, `component.toml` is itself a region-bearing `core` path under AD-24; without markers inside it, AD-14's two-way gate test fails in the four non-Celery combinations by declaring processes with no matching task. `accelerator.toml` carries what the *accelerator* knows about all components: feature surfaces, dispositions, parameters, presets, the closed contributable surface, and the pinned verification subset. A rule a component must obey at runtime belongs in `component.toml`; a rule only the materializer needs belongs in `accelerator.toml`.
 
 ### AD-29 — `django_service`'s guaranteed surface is the intersection across all combinations
 
 - **Binds:** FR-1, FR-3, SC-7, AD-5
-- **Prevents:** a reusable app importing a module present in six combinations and absent from six, with a combination-invariant version constant that cannot express the difference; and a wholesale `feature:ui` disposition on `templates/` removing `base.html`, which the 403/404/500 pages extend, in the six combinations where FR-3 explicitly requires template rendering to work.
-- **Rule:** No `feature:*` disposition may be applied to any path inside `src/django_service/`; it is `core` in its entirety, and a gate test asserts that. Surface that genuinely belongs to the server-rendered UI feature — user-facing page templates, form styling, user-facing views and forms — moves out of `django_service` into a feature-owned location before that feature is extracted. Error templates and `base.html` stay, because the admin and the error handlers need them in every combination. `accelerator.toml` enumerates the guaranteed surface explicitly; anything inside `django_service` not enumerated is internal and may change without a version bump.
+- **Prevents:** a reusable app importing a module present in some combinations and absent from others, with a combination-invariant version constant that cannot express the difference.
+- **Rule:** No `feature:*` disposition may be applied to any path inside `src/django_service/`; it is `core` in its entirety, and a gate test asserts that. `accelerator.toml` enumerates the guaranteed surface explicitly; anything inside `django_service` not enumerated is internal and may change without a version bump.
+  **The user-interface mechanism is part of that core, not a selectable feature** (revision 3). `base.html`, `_navbar.html` and the navigation registry, the 403/404/500 templates, the form-styling configuration, static-file serving and the user profile views are all `core` and present in every combination. This is not a concession — the Django admin is immovable core (FR-1) and needs the template loader, `base.html`, the error templates, static files and whitenoise, so that stack was already present in every combination. Measured against the tree, what a `feature:ui` disposition could actually have removed was the `home`/`about` demonstration pages, `templates/users/` and the profile views — about 16 KB of templates, 8 KB of static assets and roughly 100 lines of Python — and **no dependency at all**: `templates/allauth/elements/field.html` and `fields.html` both use `crispy`, and they render the interactive sign-in flow FR-4 makes immovable core, so the form-styling packages were never removable. Carrying an entire feature axis, a feature root, AD-29's relocation clause and six extra combinations to remove that much was not a trade worth making.
+  The `home` and `about` pages are **deleted** rather than made core: they are demonstration content, nothing in the product needs them, and a component that wants a landing page owns one. `User.get_absolute_url()` (`src/django_service/users/models.py:19-26`) and `LOGIN_REDIRECT_URL` (`src/config/settings/base.py:140`) reverse `users:detail` and `users:redirect`, which are now `core` routes present everywhere, so both stand unchanged.
+  **`base.html` still carries no hardcoded navigation.** Its navigation bar is `{% include "_navbar.html" %}`, and `_navbar.html` renders the navigation registry (AD-8) rather than literal links. This is what makes navigation extensible by adopted apps at all, and it removes `NoReverseMatch` structurally: an entry that was never registered is never reversed. The four reversals at `base.html:71`, `:75`, `:78` and `:83` are replaced by that mechanism.
+  **`src/django_service/users/tasks.py` violates this rule today** — it imports `from celery import shared_task`, which is `feature:celery` code inside the package this AD declares `core` in its entirety. Its own docstring calls it "a pointless Celery task to demonstrate usage" and nothing in `src/` calls it; it is deleted rather than relocated.
+  **The guaranteed surface is also the contract for tenant apps.** A reusable app (AD-6) may rely on the guaranteed surface and on nothing feature-owned, because only the guaranteed surface is present in every combination. With the interface mechanism now core, an app with its own templates, forms and views relies on it freely: it extends `base.html`, uses the form styling, and contributes its own navigation entries. An app that genuinely requires a *remaining* feature — background task processing, Redis or object storage — **names that feature in its contribution module**, and AD-8's refusal fires at settings import in any component that did not select it, so the app is refused loudly at adoption rather than shipping broken. Silently relying on feature-owned surface without declaring it is the case that passes every check and fails in part of the estate; it is what this rule excludes.
 
 ### AD-30 — The smoke check asserts the immovable core, and the core has its own unprunable suite
 
@@ -259,7 +295,7 @@ graph TD
 
 - **Binds:** FR-4, FR-38, FR-44, NFR-3, SC-3
 - **Prevents:** session behaviour varying by feature toggle; and every deployed component redirecting to whatever callback domain a data migration baked in.
-- **Rule:** `SESSION_ENGINE` is set explicitly in `base.py` to the database-backed engine, in every combination — the Redis feature may not change it, because FR-44's whole point is that session behaviour must not vary by toggle. Expired sessions and expired mapper epoch records (AD-10) are pruned by one declared admin process, not a background task, because Celery exists in only four of twelve combinations.
+- **Rule:** `SESSION_ENGINE` is set explicitly in `base.py` to the database-backed engine, in every combination — the Redis feature may not change it, because FR-44's whole point is that session behaviour must not vary by toggle. Expired sessions and expired mapper epoch records (AD-10) are pruned by one declared admin process, not a background task, because Celery exists in only two of six combinations.
   allauth's OIDC provider is configured from `SOCIALACCOUNT_PROVIDERS` populated from the environment, never from database-resident `SocialApp` rows, which a component forbidden to migrate itself could never create. The `Site` domain is likewise environment-driven; the existing data migration at `src/django_service/contrib/sites/migrations/0003_set_site_domain_and_name.py` is retired rather than parameterized.
 
 ### AD-32 — The GitHub-template consumer is a named, governed exception
@@ -268,11 +304,15 @@ graph TD
 - **Prevents:** a second, undocumented component shape with different capabilities and different guarantees emerging from the same architecture.
 - **Rule:** "Use this template" produces a **fork of the base**, not a generated component, and the spine states its three differences rather than leaving them to be discovered. It copies the default branch, so AD-19's soundness precondition — generation only from a released tag — does **not** hold for it. It carries `accelerator.toml`, the materializer and the machinery Dockerfile, so it can adopt reusable apps and can opt out of the image pipeline where a materialized component cannot. It arrives unstamped (AD-17), which is the honest signal of all of the above. These are accepted, not mitigated; anyone using this path owns the consequences, and a component that must carry the platform's guarantees is materialized, not templated.
 
+### AD-33 — *Retired in revision 3*
+
+Revision 2 established `src/features/` as a path root for feature-owned code, to give AD-29's "move the UI surface out" clause a destination. Revision 3 makes the interface mechanism `core`, which removes the only feature that had a code surface: background task processing, Redis and object storage own settings blocks, dependency entries and instrumentor calls, all of which are feature-owned *regions* of `core` paths under AD-24. With no occupants, the root is not created. The number is retired rather than reused, so a reader meeting `AD-33` in an older story file finds this note instead of a different rule.
+
 ## Consistency Conventions
 
 | Concern | Convention |
 | --- | --- |
-| Package naming | `django_service` is constant and never parameterized. Tenant apps are single unqualified names under `src/django_apps/`. Cross-cutting concerns with several independent consumers and no natural owner live under `src/config/<concern>/`, as `observability/` already does and `authorization/` and `startup/` will. |
+| Package naming | `django_service` is constant and never parameterized. Tenant apps are single unqualified names under `src/django_apps/`. No feature owns a package; feature surface is regions of `core` paths (AD-24) and dependency entries. Cross-cutting concerns with several independent consumers and no natural owner live under `src/config/<concern>/`, as `observability/` already does and `authorization/` and `startup/` will. |
 | Environment variables | `COMPONENT_`-prefixed for component-level runtime facts, and never in `[activation.env]` (AD-13). Never `DJANGO_ENV` or a bare `ENV` — the platform is likely to set a generic `ENV=dev` for a development *deployment*, and a deployed dev environment is still deployed. |
 | Declaration files | Hand-authored declarations are TOML and visible: `accelerator.toml`, `component.toml`, `pixi.toml`, `pyproject.toml`. Machine-written records are JSON and hidden: `.accelerator.json`. Format signals authorship. |
 | Test location | Accelerator and base tests live under `tests/`, mirroring `src/`, and carry the disposition of what they cover — a feature's tests are `feature:<name>` and are pruned with it, except the immovable-core assertion suite (AD-30), which is `core`. A tenant app's tests live **inside the app**, because they must graduate with it. |
@@ -321,15 +361,18 @@ django-15-factor-base/
     django_service/           # core in its entirety — no feature:* dispositions (AD-29)
     django_apps/              # tenant — path root, no __init__.py (AD-6)
   tools/materializer/         # machinery — projections of accelerator.toml (AD-3)
+  tools/harness/              # machinery — six-combination verification runner
   tests/
 ```
+
+A shape, not an inventory. Paths that exist and are not drawn here still need explicit dispositions under AD-2.
 
 ```mermaid
 graph LR
   CAR["accelerator.toml — catalogue"]
   COMP["component.toml — travels"]
   M["materializer"]
-  T12["12 materialized trees"]
+  T6["6 materialized trees"]
   ORP["input + output reconciliation"]
   PM["process-model assertions"]
   FM["FreeMarker copy — one-way, out of tree"]
@@ -338,10 +381,10 @@ graph LR
   CAR --> M
   CAR --> ORP
   COMP --> PM
-  M --> T12
+  M --> T6
   M --> COMP
   M --> STAMP
-  T12 --> FM
+  T6 --> FM
 ```
 
 ```mermaid
@@ -386,7 +429,7 @@ graph TD
 
 Accepted, not mitigated. Recorded so the next reader does not take the rest of this document at face value.
 
-- **R-1 — `django-storages` fitness is unproven, and object storage cannot be deferred.** Present on the channel, which is FR-50's test, but released 2025-04-02 with no declared Django 6.0 or Python 3.14 support and nothing newer available; Django 6.0 support exists only on unreleased upstream master. Object storage appears in six of twelve combinations, does not exist yet, and is expected to be selected by most components — so dropping it is not an available answer and the risk must be carried rather than avoided. The escalation is ordered: spike `1.14.6` against the locked Django and Python first, since it is a thin wrapper over a `boto3` already in the lock and Django's `Storage` API has been stable; if that fails, push the conda-forge feedstock as was done for `django-celery-beat`, with a **time-boxed** package-index exception whose exit condition is that build landing; a component-owned S3 backend against `django.core.files.storage.Storage` is the last resort, because a platform product owning its own storage backend is a permanent maintenance and security cost. A permanent supply-chain exception is not on the list.
+- **R-1 — `django-storages` fitness is unproven, and object storage cannot be deferred.** Present on the channel, which is FR-50's test, but released 2025-04-02 with no declared Django 6.0 or Python 3.14 support and nothing newer available; Django 6.0 support exists only on unreleased upstream master. Object storage appears in three of six combinations, does not exist yet, and is expected to be selected by most components — so dropping it is not an available answer and the risk must be carried rather than avoided. The escalation is ordered: spike `1.14.6` against the locked Django and Python first, since it is a thin wrapper over a `boto3` already in the lock and Django's `Storage` API has been stable; if that fails, push the conda-forge feedstock as was done for `django-celery-beat`, with a **time-boxed** package-index exception whose exit condition is that build landing; a component-owned S3 backend against `django.core.files.storage.Storage` is the last resort, because a platform product owning its own storage backend is a permanent maintenance and security cost. A permanent supply-chain exception is not on the list.
 - **R-2 — Bearer revocation latency is the token's lifetime.** AD-10 syncs once per `jti`, so a group revoked at the IdP is honoured until the token expires. Unavoidable for bearer credentials, but it narrows FR-9 and SC-6 and is not the same question as PRD Open Question 1, which covers sessions only.
 - **R-3 — A serving process started outside `pixi run web` does not fire the migrations refusal.** The price of AD-13's fail-open process type, taken because failing it closed deadlocks the release stage.
 - **R-4 — The GitHub-template path ships from `main` HEAD** and carries the machinery Dockerfile and the materializer. AD-32 states the consequences; nothing prevents them.
@@ -404,13 +447,61 @@ Accepted, not mitigated. Recorded so the next reader does not take the rest of t
 | D-4 | §4.2 states the interactive flow "costs no new dependency"; it costs `requests` | §4.2 now says it costs no new *framework* and names `requests` explicitly, including that the channel recipe for `django-allauth` does not declare it and it reaches the environment only transitively |
 | D-5 | The PRD does not know about reusable apps, `src/django_apps/`, or the GitHub-template consumer | §4.10 The Extension Model (FR-51..FR-56) now exists, as do the template-repository non-goal in §5 and the code-host-as-template-repository entry in §10 |
 
-No open divergence remains. A new one is recorded here rather than resolved silently in either document.
+No open divergence remains against the PRD. A new one is recorded here rather than resolved silently in either document.
+
+## Revision 3 — the interface mechanism becomes core
+
+Revision 2 solved C-1 and D-1 by decoupling `base.html` and inventing a feature root. Revision 3 removes the problem instead: **the server-rendered interface stops being a selectable feature.**
+
+The measurement that decided it. FR-1 makes the Django admin immovable core, and the admin needs the template loader, `base.html`, the error templates, static files and whitenoise — so that stack was already present in every combination. What `feature:ui` could actually remove was `templates/pages/`, `templates/users/` and the profile views: about **16 KB of templates, 8 KB of static assets and roughly 100 lines of Python**. And no dependency at all — `templates/allauth/elements/field.html` and `fields.html` both use `crispy`, and they render the FR-4 interactive sign-in flow, so the form-styling packages were never removable.
+
+| | revision 2 | revision 3 |
+| --- | --- | --- |
+| Selectable features | celery, redis, **ui**, storage | celery, redis, storage |
+| Combination space | 16 declared, **12 valid** | 8 declared, **6 valid** |
+| Celery present / absent | 4 / 8 | **2 / 4** |
+| Redis present / absent | 8 / 4 | **4 / 2** |
+| Storage present / absent | 6 / 6 | **3 / 3** |
+| Pre-locked pixi environments | 12 | **6** |
+
+The six valid combinations are `¬celery` × {¬redis, redis} × {¬storage, storage}, plus `celery ∧ redis` × {¬storage, storage}.
+
+What this dissolves: C-1 entirely — `base.html`'s reversals now target `core` routes. D-1 entirely — nothing needs relocating out of `django_service`, and **AD-33 is retired** with no occupants, since celery, redis and storage own regions and dependency entries rather than packages. AD-29 loses its relocation clause. Half the harness, half the environments, half the gate runs.
+
+What it costs: a PRD amendment. FR-3, FR-24, FR-26 and SC-1 encode four features and twelve combinations, and the glossary defines a combination over four. `home` and `about` are deleted as demonstration content rather than carried.
+
+What is retained from revision 2's work: the **navigation registry** (AD-8). It was introduced to decouple `base.html`, and it survives on its own merit — it is what lets an adopted app appear in the base navigation bar, which is why `_navbar.html` renders contributed entries rather than literal links.
+
+## Corrections — revision 2
+
+Phase-1 story creation read this document against the reference application nine times, once per epic, opening every file it cites. `reviews/review-story-creation-findings.md` records what did not survive that, with severities and evidence. What changed here:
+
+| # | Correction | Where |
+| --- | --- | --- |
+| 1 | The Celery region is `:296-335`, not `:296-313` — the cited range left `CELERY_BEAT_SCHEDULER` in eight combinations with no `django_celery_beat` | AD-24 |
+| 2 | `telemetry.py:134-137` is two single-line regions plus their imports, not one region — the range framing stripped Django and psycopg instrumentation from every combination | AD-24 |
+| 3 | The set of region-bearing paths is open and carrier-declared as `[[regions]]`; "three known paths" was wrong and the reconciler must not encode a count | AD-24 |
+| 4 | Six import-root declaration sites, not five; `manage.py:23-25` not `:24-26`; the retained site is converted, not merely kept; removing the pytest `pythonpath` takes `tests.factories` with it | AD-7 |
+| 5 | `base.html` carries no hardcoded navigation — the bar renders the contributed navigation registry, which removes `NoReverseMatch` structurally. *(Superseded in rev 3: with the interface core, the reversals are to core routes; the registry is retained because it is what makes navigation extensible by adopted apps.)* | AD-29, AD-8 |
+| 6 | ~~Feature-owned code has a declared home: `src/features/`~~ — *retired in rev 3; no feature has a code surface* | AD-33 *(retired)* |
+| 7 | The guaranteed surface is the contract for tenant apps: an app relies on it and nothing feature-owned, or names the feature it needs and is refused at adoption where unselected | AD-29 |
+| 8 | Stage 1 is the last statement of every **leaf** settings module, and `base.py` must not call it | AD-26 |
+| 9 | `src/config/startup/` holds the authoritative contributable surface; `accelerator.toml` mirrors it. The carrier never travels and cannot be the runtime authority | AD-26, AD-8 |
+| 10 | The selected-feature list lives in `component.toml` — the only declaration present at settings import in both trees | AD-28, AD-8 |
+| 11 | AD-23's trust-anchor check is syntactic; "derived from" is not "confirmed against" | AD-23 |
+| 12 | The local sign-in module ships everywhere but is **mounted** only where locality is local | AD-21 |
+| 13 | AD-18's attributions corrected: the cron lives in `release.yml`, template-coverage configuration is already in `pyproject.toml`, `ci` exists but is wrongly shaped, and the PostgreSQL gate cannot run on the three-OS matrix | AD-18 |
+| 14 | Unlisted-defaults-to-`machinery` settles behaviour, not enumeration; the Structural Seed is a shape and paths outside it still need claims | AD-2 |
+| 15 | Seven further parameterization sites named, without which reconciliation's second direction fails on first run | AD-25 |
+
+Three live defects in the reference application were also found and are **not** fixed here — they belong to Stories 6.5, 6.3 and 3.6, so they land with the tests those stories specify: cache failures swallowed silently, the OTLP exporter attaching to an unconfigured default endpoint, and `telemetry.py:80` reading a `DJANGO_ENV` these conventions forbid.
 
 ## Open Items
 
 - **FR-45 — the OTLP export path end-to-end test** against a collector stub, inside every combination's gate. No AD; needs an owner and a stub design.
 - **NFR-6 — telemetry overhead measured once and recorded.** No AD; needs an owner and a milestone.
-- **The enterprise developer portal's order surface.** FR-31's fail-on-missing-fixture rule needs a field list. Until one exists the fixture set covers the AD-25 parameters and the four feature booleans. Owner: portal team.
+- **The enterprise developer portal's order surface.** FR-31's fail-on-missing-fixture rule needs a field list. Until one exists the fixture set covers the AD-25 parameters and the three feature booleans. Owner: portal team.
+- **Coverage measurement excludes the code phase 1 adds.** `pyproject.toml:161` sets `[tool.coverage.run] include = ["src/**"]`, so `tools/materializer/` and `tools/harness/` are unmeasured by default. Adding measurable code outside the measured set without deciding is the silent narrowing CG-1 forbids and AD-20 names as already precedented here. Needs a decision, not a default.
 
 ## Deferred
 

@@ -15,7 +15,7 @@ so that a parameter added to the order surface breaks materialization instead of
 1. **Given** the fixture set
    **When** it is authored
    **Then** it covers every parameterized value declared in Story 7.3, including the component package name and the code-quality project key
-   **And** it covers the four feature booleans
+   **And** it covers the three feature booleans
 
 2. **Given** a parameter with no corresponding fixture
    **When** materialization runs
@@ -24,7 +24,7 @@ so that a parameter added to the order surface breaks materialization instead of
 
 3. **Given** the portal's order-surface field list does not exist yet
    **When** the fixture set is scoped
-   **Then** it covers the declared parameters and the four feature booleans
+   **Then** it covers the declared parameters and the three feature booleans
    **And** the missing field list is recorded as an open item owned by the portal team
 
 ## Tasks / Subtasks
@@ -32,13 +32,27 @@ so that a parameter added to the order surface breaks materialization instead of
 - [ ] Task 1: Load the parameter declarations and their fixtures (AC: #1)
   - [ ] `tools/materializer/parameters.py` — `load_parameters(carrier) -> tuple[Parameter, ...]`. `Parameter` is a frozen dataclass carrying `name`, `fixture: str | None`, and `sites: tuple[Site, ...]` where `Site` is `(path, token)`.
   - [ ] Read from `accelerator.toml` `[parameters]`, authored by Story 7.3: `sonar-project.properties` (project key), `README.md`, `CHANGELOG.md`, `LICENSE`, `pyproject.toml`, `mkdocs.yml`, and the component name.
+  - [ ] **Seven further sites are declared under AD-25's revision-2 correction, and each needs a fixture or materialization fails.** Load them and assert a fixture exists for every one — reconciliation's second direction fails on first run without them, because each carries a value belonging to this repository that would otherwise travel into every component. Verified locations, checked against the tree:
+
+    | Site | Value today |
+    |---|---|
+    | `sonar-project.properties:7` `sonar.organization` | `millsks` |
+    | `sonar-project.properties:10` `sonar.projectName` | `django-15-factor-base` |
+    | `src/config/settings/base.py:266` `ADMINS` | `'"Kevin Samuel Mills" <millsks@gmail.com>'` |
+    | `src/config/settings/base.py:374-375` spectacular `TITLE` / `DESCRIPTION` | "Django 15-Factor Application Accelerator API" / "…of API endpoints of…" |
+    | `src/config/settings/production.py:21` `ALLOWED_HOSTS` default | `["millsks.github.io"]` |
+    | `src/config/settings/production.py` email defaults — **verified at `:91-94` `DEFAULT_FROM_EMAIL` and `:98-101` `EMAIL_SUBJECT_PREFIX`** (AD-25 cites `:96-99` and `:104-107`, which do not hold in the current file; the literal-bearing lines are `:93` and `:100`) | `Django 15-Factor Application Accelerator <noreply@millsks.github.io>`, `[Django 15-Factor Application Accelerator] ` |
+    | `src/config/settings/production.py` spectacular `SERVERS` — **verified at `:156-158`** (AD-25 cites `:151-153`, which is the tail of the `LOGGING["filters"]` block and carries no literal) | `https://millsks.github.io` |
+    | `src/config/observability/telemetry.py:31` `DEFAULT_SERVICE_NAME` | `"django-15-factor-base"` |
+
+    Where AD-25's cited range and the verified location disagree, declare the **verified** one — an exact site that does not match its file is the `CarrierError` in Task 4, not a passing declaration.
   - [ ] The component name is **one** parameter with four sites — `pixi.toml` `[workspace] name`, `pyproject.toml` `[project] name`, the `[pypi-dependencies]` self-install key, and `[pypi-options] no-build-isolation`. Model it as one `Parameter` with four `Site`s, not four parameters.
   - [ ] `src/django_service/` is **not** a parameter. Assert that no declared parameter's site falls inside `src/django_service/` and fail loudly if one does.
 
-- [ ] Task 2: Add the four feature booleans to the order surface (AC: #1)
-  - [ ] Extend the order model in `tools/materializer/order.py` (NEW) — an `Order` frozen dataclass carrying the `Combination` (the four booleans) and a `dict[str, str]` of parameter values. This is what the enterprise developer portal will eventually supply and what the fixture set stands in for.
+- [ ] Task 2: Add the three feature booleans to the order surface (AC: #1)
+  - [ ] Extend the order model in `tools/materializer/order.py` (NEW) — an `Order` frozen dataclass carrying the `Combination` (the three booleans `celery`, `redis`, `storage` — there is no `ui` boolean, the interface mechanism being `core` under AD-29) and a `dict[str, str]` of parameter values. This is what the enterprise developer portal will eventually supply and what the fixture set stands in for.
   - [ ] `fixture_order() -> Order` builds an order from the carrier's fixture values plus one `Combination`, so every gate run materializes from a real `Order` rather than from an ad-hoc argument list.
-  - [ ] The four feature booleans get fixtures too: the twelve valid `Combination`s enumerated by Story 8.2 are the fixture values for the boolean half of the order surface. Assert all twelve are reachable through `fixture_order()`.
+  - [ ] The three feature booleans get fixtures too: the six valid `Combination`s enumerated by Story 8.2 are the fixture values for the boolean half of the order surface. Assert all six are reachable through `fixture_order()`.
 
 - [ ] Task 3: Fail on a missing fixture (AC: #2)
   - [ ] `resolve_values(parameters, order) -> dict[str, str]` raises `MissingFixtureError` (new subclass of `MaterializerError`) naming the parameter when a declared parameter has no fixture and the order supplies no value.
@@ -51,12 +65,12 @@ so that a parameter added to the order surface breaks materialization instead of
   - [ ] Wire `substitute()` into `tools/materializer/materialize.py` after region pruning (Story 8.3), so parameters apply to the pruned text.
 
 - [ ] Task 5: Record the open item (AC: #3)
-  - [ ] Add a comment block in `accelerator.toml` above `[parameters]` stating: the enterprise developer portal's order-surface field list does not exist; until it does, the fixture set covers the AD-25 parameters and the four feature booleans; owner is the portal team. Rationale lives beside the configuration it constrains.
+  - [ ] Add a comment block in `accelerator.toml` above `[parameters]` stating: the enterprise developer portal's order-surface field list does not exist; until it does, the fixture set covers the AD-25 parameters and the three feature booleans; owner is the portal team. Rationale lives beside the configuration it constrains.
   - [ ] Add the same statement to `docs/` in the accelerator-facing documentation, not the component-facing documentation — accelerator-facing docs do not travel (NFR-8).
 
 - [ ] Task 6: Tests (AC: #1, #2, #3)
-  - [ ] `tests/unit/materializer/test_parameters.py` — every parameter named in AD-25 is declared and has a fixture; the component name is one parameter with four sites; no site falls inside `src/django_service/`; a parameter with `fixture = None` and no order value raises `MissingFixtureError` naming it; no code path returns a default.
-  - [ ] `tests/unit/materializer/test_order.py` — `fixture_order()` reaches all twelve combinations; the order carries exactly the four booleans plus the declared parameter names and nothing else.
+  - [ ] `tests/unit/materializer/test_parameters.py` — every parameter named in AD-25 is declared and has a fixture, **including the seven further sites in Task 1**; the component name is one parameter with four sites; no site falls inside `src/django_service/`; a parameter with `fixture = None` and no order value raises `MissingFixtureError` naming it; no code path returns a default.
+  - [ ] `tests/unit/materializer/test_order.py` — `fixture_order()` reaches all six combinations; the order carries exactly the three booleans plus the declared parameter names and nothing else.
   - [ ] `tests/integration/materializer/test_substitution.py` (`@pytest.mark.integration`, `tmp_path`) — materialize with the fixture order and assert the substituted value appears at every declared site and that the reference application's own value (for example the hardcoded project key at `sonar-project.properties:6`) appears nowhere in the output.
 
 ## Dev Notes
@@ -66,10 +80,11 @@ so that a parameter added to the order surface breaks materialization instead of
 - **AD-25** (binding): "A path has a disposition (AD-2) and, independently, a parameter set. `accelerator.toml` declares `[parameters]`: each parameter's name, its fixture value, and every exact path and token site it substitutes. Reconciliation covers it both ways — a declared parameter with no site fails, a site matching no declared parameter fails." *Prevents:* "`sonar-project.properties`'s hardcoded key travelling as `core` so every component's metrics merge into this project silently — nothing failing, which is the exact consequence FR-37 names; and FR-31's fail-on-missing-fixture rule having nothing to compare against."
 - **AD-25 ordering constraint** (binding on this epic): "Building the materializer before parameterization exists re-cuts every carrier entry, every fixture and every combination's gate output, so it does not happen in that order." Story 7.3 must have landed. If it has not, this story is blocked; do not author `[parameters]` here.
 - **AD-25 / AD-5**: "`src/django_service/` is **not** a parameter" — it is a constant, "because reusable apps import from it by that name in every deployment". Divergence D-1 records that FR-37 once said otherwise and the PRD has since been corrected. Never parameterize it.
+- **AD-25, the seven further sites** (binding): "Reconciliation's second direction fails on first run unless these sites are declared too. Each carries the identical defect the project-key entry names — a value belonging to this repository that would travel into every component." They are listed in Task 1 with their verified locations; three of AD-25's cited ranges in `production.py` do not match the current file and the verified ones supersede them.
 - **FR-31** (binding): "a parameter without a fixture fails materialization rather than defaulting."
 - **AD-1**: the fixture values live in `accelerator.toml` `[parameters]`, not in a second file. If a separate fixture file is introduced it must be declared `machinery` — but prefer the carrier, because AD-1 permits one declaration site.
 - **NFR-8**: "component-facing docs materialize with the component, accelerator-facing docs do not." The portal open item is accelerator-facing.
-- **Open item, verbatim from the spine**: "The enterprise developer portal's order surface. FR-31's fail-on-missing-fixture rule needs a field list. Until one exists the fixture set covers the AD-25 parameters and the four feature booleans. Owner: portal team." Record it; do not attempt to invent the field list.
+- **Open item, verbatim from the spine**: "The enterprise developer portal's order surface. FR-31's fail-on-missing-fixture rule needs a field list. Until one exists the fixture set covers the AD-25 parameters and the three feature booleans. Owner: portal team." Record it; do not attempt to invent the field list.
 
 ### Source Tree — files to touch
 
@@ -103,6 +118,7 @@ No structural change. `tools/materializer/` is `machinery` per the Structural Se
 
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-25]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-5]
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Corrections — revision 2] — correction 15, the seven further parameterization sites
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Open Items] — the portal order-surface item and its owner
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Divergences From the PRD] — D-1, `src/django_service/` is a constant
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 8.6]

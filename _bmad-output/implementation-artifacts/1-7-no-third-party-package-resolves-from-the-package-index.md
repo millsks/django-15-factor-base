@@ -72,7 +72,7 @@ so that a future supply-chain exception must be added deliberately rather than a
 - **NFR-5 — Determinism:** "materialization and dependency resolution are reproducible; the same selections and lock file produce the same component." AC #4's lock-pinning assertion is the dependency-resolution half.
 - **NFR-7 — Secrets never live in source.** Not exercised by this story's implementation; it is carried in the story's requirements line because the supply-chain surface is where an unaudited package would introduce one. Add no secret-scanning here — Epic 3 Story 3.5 owns the gitignored development keypair.
 - **Stack table (spine §Stack), authoritative — do not web-search versions:** django-allauth 65.19.1 with `requests` declared directly (divergence D-4: the channel recipe declares only `asgiref`/`django`, but the OIDC provider imports `requests`, so it must be declared directly under the transitive-availability rule). `requests` is **not** declared in `pixi.toml` today. Epic 2 adds it when the OIDC provider is wired. **Do not add it in this story** — it would declare a dependency for code that does not exist yet. Record the pending obligation in Completion Notes so Epic 2's author sees it.
-- **AD-3:** "All twelve environments share one `solve-group`, without which `django-celery-beat`'s `django <6.1` cap makes the four Celery combinations resolve a different Django." Today `[environments]` at `pixi.toml:141-143` has only `default` and `dev`, both `solve-group = "default"`. The twelve-combination matrix is Epic 8 Story 8.1. Write the lock assertions so they hold over whatever environments exist rather than hard-coding the two.
+- **AD-3:** "All six environments share one `solve-group`, without which `django-celery-beat`'s `django <6.1` cap makes the two Celery combinations resolve a different Django from the other four and SC-1 stops meaning what it says." Today `[environments]` at `pixi.toml:141-143` has only `default` and `dev`, both `solve-group = "default"`. The six-environment matrix is Epic 8 Story 8.1. Write the lock assertions so they hold over whatever environments exist rather than hard-coding the two.
 - **Forbidden:** adding any third-party entry to `[pypi-dependencies]`; adding a second channel to `[workspace] channels`; using `pip`, `uv`, `uvx` or bare `python`/`pytest` anywhere. Pixi is the only runner: `pixi run python`, `pixi run test`, `pixi run ci`.
 
 ### Source Tree — files to touch
@@ -98,13 +98,13 @@ so that a future supply-chain exception must be added deliberately rather than a
 
 No structural change. `pixi.toml` is one of the four hand-authored TOML declarations the spine names ("Declaration files | Hand-authored declarations are TOML and visible: `accelerator.toml`, `component.toml`, `pixi.toml`, `pyproject.toml`"); two of those four do not exist yet.
 
-Variance from the Structural Seed: `pixi.toml` is annotated as carrying "feature matrix, environments+solve-group, process tasks (AD-3, AD-13, AD-14)". Today it carries neither the feature matrix (Epic 8), the `COMPONENT_RUNTIME=local` task env (Epic 3), nor the `web`/`worker`/`beat` process tasks (Epic 5). Only the supply-chain blocks this story touches exist. `epics.md:305` records that `pixi.toml` is deliberately shared across five epics as distinct blocks with distinct owners — stay inside the supply-chain blocks.
+Variance from the Structural Seed: `pixi.toml` is annotated as carrying "feature matrix, environments+solve-group, process tasks (AD-3, AD-13, AD-14)". Today it carries neither the feature matrix (Epic 8), the `COMPONENT_RUNTIME=local` task env (Epic 3), nor the `web`/`worker`/`beat` process tasks (Epic 5). Only the supply-chain blocks this story touches exist. `epics.md:307` records that `pixi.toml` is deliberately shared across five epics as distinct blocks with distinct owners — stay inside the supply-chain blocks.
 
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 1.7]
 - [Source: _bmad-output/planning-artifacts/epics.md:98] — FR-49.
-- [Source: _bmad-output/planning-artifacts/epics.md:305] — assessed `pixi.toml` overlap across Epics 1, 3, 5, 7, 8.
+- [Source: _bmad-output/planning-artifacts/epics.md:307] — assessed `pixi.toml` overlap across Epics 1, 3, 5, 7, 8.
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Consistency Conventions] — supply chain, rationale, declaration files.
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-3] — the shared solve-group.
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Stack] — divergence D-4, `requests` must be declared directly (Epic 2).

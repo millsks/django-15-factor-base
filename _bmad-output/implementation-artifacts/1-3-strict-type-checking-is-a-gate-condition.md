@@ -77,9 +77,9 @@ so that the strictness three planning documents already assert becomes true of t
 | Path | NEW or UPDATE | What changes |
 | --- | --- | --- |
 | `pyproject.toml` | UPDATE | `[tool.mypy]` at `:181-191`: `check_untyped_defs = true` (`:183`) → `strict = true`. `python_version = "3.14"` (`:182`) unchanged. `plugins` (`:188-191`), `[[tool.mypy.overrides]]` for migrations (`:193-196`) and `[tool.django-stubs]` (`:198-199`) preserved. |
-| `src/config/observability/telemetry.py` | UPDATE | Annotate to satisfy strict. Preserve behaviour exactly — AD-24 names `:134-137` as a future feature-owned region (the per-instrumentor calls); do not restructure that block, only annotate around it. |
+| `src/config/observability/telemetry.py` | UPDATE | Annotate to satisfy strict. Preserve behaviour exactly — AD-24 names `:135` and `:137` as two *single-line* future feature-owned regions (the celery and redis instrumentor calls), **plus their imports at `:21` and `:24`**, while `:134` `DjangoInstrumentor` and `:136` `PsycopgInstrumentor` are `core`. Do not restructure that block or merge the lines, only annotate around them. |
 | `src/config/observability/logging.py` | UPDATE | Annotate. `build_logging_config(debug, log_level, log_format)` is called from `src/config/settings/test.py` and the other settings modules; its signature is load-bearing. |
-| `src/config/settings/base.py` | UPDATE | Annotate where strict demands it. AD-24 names `:296-313` as the future Celery feature-owned region; do not restructure it. |
+| `src/config/settings/base.py` | UPDATE | Annotate where strict demands it. AD-24 names `:296-335` as the future Celery feature-owned region — `:296` is the `# Celery` header and `:335` is `CELERY_WORKER_HIJACK_ROOT_LOGGER`; do not restructure it. |
 | `src/config/celery_app.py`, `src/config/api_router.py` | UPDATE | Annotate. |
 | `src/django_service/users/*.py`, `src/django_service/users/api/*.py` | UPDATE | Annotate. `src/django_service/users/models.py` defines the `User` model that Epic 2 Story 2.1 extends with `idp_subject` — leave its field set unchanged here. |
 | `tests/unit/test_typing_policy.py` | NEW | Asserts the strict configuration and hook/task agreement. |
@@ -105,9 +105,9 @@ Variance from the global project standard: the global standard sets `[tool.mypy]
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 1.3]
 - [Source: _bmad-output/planning-artifacts/epics.md:115] — NFR-4.
-- [Source: _bmad-output/planning-artifacts/epics.md:235] — "`[tool.mypy]` sets `check_untyped_defs` while three documents assert `strict`."
+- [Source: _bmad-output/planning-artifacts/epics.md:237] — "`[tool.mypy]` sets `check_untyped_defs` while three documents assert `strict`."
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-18]
-- [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-24] — `base.py:296-313` and `telemetry.py:134-137` are future feature-owned regions.
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-24] — `base.py:296-335` and `telemetry.py:135` / `:137` (plus imports at `:21`, `:24`) are future feature-owned regions; `telemetry.py:134` and `:136` are `core`.
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Stack] — Python 3.14.
 
 ## Dev Agent Record

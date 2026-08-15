@@ -6,7 +6,7 @@ Status: ready-for-dev
 
 As a platform engineer,
 I want a materializer that produces a combination's source by removing the paths that combination did not select,
-so that the twelve-combination claim becomes provable before the FreeMarker transition rather than after it.
+so that the six-combination claim becomes provable before the FreeMarker transition rather than after it.
 
 ## Acceptance Criteria
 
@@ -43,8 +43,8 @@ so that the twelve-combination claim becomes provable before the FreeMarker tran
   - [ ] `resolve_disposition(rel_path: str) -> Disposition` applies the most specific declared prefix; a path matched by two equally specific claims raises `CarrierError`.
 
 - [ ] Task 3: Model the combination (AC: #1)
-  - [ ] `tools/materializer/combination.py` — frozen `Combination` dataclass with the four booleans `celery`, `redis`, `ui`, `storage`; `selected: frozenset[str]` property; `identifier` property returning the selected names sorted and joined with `-`, or `none`.
-  - [ ] `enumerate_valid() -> tuple[Combination, ...]` returning exactly twelve, in a fixed sorted order — this order is the harness's canonical order and must not depend on set iteration.
+  - [ ] `tools/materializer/combination.py` — frozen `Combination` dataclass with the three booleans `celery`, `redis`, `storage`; `selected: frozenset[str]` property; `identifier` property returning the selected names sorted and joined with `-`, or `none`. There is no `ui` boolean — the interface mechanism is `core` (AD-29, revision 3).
+  - [ ] `enumerate_valid() -> tuple[Combination, ...]` returning exactly six, in a fixed sorted order — this order is the harness's canonical order and must not depend on set iteration.
   - [ ] Do not implement refusal here; Story 8.5 owns `validate()` and its message.
 
 - [ ] Task 4: Implement subtractive path pruning (AC: #1, #2, #3)
@@ -59,10 +59,10 @@ so that the twelve-combination claim becomes provable before the FreeMarker tran
 
 - [ ] Task 6: Tests (AC: #1, #2, #3, #4)
   - [ ] `tests/unit/materializer/test_carrier.py` — disposition resolution, the `machinery` default for unlisted paths, mutual exclusivity, duplicate-claim `CarrierError`.
-  - [ ] `tests/unit/materializer/test_combination.py` — exactly twelve; stable enumeration order; identifier formatting.
+  - [ ] `tests/unit/materializer/test_combination.py` — exactly six; stable enumeration order; identifier formatting.
   - [ ] `tests/unit/materializer/test_paths.py` — the `travels()` truth table across all four dispositions and both selection states.
-  - [ ] `tests/integration/materializer/test_materialize.py` (`@pytest.mark.integration`, `tmp_path`) — materialize each of the twelve into `tmp_path`; assert every `core` and `tenant` path present in all twelve; assert each `feature:<name>` path present in exactly the combinations selecting it; assert `tools/`, `accelerator.toml`, `_bmad/`, `_bmad-output/` absent from all twelve.
-  - [ ] `tests/integration/materializer/test_reference_application_unchanged.py` (`@pytest.mark.integration`) — hash the reference tree before and after materializing all twelve and assert it is unchanged, discharging AC #4.
+  - [ ] `tests/integration/materializer/test_materialize.py` (`@pytest.mark.integration`, `tmp_path`) — materialize each of the six into `tmp_path`; assert every `core` and `tenant` path present in all six; assert each `feature:<name>` path present in exactly the combinations selecting it; assert `tools/`, `accelerator.toml`, `_bmad/`, `_bmad-output/` absent from all six.
+  - [ ] `tests/integration/materializer/test_reference_application_unchanged.py` (`@pytest.mark.integration`) — hash the reference tree before and after materializing all six and assert it is unchanged, discharging AC #4.
 
 ## Dev Notes
 
@@ -72,7 +72,9 @@ so that the twelve-combination claim becomes provable before the FreeMarker tran
 - **AD-2** (binding): "Four *input* dispositions, exhaustive and mutually exclusive — `core` (always travels), `feature:<name>` (travels only where selected), `tenant` (never judged, never pruned), `machinery` (never travels). Unlisted defaults to `machinery`." *Prevents:* "an unlisted path silently travelling into every component; a developer's own app being deleted or reported as an orphan; a generated artifact having no legal existence." Disposition answers only *does this path travel*; substitution inside it is the orthogonal parameter axis (AD-25) and sub-file regions are AD-24.
 - **AD-1** (binding): every disposition, parameter, constraint and preset is declared in `accelerator.toml` "and nowhere else. It is `machinery` and never travels." **A second declaration site is forbidden** — no ignore list, no feature-to-path mapping and no skip list may live in the materializer's source.
 - **AD-2, `tenant`**: `tenant` paths are "never judged, never pruned". `src/django_apps/` has no `__init__.py` (AD-6) — the copier must not create one and must not treat a directory without `__init__.py` as non-source.
-- **AD-29**: no `feature:*` disposition may apply to any path inside `src/django_service/`. The materializer does not need to special-case this; Story 7.4 asserts it against the carrier. Do not add a second check here.
+- **AD-2, enumeration**: "Unlisted defaulting to `machinery` settles *behaviour*, not *enumeration* — input reconciliation still requires every path present in the tree to be claimed, so the carrier's disposition list is the inventory. The Structural Seed... is a shape and not an inventory." So the `MACHINERY` default in Task 2 is the resolver's behaviour for a path the carrier did not claim, and it is **not** a licence to leave paths unclaimed: `.github/`, `docs/`, `mkdocs.yml`, `sonar-project.properties`, `manage.py`, `CHANGELOG.md`, `LICENSE`, `README.md`, `_bmad/`, `_bmad-output/`, `.agents/`, `.bmad-loop/` and `.claude/` all need explicit entries. Story 7.1 owns authoring them; this story must not rely on the default to cover them.
+- **AD-29**: no `feature:*` disposition may apply to any path inside `src/django_service/`. The materializer does not need to special-case this; Story 7.4 asserts it against the carrier. Do not add a second check here. Revision 3 puts the interface mechanism inside that core — `base.html`, `_navbar.html` and the navigation registry, the error templates, the form styling, static-file serving and the user profile views travel in every combination.
+- **AD-33 is retired.** There is no `src/features/`, no feature package and no third import root, so there is no feature root for the materializer to prune. The three features own regions of `core` paths (AD-24) and dependency entries; at path granularity a feature's claim is a claim over ordinary `core`-tree paths, never over a package of its own.
 - **Region pruning is Story 8.3.** This story stops at path granularity. Do not implement marker handling.
 - **Refusal of invalid combinations is Story 8.5.** This story assumes a valid combination.
 - **The provenance stamp is Story 8.11.** Do not write `.accelerator.json` here.
@@ -86,7 +88,7 @@ so that the twelve-combination claim becomes provable before the FreeMarker tran
 | `tools/materializer/errors.py` | NEW | `MaterializerError` and its three subclasses. |
 | `tools/materializer/logging.py` | NEW | `structlog` JSON-to-stdout logger factory. |
 | `tools/materializer/carrier.py` | NEW | `accelerator.toml` loader; `Disposition` enum; `resolve_disposition`. |
-| `tools/materializer/combination.py` | NEW | `Combination`; `enumerate_valid()` returning twelve in fixed order. |
+| `tools/materializer/combination.py` | NEW | `Combination`; `enumerate_valid()` returning six in fixed order. |
 | `tools/materializer/paths.py` | NEW | `travels()` truth table. |
 | `tools/materializer/materialize.py` | NEW | Copy-then-remove driver. |
 | `tools/materializer/cli.py` | NEW | `python -m tools.materializer` entry point. |
@@ -110,7 +112,7 @@ Test location convention: accelerator tests live under `tests/` mirroring what t
 - Unit tests are isolated — carrier parsing from an in-test TOML string, no filesystem walk. Milliseconds.
 - Integration tests carry `@pytest.mark.integration` and use `tmp_path` for every output tree. They must leave the repository exactly as found; `test_reference_application_unchanged.py` asserts that directly.
 - Coverage floor: 90% including templates, `COVERAGE_CORE=ctrace` in force (AD-20). Extending `[tool.coverage.run] include` to `tools/**` means the materializer must itself be covered to 90%; write the tests as you write the module rather than after.
-- Specific assertions the ACs demand: every `core` and `tenant` path in all twelve outputs; each `feature:<name>` path in exactly its selecting combinations; `tools/`, `accelerator.toml` and the fixture set absent from all twelve; the reference tree byte-unchanged after twelve materializations.
+- Specific assertions the ACs demand: every `core` and `tenant` path in all six outputs; each `feature:<name>` path in exactly its selecting combinations; `tools/`, `accelerator.toml` and the fixture set absent from all six; the reference tree byte-unchanged after six materializations.
 
 ### References
 
@@ -118,6 +120,8 @@ Test location convention: accelerator tests live under `tests/` mirroring what t
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-2]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-3]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-6]
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-29]
+- [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#AD-33 — Retired in revision 3]
 - [Source: _bmad-output/planning-artifacts/architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md#Structural Seed]
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 8.2]
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 7.1] — the carrier and input reconciliation this story consumes

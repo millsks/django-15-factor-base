@@ -15,6 +15,10 @@ Structure: a Glossary that the rest of the document uses verbatim, features grou
 
 **Tense discipline, inherited from the addendum:** present tense describes what is true in the repository today. *Must* and *will* describe what this PRD requires and what is not yet built.
 
+**Amendment — 2026-08-16: the server-rendered interface is no longer a feature.** Phase-1 story creation measured what a `feature:ui` disposition could actually remove and found it did not justify a feature axis. The Django admin is immovable core (FR-1) and requires the template loader, `base.html`, the error templates, static files and whitenoise, so the rendering stack was already present in every combination; the removable remainder was about 16 KB of templates, 8 KB of static assets and 100 lines of Python, and **no dependency at all**, since `templates/allauth/elements/field.html` and `fields.html` use `crispy` to render the FR-4 interactive sign-in flow.
+
+Four features become three — background task processing, Redis cache, object storage — and **twelve valid combinations become six**. FR-3 is rewritten, FR-24 and FR-26 restate the counts, FR-27's presets are renamed (*API-only* and *Full web app* no longer name distinguishable selections), and the Glossary's definitions of *Feature*, *Combination* and *Valid combination* are amended. Every derived count in this document was recomputed: the six valid combinations are `¬celery` × {¬redis, redis} × {¬storage, storage}, plus `celery ∧ redis` × {¬storage, storage}. Rationale and the measurement are recorded in `../../architecture/architecture-django-15-factor-base-2026-08-15/ARCHITECTURE-SPINE.md` §"Revision 3".
+
 ## 1. Vision
 
 A lead developer inside the enterprise platform opens the enterprise developer portal, orders a Django component, selects the capabilities it needs, and receives a repository that already works. It emits correlated structured logs and OpenTelemetry traces. It authenticates against the corporate identity provider and nothing else. It passes a full quality gate — tests, ninety percent coverage including templates, strict type checking, lint, build — on the day it is created. A CI pipeline containerizes it and a deployment repository puts it on the platform. The first commit its author writes is business logic.
@@ -27,7 +31,7 @@ Stating the inheritance matters for a second reason. This PRD asserts that four 
 
 The measure of success is that the accelerator becomes the fastest way to start a Django component inside the platform, so that **compliance is a side effect of convenience rather than a review gate**. A standard that is slower than the fork it replaces does not get adopted; it gets routed around.
 
-Phase 1 is where those decisions become real and provable. It delivers the reference application with every capability present and exercised, the authentication rewire that makes the identity provider the only credential path in a deployed component, the startup refusals that keep local convenience out of deployment, and the harness that proves all twelve valid combinations build, pass, and run. That harness is the load-bearing part: the quality gate that makes phase 1 trustworthy cannot run against FreeMarker-interleaved source, so verification has to move to what the template renders — and it has to move **before** the transition, or the central quality claim goes dark exactly when the product starts being used.
+Phase 1 is where those decisions become real and provable. It delivers the reference application with every capability present and exercised, the authentication rewire that makes the identity provider the only credential path in a deployed component, the startup refusals that keep local convenience out of deployment, and the harness that proves all six valid combinations build, pass, and run. That harness is the load-bearing part: the quality gate that makes phase 1 trustworthy cannot run against FreeMarker-interleaved source, so verification has to move to what the template renders — and it has to move **before** the transition, or the central quality claim goes dark exactly when the product starts being used.
 
 ## 2. Target User
 
@@ -75,7 +79,7 @@ Downscaled deliberately: the ordering surface is the enterprise developer portal
   Marco picks up a ticket on a component generated three months ago. He has no VPN, no database running, no identity realm reachable. He clones, runs one command, and the component serves. He signs in as the seeded persona that carries the staff group and reaches the admin; he switches to the read-only persona and watches the same page refuse him — the authorization difference is real, produced by the same mapper the deployed component uses, from synthetic claims instead of an ID token. He mints a development token with another command and calls the API; the Bearer authentication class verifies its signature, issuer, audience, and expiry for real, against a local keypair. **Climax:** he runs the full suite and it passes. **Resolution:** he pushes; CI runs the same suite against PostgreSQL and catches what sqlite let through, which is the trade this product made knowingly. **Edge case:** if he sets `OTEL_TRACES_EXPORTER=console` he sees his spans on stdout — otherwise they are created, correlated into his logs, and discarded at the processor rather than flooding stderr against an unreachable collector.
 
 - **UJ-3. Priya proves the estate, not one component.**
-  Priya is on the platform group. A Django security release lands and the base is updated. Before the change is allowed to ship, the harness materializes all twelve valid combinations, runs each one's full gate against PostgreSQL, and runs a smoke check that boots each one with nothing installed and signs a persona in. **Climax:** eleven pass and one fails — the combination with no cache and no UI, where a settings fragment was left behind by the update. Nobody would have found it by review. **Resolution:** it is fixed before it reaches a single component, rather than being discovered by the first lead developer to order that combination.
+  Priya is on the platform group. A Django security release lands and the base is updated. Before the change is allowed to ship, the harness materializes all six valid combinations, runs each one's full gate against PostgreSQL, and runs a smoke check that boots each one with nothing installed and signs a persona in. **Climax:** five pass and one fails — the combination with no cache and no background task processing, where a settings fragment was left behind by the update. Nobody would have found it by review. **Resolution:** it is fixed before it reaches a single component, rather than being discovered by the first lead developer to order that combination.
 
 ## 3. Glossary
 
@@ -86,10 +90,10 @@ Downstream workflows and readers must use these terms exactly. Functional requir
 - **Template** — this repository in phase 2, once FreeMarker directives are interleaved into its source. Out of scope for this PRD; named only where a phase-1 requirement exists to serve it.
 - **Component** — a Django application produced by the accelerator, living in its own repository, owned by the team that ordered it.
 - **Immovable core** — the set of capabilities present in every component regardless of selection. A **capability** contract, never a package list.
-- **Feature** — one of the four selectable capabilities: background task processing, Redis cache, server-rendered UI, object storage. Selected or absent; never present-and-disabled.
-- **Combination** — one assignment of on/off to all four features. Sixteen exist.
-- **Valid combination** — a combination that satisfies the broker constraint. Twelve exist.
-- **Preset** — a named starting point (*API-only*, *Full web app*, *Worker-enabled*) that pre-selects features and remains fully editable. Constrains nothing.
+- **Feature** — one of the three selectable capabilities: background task processing, Redis cache, object storage. Selected or absent; never present-and-disabled. *(Amended: the server-rendered interface was a fourth feature and is now immovable core — see FR-3.)*
+- **Combination** — one assignment of on/off to all three features. Eight exist.
+- **Valid combination** — a combination that satisfies the broker constraint. Six exist.
+- **Preset** — a named starting point (*Minimal*, *Cached*, *Worker-enabled*) that pre-selects features and remains fully editable. Constrains nothing.
 - **Materializer** — the phase-1 mechanism, living in this repository, that produces the source of any valid combination from the reference application so the harness can gate it. Replaced by the template in phase 2; the verification it feeds is not.
 - **Gate** — the full quality sequence: tests, coverage at or above ninety percent including templates, strict type checking, lint, and build. Run against PostgreSQL.
 - **Smoke check** — the local-runnability verification for one combination: the component boots, readiness returns 200, and a persona signs in, with no external service running.
@@ -122,9 +126,9 @@ Each subsection is a coherent feature group carrying a priority. **Phase-1 must-
 
 **Priority: Phase-1 must-have.**
 
-**Description:** Every component contains a fixed set of capabilities that no selection can remove: PostgreSQL, django-allauth with OpenID Connect, Django REST Framework with drf-spectacular, the Django admin, CORS, structlog, OpenTelemetry, environment-based configuration, static file serving, and a uvicorn/gunicorn process. The three factors beyond the twelve — API-first, telemetry, and authentication/authorization — are why this core is immovable rather than merely default. Realizes UJ-1, UJ-3.
+**Description:** Every component contains a fixed set of capabilities that no selection can remove: PostgreSQL, django-allauth with OpenID Connect, Django REST Framework with drf-spectacular, the Django admin, CORS, structlog, OpenTelemetry, environment-based configuration, static file serving, and a uvicorn/gunicorn process. The three factors beyond the fifteen — API-first, telemetry, and authentication/authorization — are why this core is immovable rather than merely default. Realizes UJ-1, UJ-3.
 
-The core is a capability contract, not a package list. "Every component emits traces" is fixed; the instrumentation packages that deliver it flex, because the Celery, Redis, and Postgres instrumentors exist only where those capabilities do. An architecture that hardcodes the immovable core as a fixed package list will ship dependencies that four of the twelve valid combinations cannot use.
+The core is a capability contract, not a package list. "Every component emits traces" is fixed; the instrumentation packages that deliver it flex, because the Celery, Redis, and Postgres instrumentors exist only where those capabilities do. An architecture that hardcodes the immovable core as a fixed package list will ship dependencies that four of the six valid combinations cannot use.
 
 **Functional Requirements:**
 
@@ -133,7 +137,7 @@ The core is a capability contract, not a package list. "Every component emits tr
 Every valid combination provides the immovable core, and no feature selection removes any part of it. Realizes UJ-1.
 
 **Consequences (testable):**
-- Each of the twelve valid combinations declares PostgreSQL as its deployed database, DRF with drf-spectacular, the Django admin, CORS handling, structlog, OpenTelemetry, environment-based configuration, static file serving, and a uvicorn/gunicorn process.
+- Each of the six valid combinations declares PostgreSQL as its deployed database, DRF with drf-spectacular, the Django admin, CORS handling, structlog, OpenTelemetry, environment-based configuration, static file serving, and a uvicorn/gunicorn process.
 - No feature toggle in the feature model can be set to a value that removes any of the above.
 - A combination in which the Django admin is unreachable fails the smoke check.
 
@@ -142,18 +146,22 @@ Every valid combination provides the immovable core, and no feature selection re
 The dependency manifest of a materialized combination contains the instrumentation packages that combination's capabilities require, and no others. Realizes UJ-3.
 
 **Consequences (testable):**
-- `opentelemetry-api`, `-sdk`, `-exporter-otlp-proto-http`, `-instrumentation-django`, `-instrumentation-asgi`, and `-instrumentation-psycopg` are present in all twelve combinations.
+- `opentelemetry-api`, `-sdk`, `-exporter-otlp-proto-http`, `-instrumentation-django`, `-instrumentation-asgi`, and `-instrumentation-psycopg` are present in all six combinations.
 - `opentelemetry-instrumentation-celery` is present in exactly the combinations that selected background task processing, and absent from the others.
 - `opentelemetry-instrumentation-redis` is present in exactly the combinations that selected the Redis cache, and absent from the others.
-- `django-structlog` is present in all twelve; its Celery correlation-ID propagation is wired only where background task processing is selected.
+- `django-structlog` is present in all six; its Celery correlation-ID propagation is wired only where background task processing is selected.
 
-#### FR-3: The Django admin is orthogonal to the server-rendered UI feature
+#### FR-3: The interface mechanism is immovable core
 
-Selecting or omitting the server-rendered UI feature does not affect the presence or function of the Django admin. Realizes UJ-1.
+The rendering stack — template loading, `base.html`, the navigation bar and its contribution registry, the error templates, form styling, static-file serving and the user profile views — is present in every component and is not selectable. Realizes UJ-1.
+
+**Amended.** This requirement previously made the Django admin orthogonal to a *server-rendered UI feature*. That feature no longer exists. The admin is immovable core (FR-1) and requires the template loader, `base.html`, the error templates, static files and whitenoise, so the rendering stack was already present in every combination. Measured against the reference application, what the feature could actually remove was roughly 16 KB of templates, 8 KB of static assets and 100 lines of Python — and no dependency at all, since `templates/allauth/elements/field.html` and `fields.html` use `crispy` to render the FR-4 interactive sign-in flow. Carrying a feature axis and six extra valid combinations to remove that much was not a sound trade.
 
 **Consequences (testable):**
-- In a combination with the server-rendered UI absent, the admin renders, static files serve, the messages framework is available, and template rendering works.
-- What the server-rendered UI feature removes is the end-user surface — form styling, page templates, and user-facing views — and nothing else.
+- In every combination the admin renders, static files serve, the messages framework is available, and template rendering works.
+- `base.html` and the 403/404/500 templates render in every combination, and the smoke check asserts a rendered admin index and a rendered 404.
+- `base.html` contains no hardcoded navigation links; the navigation bar renders the contributed registry, so an adopted app can appear in it (FR-54).
+- The `home` and `about` demonstration pages are removed rather than made core: nothing in the product requires them, and a component that wants a landing page owns one.
 
 ---
 
@@ -171,7 +179,7 @@ DRF's `TokenAuthentication` cannot be adapted to this. It is hardwired to the `r
 
 #### FR-4: Interactive authentication against the IdP
 
-A person can authenticate to the Django admin and the server-rendered UI by redirect to the IdP using Authorization Code with PKCE, receiving a session cookie. Realizes UJ-1, UJ-2.
+A person can authenticate to the Django admin and the rendered interface by redirect to the IdP using Authorization Code with PKCE, receiving a session cookie. Realizes UJ-1, UJ-2.
 
 **Consequences (testable):**
 - Reaching an authenticated page unauthenticated redirects to the IdP, not to a local login form.
@@ -213,7 +221,7 @@ Every authentication, by any flow, resolves authorization through a single mappe
 
 **Consequences (testable):**
 - All three callers — allauth's `SocialAccountAdapter`, the DRF `BaseAuthentication` subclass, and the local path of §4.4 — import the mapper; none contains its own mapping logic.
-- The mapper is not behind any feature toggle and is present in all twelve valid combinations.
+- The mapper is not behind any feature toggle and is present in all six valid combinations.
 - A test asserts that the admin and the API agree on the authorization state of the same identity presented through different flows.
 - **One claim is the identity key.** The claims contract designates a stable subject identifier, and the mapper resolves the user by that claim alone — never by email address or username, which are mutable at the IdP and collidable between identities.
 - An identity first seen through the programmatic flow and later through the interactive flow resolves to the same user. A test asserts this in both orders.
@@ -296,7 +304,7 @@ A deployed component refuses to start when any of seven conditions holds, regard
 - *(Stage 2)* A credential-minting route is reachable in the resolved URL configuration → refusal. This covers `obtain_auth_token` (FR-15).
 - *(Stage 2)* The local sign-in route is reachable in the resolved URL configuration → refusal. The synthetic-claims sign-in path of FR-19 is a credential path this product itself introduces, and it ships in every component (FR-19).
 - *(Stage 1)* `OTEL_SDK_DISABLED` is true → refusal, because a deployed component that sets it has silently opted out of an immovable guarantee.
-- *(Stage 1)* The JWKS trust anchor is not the configured IdP → refusal. The trust anchor is compared against the configured IdP issuer: a JWKS location that is not derived from that issuer is refused, which is what catches a component pointed at a locally generated development key. Unconditional, because the programmatic flow is immovable core and therefore present in all twelve valid combinations.
+- *(Stage 1)* The JWKS trust anchor is not the configured IdP → refusal. The trust anchor is compared against the configured IdP issuer: a JWKS location that is not derived from that issuer is refused, which is what catches a component pointed at a locally generated development key. Unconditional, because the programmatic flow is immovable core and therefore present in all six valid combinations.
 - *(Stage 2)* Unapplied migrations exist → refusal, for serving processes only, so that a process which serves traffic never runs against a schema it does not recognize. Evaluating it for every process would deadlock the release stage of FR-41, because `manage.py migrate` is the one action that clears the condition and would be forbidden by it.
 - *(Stage 1)* The claims contract is unconfigured → refusal. No identity-key claim, no group-claim name, or no designated staff group means the component cannot decide who someone is or what they may do, and will not boot. Defaulting to conventional claim names was rejected: it fails closed, since nobody gets elevated, but presents as a mysterious permissions problem rather than a configuration error — expensive to diagnose once, and expensive per component across an estate.
 
@@ -368,7 +376,7 @@ Every valid combination starts, serves, and authenticates a persona on a machine
 - Task execution is eager and propagating locally, preserving task bodies invoked synchronously.
 - Where object storage is selected, a filesystem-backed storage backend is configured locally, preserving the storage API at every call site. What it does not exercise: bucket policy, presigned URLs, eventual consistency, multipart upload, and the network failure modes of a remote object store.
 - The local personas of FR-19 stand in for the IdP, preserving the mapper, staff and superuser promotion, and per-authentication re-sync.
-- The smoke check of FR-34 passes for all twelve valid combinations.
+- The smoke check of FR-34 passes for all six valid combinations.
 
 #### FR-19: Personas are seeded from declared claims
 
@@ -406,7 +414,7 @@ Local development runs the same observability code the deployed component runs; 
 
 #### FR-22: The broker constraint is a statement about deployment only
 
-Locally, all twelve valid combinations run with no broker. Realizes UJ-2.
+Locally, all six valid combinations run with no broker. Realizes UJ-2.
 
 **Consequences (testable):**
 - Combinations that selected background task processing execute tasks eagerly with no broker present locally.
@@ -439,9 +447,9 @@ The hardest part is what is left behind. Removing MFA during the audit orphaned 
 
 **Functional Requirements:**
 
-#### FR-24: Four selectable features, declared in one carrier
+#### FR-24: Three selectable features, declared in one carrier
 
-A lead developer can select any subset of background task processing, Redis cache, server-rendered UI, and object storage. Every feature's surface is declared in a single machine-readable artifact with a named location, which is the only place a feature's extent is defined. Realizes UJ-1.
+A lead developer can select any subset of background task processing, Redis cache, and object storage. Every feature's surface is declared in a single machine-readable artifact with a named location, which is the only place a feature's extent is defined. Realizes UJ-1.
 
 **Consequences (testable):**
 - The carrier declares, per feature: its package surface, its non-package surface (settings fragments, application modules, observability wiring, templates, static assets, tests), its constraints, and the presets that pre-select it.
@@ -467,23 +475,23 @@ Where selected, a component stores documents and blobs against an S3-compatible 
 Background task processing without the Redis cache is refused at generation rather than emitted as a component that cannot start. Realizes UJ-1.
 
 **Consequences (testable):**
-- The combination space is twelve valid combinations, not sixteen.
+- The combination space is six valid combinations, not eight.
 - The materializer refuses the invalid pairing with a stated reason (FR-35).
 
 #### FR-27: Presets pre-select without constraining
 
-The three presets — *API-only*, *Full web app*, *Worker-enabled* — set a starting selection and remain fully editable. Realizes UJ-1.
+The three presets — *Minimal*, *Cached*, *Worker-enabled* — set a starting selection and remain fully editable. Realizes UJ-1. *(Renamed: with the interface mechanism core, "API-only" and "Full web app" no longer name distinguishable selections.)*
 
 **Consequences (testable):**
 - Every valid combination is reachable without using a preset.
-- A selection such as *API-only plus background task processing plus object storage* is accepted; presets do not act as a menu of permitted shapes.
+- A selection such as *Minimal plus background task processing plus object storage* is accepted; presets do not act as a menu of permitted shapes.
 
 #### FR-28: Excluded features leave nothing behind
 
 No materialized combination contains a dependency, template, static asset, settings fragment, or test belonging to a feature it did not select. Realizes UJ-3.
 
 **Consequences (testable):**
-- For each of the twelve valid combinations, the dependency manifest contains no package from an unselected feature's package surface.
+- For each of the six valid combinations, the dependency manifest contains no package from an unselected feature's package surface.
 - No template or static asset unreachable from any view in the combination is present.
 - No test module for an unselected feature is present — and no test is present-but-skipped in its place.
 
@@ -507,15 +515,15 @@ The coverage signal that catches incomplete feature removal is preserved in per-
 
 **Description:** Two models are kept deliberately separate. **Selection** is individual features with declared constraints, freely combinable, with the generator refusing invalid combinations at the source. **Verification** is a set of combinations CI proves green — test fixtures, never a restriction on what may be selected. Presenting the presets as menu items was rejected because it would refuse legitimate requests. Realizes UJ-3.
 
-Verification also has two levels, and only the second is a claim this product makes. A component's own pipeline answers "is *this* component sound." It does not answer "are all twelve combinations sound" — and left there, the first lead developer to order an untried combination is the one who discovers the defect.
+Verification also has two levels, and only the second is a claim this product makes. A component's own pipeline answers "is *this* component sound." It does not answer "are all six combinations sound" — and left there, the first lead developer to order an untried combination is the one who discovers the defect.
 
-In phase 2 the second level is the template's CI rendering all twelve. Phase 1 cannot do that, because there is no template. So phase 1 builds a materializer: a mechanism in this repository that produces the source of any valid combination from the reference application, so the twelve-combination claim is provable *before* the transition rather than after it. When FreeMarker arrives it replaces the materializer; the verification it feeds is unchanged. The ordering is not a convenience but a requirement of the brief's risk register (§1, §11).
+In phase 2 the second level is the template's CI rendering all six. Phase 1 cannot do that, because there is no template. So phase 1 builds a materializer: a mechanism in this repository that produces the source of any valid combination from the reference application, so the six-combination claim is provable *before* the transition rather than after it. When FreeMarker arrives it replaces the materializer; the verification it feeds is unchanged. The ordering is not a convenience but a requirement of the brief's risk register (§1, §11).
 
 **Functional Requirements:**
 
 #### FR-30: The materializer produces any valid combination
 
-A developer or CI job can materialize the complete source of any of the twelve valid combinations from the reference application. Realizes UJ-3.
+A developer or CI job can materialize the complete source of any of the six valid combinations from the reference application. Realizes UJ-3.
 
 **Consequences (testable):**
 - Materializing a combination produces a self-contained source tree that its own gate can run against.
@@ -536,7 +544,7 @@ Materialization supplies test values for every parameter the enterprise develope
 
 #### FR-32: Every valid combination passes the full gate against PostgreSQL
 
-All twelve valid combinations are materialized and put through tests, coverage at or above ninety percent including templates, strict type checking, lint, and build, against PostgreSQL. Realizes UJ-3.
+All six valid combinations are materialized and put through tests, coverage at or above ninety percent including templates, strict type checking, lint, and build, against PostgreSQL. Realizes UJ-3.
 
 **Consequences (testable):**
 - CI declares a PostgreSQL service and sets the database URL for gate runs. No workflow does this today, so the suite has only ever run against the sqlite fallback and PostgreSQL — immovable core — has never been verified.
@@ -544,11 +552,11 @@ All twelve valid combinations are materialized and put through tests, coverage a
 
 #### FR-33: Every valid combination passes a local smoke check
 
-All twelve valid combinations boot, return 200 from readiness, and authenticate a persona with no external service running. Realizes UJ-2, UJ-3.
+All six valid combinations boot, return 200 from readiness, and authenticate a persona with no external service running. Realizes UJ-2, UJ-3.
 
 **Consequences (testable):**
 - The smoke check runs with no database, cache, broker, or identity provider available.
-- Neither the database backend nor the authentication mode is treated as a feature toggle; they are properties of the environment a combination runs in, so the combination space stays at twelve.
+- Neither the database backend nor the authentication mode is treated as a feature toggle; they are properties of the environment a combination runs in, so the combination space stays at six.
 
 #### FR-34: The materializer refuses invalid combinations
 
@@ -583,11 +591,11 @@ Materialized output excludes the accelerator's tooling and planning artifacts, a
 **Consequences (testable):**
 - The disposition is a rule evaluated per path, not a list of directories. A path is included only if the carrier shows it claimed by the immovable core or by a feature the combination selected; it is parameterized if the carrier declares it parameterized; it is excluded otherwise.
 - Unlisted paths default to excluded, so a file no declaration claims does not silently travel into every component. This is FR-17's lesson applied to materialization: a rule maintained as an enumeration is always one omission behind.
-- Directory-level granularity is insufficient and must not be used. `src/config/`, `tests/`, `pixi.toml` and `pixi.lock` each contain both core and feature-owned content — `src/config/celery_app.py` exists today and must be absent from the eight combinations without background task processing, and the dependency manifest differs in eleven of the twelve. A rule that keeps those paths wholesale produces twelve identical components and makes FR-2's entire testable surface unreachable.
+- Directory-level granularity is insufficient and must not be used. `src/config/`, `tests/`, `pixi.toml` and `pixi.lock` each contain both core and feature-owned content — `src/config/celery_app.py` exists today and must be absent from the four combinations without background task processing, and the dependency manifest differs in five of the six. A rule that keeps those paths wholesale produces six identical components and makes FR-2's entire testable surface unreachable.
 - **Excluded, as accelerator machinery:** `_bmad/`, `_bmad-output/`, `.agents/`, `.bmad-loop/`, `.claude/`, and the materializer, the FR-24 carrier and the FR-31 fixture set themselves.
 - **Parameterized:** `sonar-project.properties`, `README.md`, `CHANGELOG.md`, `LICENSE`, `pyproject.toml`, and `mkdocs.yml`. The component name is one parameter with several sites, not one file.
 - **Not parameterized, and this is load-bearing:** the component package path `src/django_service/` is a **constant** in every component. Reusable apps (§4.10) import from it by that name, so renaming it per component would break every reusable app in every component that renamed it differently. It is the stable import surface, not a placeholder.
-- **Split, not kept wholesale:** `.github/` contains both the component's own pipeline and the accelerator's twelve-combination harness, release, and code-quality workflows; only the component's own pipeline travels. `docs/` splits the same way and already has a stated rule: what describes how to work on any component travels with it; what describes the accelerator does not.
+- **Split, not kept wholesale:** `.github/` contains both the component's own pipeline and the accelerator's six-combination harness, release, and code-quality workflows; only the component's own pipeline travels. `docs/` splits the same way and already has a stated rule: what describes how to work on any component travels with it; what describes the accelerator does not.
 - A materialized combination does not report code quality into the accelerator's own project — the hardcoded project key at `sonar-project.properties:6` is parameterized. Shipped unparameterized, nothing fails and the metrics merge silently.
 - The `COVERAGE_CORE` setting of FR-29 travels with every combination, since the orphan signal is worthless without it.
 
@@ -623,7 +631,7 @@ A deployed component starts under a UID assigned by the platform and writes to n
 Each combination declares which process types it runs and their commands. Realizes UJ-1.
 
 **Consequences (testable):**
-- `web` is present in all twelve, served by gunicorn with the uvicorn worker class.
+- `web` is present in all six, served by gunicorn with the uvicorn worker class.
 - `worker` and `beat` are present in exactly the combinations that selected background task processing.
 - The declaration states that `beat` runs as exactly one replica — its schedule lives in PostgreSQL, which makes the process replaceable but not duplicable; two would produce duplicate dispatches.
 - The declaration also states that `beat` must be replaced by stopping the old process before starting the new one. A default rolling update starts the replacement first, producing exactly the two-replica window the previous consequence forbids — so a replica count declared without a replacement strategy states a constraint the deployment repository would violate by default.
@@ -661,9 +669,9 @@ Expired session rows are pruned by a one-off management process the platform sch
 
 **Consequences (testable):**
 - Sessions are database-backed in every combination, with the session engine set explicitly rather than left to the framework default, so session behaviour never varies by toggle.
-- Pruning is documented as a scheduled admin process, deliberately not as a scheduled background task — background task processing exists in only four of the twelve combinations, and a component whose session table grew without bound in the other eight would make session hygiene a property of an unrelated toggle.
+- Pruning is documented as a scheduled admin process, deliberately not as a scheduled background task — background task processing exists in only two of the six combinations, and a component whose session table grew without bound in the other four would make session hygiene a property of an unrelated toggle.
 
-**Notes:** the source addendum §5.3 originally inverted this arithmetic, reading "8 of the 12" and "the other 4"; it has since been corrected to match. Background tasks require the Redis cache, so they are present only in the `on/on` pairing: one of three valid pairings, times two UI states, times two object-storage states — four combinations. The correction strengthens the requirement, since two thirds of the space is affected rather than one third.
+**Notes:** the source addendum §5.3 originally inverted this arithmetic, reading "8 of the 12" and "the other 4"; it has since been corrected to match. Background tasks require the Redis cache, so they are present only in the `on/on` pairing: one of three valid pairings, times two object-storage states — two combinations. The correction strengthens the requirement, since two thirds of the space is affected rather than one third.
 
 **Priority note:** setting the session engine explicitly is phase-1 must-have; scheduling the pruning process is **Next**, because the schedule lives in the deployment repository.
 
@@ -692,7 +700,7 @@ Every component writes a JSON event stream to stdout in which log lines carry th
 
 **Consequences (testable):**
 - The component never manages log files or rotation.
-- Correlation identifiers are present on log lines emitted during a request in all twelve combinations.
+- Correlation identifiers are present on log lines emitted during a request in all six combinations.
 - Where background task processing is selected, correlation propagates into task execution.
 
 #### FR-47: ASGI request tracing
@@ -700,7 +708,7 @@ Every component writes a JSON event stream to stdout in which log lines carry th
 Requests served over ASGI produce spans. Realizes UJ-3.
 
 **Consequences (testable):**
-- The ASGI instrumentor is present and active in all twelve combinations; without it, ASGI requests produce no spans at all.
+- The ASGI instrumentor is present and active in all six combinations; without it, ASGI requests produce no spans at all.
 
 #### FR-48: Degradation is visible
 
@@ -758,7 +766,7 @@ The component's base package presents a declared surface that reusable apps may 
 **Consequences (testable):**
 - The base package name is identical in every component and is never parameterized (FR-37).
 - The surface a reusable app may depend on is declared explicitly; anything else inside the base is internal and may change freely.
-- The declared surface is present in all twelve valid combinations. No feature selection may remove part of it, or an app would import successfully in some components and fail in others.
+- The declared surface is present in all six valid combinations. No feature selection may remove part of it, or an app would import successfully in some components and fail in others.
 - Moving a module within the declared surface, changing the user model, or renaming a guaranteed setting is a breaking change and is versioned as one.
 
 #### FR-52: A component extends through a declared tenant space
@@ -833,12 +841,12 @@ A reusable app states which versions of the base it supports, and adopting it in
 
 ### 6.1 In Scope
 
-- The reference application: the immovable core and the four selectable features, all present and exercised (§4.1, §4.5).
+- The reference application: the immovable core and the three selectable features, all present and exercised (§4.1, §4.5).
 - The authentication rewire — interactive and programmatic flows against the IdP, the shared mapper, per-authentication re-sync, and removal of the four bypassing credential paths (§4.2).
 - The refusal contract: nine conditions, evaluated at two defined points independently of which settings module loaded, tested as refusals, and backed by an allowlist test over the authentication surface (§4.3).
 - The local development contract: five substitutions, seeded personas, the locally signed development token, and unsubstituted observability (§4.4).
 - Grouping code, dependencies, settings, templates, and tests so a feature can be excluded cleanly, with orphan detection preserved (§4.5).
-- The materializer and the two verification levels: twelve combinations gated against PostgreSQL and smoke-checked locally (§4.6).
+- The materializer and the two verification levels: six combinations gated against PostgreSQL and smoke-checked locally (§4.6).
 - The deployment interface: environmental configuration, arbitrary UID, declared process model, release-stage migrations, two health endpoints, drain ordering, explicit session engine, environmental trace export (§4.7).
 - Observability hardening: correlated logs, ASGI tracing, conditional instrumentors, visible cache degradation (§4.8).
 - Supply-chain policy and the channel check for new features (§4.9).
@@ -850,8 +858,8 @@ A reusable app states which versions of the base it supports, and adopting it in
 - **Scheduling the session-pruning process** — the schedule lives in the deployment repository. The component-side requirement (explicit session engine, documented admin process) is in scope.
 - **Concrete non-functional numbers** — probe timings, startup budget, termination grace, resource limits, JWKS cache TTL. Architecture pins these against the real platform; §8 states the behavioural contract without them.
 - **Propagation to existing components** — see §5. `[NOTE FOR PM]` This one is emotionally load-bearing: the Vision's second paragraph describes a base that "stops being a starting point and becomes a living one," and without propagation that stays aspirational. Worth revisiting once the accelerator has produced enough components for the gap to bite.
-- **Presets beyond the three named** — *API-only*, *Full web app*, *Worker-enabled*. Adding more is cheap and constrains nothing; there is no evidence yet for which.
-- **All-pairs verification** — the policy exists (FR-35) but exhaustive verification of twelve is correct until the space grows past roughly thirty-two.
+- **Presets beyond the three named** — *Minimal*, *Cached*, *Worker-enabled*. Adding more is cheap and constrains nothing; there is no evidence yet for which.
+- **All-pairs verification** — the policy exists (FR-35) but exhaustive verification of six is correct until the space grows past roughly thirty-two.
 
 ## 7. Success Criteria
 
@@ -859,7 +867,7 @@ Success here is stated as verifiable criteria, not outcome metrics. Adoption and
 
 **Primary**
 
-- **SC-1: Every valid combination builds and passes.** All twelve are materialized and put through the full gate — tests, coverage at or above ninety percent including templates, strict type checking, lint, build — against PostgreSQL rather than the local sqlite substitution, and all twelve pass. Validates FR-30, FR-31, FR-32, FR-35.
+- **SC-1: Every valid combination builds and passes.** All six are materialized and put through the full gate — tests, coverage at or above ninety percent including templates, strict type checking, lint, build — against PostgreSQL rather than the local sqlite substitution, and all six pass. Validates FR-30, FR-31, FR-32, FR-35.
 - **SC-2: Excluded features leave nothing behind.** No orphaned dependency, template, static asset, settings fragment, or test in any materialized combination. Validates FR-24, FR-28, FR-29.
 - **SC-3: A component is deployable unmodified.** Containerized by CI and started on the target platform with no source edits, with its declared process model, health endpoints, and drain behaviour intact. Validates FR-38 through FR-45.
 - **SC-4: A component runs locally with nothing else installed.** Every valid combination starts, serves, and authenticates a persona on a machine with no database, cache, broker, or identity provider running. Validates FR-18, FR-19, FR-20, FR-33.
@@ -868,7 +876,7 @@ Success here is stated as verifiable criteria, not outcome metrics. Adoption and
 
 - **SC-5: No deployed component authenticates outside the IdP.** Each of the nine refusal conditions has a test that configures the forbidden state and asserts refusal, and the authentication surface matches its allowlist exactly. Stated as *outside the IdP* rather than *bypasses the IdP* because three of the nine conditions are not bypasses (§4.3). Validates FR-12, FR-13, FR-14, FR-15, FR-16, FR-17.
 - **SC-6: The IdP authentication path works.** A real IdP identity authenticates through the interactive flow and through the programmatic flow, and the mapper produces the correct authorization state in both: memberships the claims assert added, memberships they no longer assert removed, staff and superuser status set from their designated groups, and the same identity resolving to the same user across both flows and in either order. Validates FR-4 through FR-11.
-- **SC-7: The immovable core functions in every combination.** Each of the twelve materialized combinations serves an API described by its generated schema, renders the admin, emits correlated structured logs carrying request and trace identifiers, and produces spans for ASGI requests. Validates FR-1, FR-2, FR-3, FR-46, FR-47, FR-48.
+- **SC-7: The immovable core functions in every combination.** Each of the six materialized combinations serves an API described by its generated schema, renders the admin, emits correlated structured logs carrying request and trace identifiers, and produces spans for ASGI requests. Validates FR-1, FR-2, FR-3, FR-46, FR-47, FR-48.
 
 **What SC-6 and SC-7 add.** SC-1 through SC-5 verify only negatives and shapes — that combinations build, that nothing is left behind, that nothing authenticates outside the IdP. All five could pass on a component whose IdP integration rejects every real token and whose telemetry emits nothing, because no criterion asked whether the core *works*. These two close that, and between them bring the twenty-five requirements no criterion previously validated into scope.
 
@@ -877,7 +885,7 @@ Success here is stated as verifiable criteria, not outcome metrics. Adoption and
 Each names a way a primary criterion could be made to pass while the product got worse, and forbids it.
 
 - **CG-1: Do not reach the coverage threshold by narrowing what is measured.** Coverage includes templates precisely because that is the only signal that catches an orphan. Excluding files, adding coverage pragmas to unreached code, or dropping template measurement makes SC-1 pass and destroys SC-2. Counterbalances SC-1.
-- **CG-2: Do not shrink the verification set to keep CI cheap.** A template change costing twelve materialize-and-gate runs is the price of SC-1 meaning what it says. Any reduction must be reported (FR-35), never silent. Counterbalances SC-1.
+- **CG-2: Do not shrink the verification set to keep CI cheap.** A template change costing six materialize-and-gate runs is the price of SC-1 meaning what it says. Any reduction must be reported (FR-35), never silent. Counterbalances SC-1.
 - **CG-3: Do not soften a refusal into a warning.** A refusal that logs and continues makes deployment smoother and puts local credentials into production. Counterbalances SC-3 and SC-5.
 - **CG-4: Do not substitute a capability that could run locally as deployed.** A substitution is warranted only where the deployed dependency genuinely cannot be present on a developer's machine without becoming the service dependency this contract exists to remove. Each one widens the parity gap the product already trades knowingly, and each must be guarded by a refusal. The count is not the constraint — the principle is; object storage was added as a fifth on that principle (§4.4), not to make SC-4 cheaper to pass. Counterbalances SC-4.
 
@@ -928,7 +936,7 @@ Each names a way a primary criterion could be made to pass while the product got
 - **No break-glass account (accepted).** An IdP outage locks everyone out of the admin, including its administrators. Accepted in exchange for a single auditable authentication path. The local personas are not a mitigation; they exist only where the refusals do not apply.
 - **Dev/prod parity is deliberately traded (accepted).** Factor 10 exists to discourage exactly what §4.4 does, with sqlite against PostgreSQL as its stock example, and a product named for fifteen factors should say so rather than let a reader discover it. The trade buys a component that runs the moment it is generated, and it is bounded: the gate runs against PostgreSQL, the authorization code paths are shared rather than mocked, and observability is not substituted at all.
 - **Local development proves less than running suggests.** sqlite accepts schemas PostgreSQL rejects; eager execution never exercises delivery, retries, or serialization; synthetic claims never exercise JWKS retrieval or key rotation. The gate covers all three, so this is a slower feedback loop rather than an unverified product — but a component running locally is not evidence it will run deployed.
-- **Phase 2 blinds the gate until the harness exists.** *Mitigation:* this PRD's ordering. The materializer (§4.6) exists so the twelve-combination claim is provable before the transition, and the transition must not happen first.
+- **Phase 2 blinds the gate until the harness exists.** *Mitigation:* this PRD's ordering. The materializer (§4.6) exists so the six-combination claim is provable before the transition, and the transition must not happen first.
 - **Orphan detection depends on coverage.** The zero-percent signal is the only thing that catches incomplete feature removal. *Mitigation:* FR-29 and CG-1.
 - **The OTLP export path is never exercised locally.** Protobuf serialization, HTTP transport, batch behaviour, retry and timeout run only when an endpoint is configured. *Mitigation:* FR-45 puts the export path in the gate and keeps the local default at discard-at-the-processor rather than failing at the socket.
 - **Channel availability constrains the feature model.** Every future feature must clear FR-50 before it is committed to.

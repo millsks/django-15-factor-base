@@ -34,8 +34,8 @@ so that the accelerator's own tooling and planning artifacts cannot travel into 
    **Then** it is absent
 
 6. **Given** the dependency manifest
-   **When** the twelve combinations are compared
-   **Then** it differs in eleven of the twelve
+   **When** the six combinations are compared
+   **Then** it differs in five of the six
 
 7. **Given** `COVERAGE_CORE`
    **When** a combination is materialized
@@ -54,25 +54,25 @@ so that the accelerator's own tooling and planning artifacts cannot travel into 
   - [ ] `reconcile_output` raises nothing; the gate test turns a non-empty violation tuple into a failure naming every violating path.
 
 - [ ] Task 3: Split `.github/` and `docs/` in the carrier (AC: #3)
-  - [ ] `.github/workflows/` today holds `ci.yml`, `labeler.yml`, `release.yml`, `sonarqube.yml`, `stale.yml`. Disposition each individually: the component's own pipeline travels (`core`), the accelerator's twelve-combination harness workflow and anything specific to this repository's release or triage automation does not (`machinery`).
+  - [ ] `.github/workflows/` today holds `ci.yml`, `labeler.yml`, `release.yml`, `sonarqube.yml`, `stale.yml`. Disposition each individually: the component's own pipeline travels (`core`), the accelerator's six-combination harness workflow and anything specific to this repository's release or triage automation does not (`machinery`).
   - [ ] `.github/` also holds `agents/`, `copilot/`, `CODEOWNERS`, `ISSUE_TEMPLATE/`, `issue-labeler.yml`, `labeler.yml`, `pull_request_template.md`. Disposition each explicitly; none may rely on the `machinery` default silently — an explicit claim is what makes the split reviewable.
-  - [ ] `docs/` today holds `index.md`, `development.md`, `observability.md`. Documentation describing how to work on *any* component travels (`core`); documentation about the accelerator itself — the carrier, the materializer, the twelve-combination harness — does not (`machinery`). Split existing files if a single file mixes both; do not disposition a mixed file as `core`.
+  - [ ] `docs/` today holds `index.md`, `development.md`, `observability.md`. Documentation describing how to work on *any* component travels (`core`); documentation about the accelerator itself — the carrier, the materializer, the six-combination harness — does not (`machinery`). Split existing files if a single file mixes both; do not disposition a mixed file as `core`.
   - [ ] `mkdocs.yml` is a parameter site (AD-25) and must remain consistent with whichever `docs/` pages travel; assert that no travelling `mkdocs.yml` nav entry points at a `machinery` page.
 
 - [ ] Task 4: Assert the machinery exclusions (AC: #2)
   - [ ] `_bmad/`, `_bmad-output/`, `.agents/`, `.bmad-loop/`, `.claude/` all exist at the repository root today. Declare each `machinery` in `accelerator.toml` explicitly rather than relying on the default, and assert their absence from every output tree.
-  - [ ] Assert `tools/`, `accelerator.toml` and the fixture set are absent. They are absent by disposition (Story 8.2); this story adds the assertion.
+  - [ ] Assert `tools/`, `accelerator.toml` and the fixture set are absent. They are absent by disposition (Story 8.2); this story adds the assertion. `tools/` holds two distinct machinery trees — `tools/materializer/` and `tools/harness/`, the six-combination verification runner — and both are in the Structural Seed; disposition and assert them by their own paths, not by an inherited `tools/` prefix rule (AC #4 forbids a directory allowlist).
 
 - [ ] Task 5: Assert the sub-directory-granularity claims (AC: #4, #5, #6, #7)
-  - [ ] `src/config/celery_app.py` (37 lines, exists today) is `feature:celery`. Assert it is absent from the eight non-Celery combinations and present in the four Celery ones. Its existing unit test `tests/unit/test_celery_app.py` is `feature:celery` too and travels with it.
+  - [ ] `src/config/celery_app.py` (37 lines, exists today) is `feature:celery`. Assert it is absent from the four non-Celery combinations and present in the two Celery ones. Its existing unit test `tests/unit/test_celery_app.py` is `feature:celery` too and travels with it.
   - [ ] Assert `src/config/` travels partially — `settings/`, `observability/`, `urls.py`, `api_router.py`, `asgi.py`, `wsgi.py` are `core`; `celery_app.py` is `feature:celery` — so a directory-level rule would be wrong for `src/config/`.
   - [ ] Assert `tests/` travels partially: `tests/unit/test_celery_app.py` is `feature:celery`, the immovable-core suite is `core` (Story 8.10), the materializer tests are `machinery`.
-  - [ ] Dependency manifest: extract the declared dependency set from each materialized `pixi.toml` and assert all twelve are pairwise distinct — so for any one taken as the baseline, the other eleven differ.
+  - [ ] Dependency manifest: extract the declared dependency set from each materialized `pixi.toml` and assert all six are pairwise distinct — so for any one taken as the baseline, the other five differ.
   - [ ] `COVERAGE_CORE`: assert every materialized `pixi.toml` carries `COVERAGE_CORE = "ctrace"` in `[activation.env]` (it sits at `pixi.toml:145-150` today and is unmarked, so it travels as `core` content of a `core` path).
 
 - [ ] Task 6: Wire reconciliation into the gate (AC: #1)
-  - [ ] `tests/integration/materializer/test_output_reconciliation.py` (`@pytest.mark.integration`, `tmp_path`) — materialize all twelve and assert `reconcile_output()` returns an empty violation tuple for each, reporting every violation by path on failure.
-  - [ ] Add the same call to the twelve-combination harness (Story 8.8) so reconciliation runs per combination in CI, not only in the local suite.
+  - [ ] `tests/integration/materializer/test_output_reconciliation.py` (`@pytest.mark.integration`, `tmp_path`) — materialize all six and assert `reconcile_output()` returns an empty violation tuple for each, reporting every violation by path on failure.
+  - [ ] Add the same call to the six-combination harness in `tools/harness/` (Story 8.8) so reconciliation runs per combination in CI, not only in the local suite.
   - [ ] `tests/unit/materializer/test_reconcile.py` — an unlisted output path is a violation; a declared generated artifact is not; a missing `core` path is a violation; a `feature:` path present in a non-selecting combination is a violation.
 
 ## Dev Notes
@@ -85,7 +85,7 @@ so that the accelerator's own tooling and planning artifacts cannot travel into 
 - **FR-37** (binding): "The accelerator's own machinery does not reach a component — a per-path disposition rule defaulting to excluded, with parameterization, `.github/` and `docs/` splits, and `src/django_service/` explicitly not parameterized."
 - **NFR-8** (binding): "Documentation travels with what it describes — component-facing docs materialize with the component, accelerator-facing docs do not." This is the rule that decides the `docs/` split; it is not a judgement call.
 - **AD-17**: `.accelerator.json` "is a declared generated artifact under AD-2's output reconciliation, never hand-edited." It is the only entry in `[generated]` today.
-- **AD-29**: everything inside `src/django_service/` is `core` and travels in all twelve. Reconciliation will report a violation if any path there fails to travel, which is the correct signal.
+- **AD-29**: everything inside `src/django_service/` is `core` and travels in all six. Revision 3 puts the interface mechanism inside it — `base.html`, `_navbar.html` and the navigation registry, the error templates, form styling, static-file serving and the profile views — so none of those is ever a violation. `templates/pages/` and the `home`/`about` `TemplateView`s in `src/config/urls.py` are **deleted** from the reference application as demonstration content, not dispositioned. Reconciliation will report a violation if any path there fails to travel, which is the correct signal.
 - **Not a directory allowlist.** AC #4 is a design constraint on the implementation, not only a documented observation: writing `if path.startswith("src/config/")` anywhere in `reconcile.py` violates it.
 - Never bare `except:`; never `except X: pass`. Never `print()`; `structlog` only.
 
@@ -104,17 +104,17 @@ so that the accelerator's own tooling and planning artifacts cannot travel into 
 
 #### Project Structure Notes
 
-Everything AC #2 names exists at the repository root today: `_bmad/`, `_bmad-output/`, `.agents/`, `.bmad-loop/`, `.claude/`. `tools/` is created by Story 8.2. `accelerator.toml` is created by Story 7.1.
+Everything AC #2 names exists at the repository root today: `_bmad/`, `_bmad-output/`, `.agents/`, `.bmad-loop/`, `.claude/`. `tools/materializer/` is created by Story 8.2 and `tools/harness/` by Story 8.8; both are in the Structural Seed as `machinery`. `accelerator.toml` is created by Story 7.1.
 
-Variance worth recording: the Structural Seed does not enumerate `.github/`, `docs/`, `mkdocs.yml`, `sonar-project.properties`, `manage.py`, `CHANGELOG.md`, `LICENSE` or `README.md`, all of which exist. Every one needs an explicit disposition under AD-2 even though the seed is silent about it — the seed is a shape, not an inventory, and the `machinery` default is a safety net rather than a plan.
+Not a variance — AD-2 states it: "Unlisted defaulting to `machinery` settles *behaviour*, not *enumeration* — input reconciliation still requires every path present in the tree to be claimed, so the carrier's disposition list is the inventory. The Structural Seed below is a shape and not an inventory: `.github/`, `docs/`, `mkdocs.yml`, `sonar-project.properties`, `manage.py`, `CHANGELOG.md`, `LICENSE`, `README.md`, `_bmad/`, `_bmad-output/`, `.agents/`, `.bmad-loop/` and `.claude/` all exist and all need explicit entries despite the seed being silent on them." So the `machinery` default is a safety net rather than a plan, and every one of those paths carries an explicit claim.
 
 ### Testing Requirements
 
 - `tests/unit/materializer/test_reconcile.py` — isolated, synthetic trees built in memory or under `tmp_path` with a hand-built `Carrier`; milliseconds.
-- `tests/integration/materializer/test_output_reconciliation.py` — `@pytest.mark.integration`, materializes all twelve into `tmp_path`, leaves state as found.
+- `tests/integration/materializer/test_output_reconciliation.py` — `@pytest.mark.integration`, materializes all six into `tmp_path`, leaves state as found.
 - The failure message must name every violating path. A boolean assertion is insufficient: the point of reconciliation is to say which path has no legal reason to be there.
 - Coverage floor 90% including templates, `COVERAGE_CORE=ctrace` (AD-20).
-- Disposition: both test files are `machinery`. `tests/unit/test_celery_app.py` (exists today) becomes `feature:celery` and is pruned in the eight non-Celery combinations — that is Story 7.7's declaration, asserted here.
+- Disposition: both test files are `machinery`. `tests/unit/test_celery_app.py` (exists today) becomes `feature:celery` and is pruned in the four non-Celery combinations — that is Story 7.7's declaration, asserted here.
 
 ### References
 

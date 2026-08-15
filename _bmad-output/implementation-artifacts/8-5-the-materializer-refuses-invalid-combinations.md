@@ -31,7 +31,7 @@ so that I never receive a component that cannot start.
 - [ ] Task 2: Implement validation (AC: #1)
   - [ ] `tools/materializer/combination.py` — `validate(combination, carrier) -> None`, raising `InvalidCombinationError` with the constraint's reason text when any declared constraint is violated. Return `None` on success; do not return a boolean the caller may ignore.
   - [ ] Call `validate()` as the **first** action of `materialize()` in `tools/materializer/materialize.py`, before the destination directory is created and before any path is read or copied. AC #1's "before any source is produced" is a hard ordering requirement, not a nicety.
-  - [ ] `enumerate_valid()` filters through the same `validate()` so the twelve are derived from the declared constraint rather than from a second, parallel rule.
+  - [ ] `enumerate_valid()` filters through the same `validate()` so the six are derived from the declared constraint rather than from a second, parallel rule.
 
 - [ ] Task 3: Report the refusal (AC: #2)
   - [ ] `InvalidCombinationError.__str__` returns a message that names the requested selection, the violated constraint by identifier, and the reason text. Never a bare `ValueError`, never "invalid combination", never a generic message.
@@ -43,15 +43,15 @@ so that I never receive a component that cannot start.
   - [ ] If `materialize()` writes into a staging directory and moves it into place, the staging directory must also be absent after a refusal.
 
 - [ ] Task 5: Tests (AC: #1, #2)
-  - [ ] `tests/unit/materializer/test_validate.py` — all four invalid combinations (`celery` selected, `redis` unselected, `ui` and `storage` each free) raise `InvalidCombinationError`; all twelve valid combinations do not; the exception message contains the constraint identifier and names the broker constraint; `enumerate_valid()` yields exactly the twelve that pass `validate()`.
+  - [ ] `tests/unit/materializer/test_validate.py` — both invalid combinations (`celery` selected, `redis` unselected, `storage` free) raise `InvalidCombinationError`; all six valid combinations do not; the exception message contains the constraint identifier and names the broker constraint; `enumerate_valid()` yields exactly the six that pass `validate()`.
   - [ ] `tests/integration/materializer/test_refusal_produces_nothing.py` (`@pytest.mark.integration`, `tmp_path`) — call `materialize()` with each invalid combination into a fresh `tmp_path` destination and assert the destination does not exist afterwards; call the CLI and assert the non-zero exit status and the structured log line carrying the constraint identifier.
-  - [ ] Assert the count: sixteen selections in the four-boolean space, four refused, twelve accepted.
+  - [ ] Assert the count: eight selections in the three-boolean space, two refused, six accepted. There is no `ui` boolean — the interface mechanism is `core` (AD-29, revision 3).
 
 ## Dev Notes
 
 ### Architecture Constraints
 
-- **FR-26** (declared in Epic 7, Story 7.6): "The broker constraint is enforced at selection — twelve valid combinations, not sixteen." **FR-34** (this story): "The materializer refuses invalid combinations, naming the broker constraint." The cross-epic thread is explicit: "FR-26's broker constraint is *declared* in Epic 7 and *enforced* by the materializer in Epic 8 as FR-34."
+- **FR-26** (declared in Epic 7, Story 7.6): "The broker constraint is enforced at selection — six valid combinations, not eight." **FR-34** (this story): "The materializer refuses invalid combinations, naming the broker constraint." The cross-epic thread is explicit: "FR-26's broker constraint is *declared* in Epic 7 and *enforced* by the materializer in Epic 8 as FR-34."
 - **AD-1** (binding): every feature's "constraints and presets" are declared in `accelerator.toml` "and nowhere else". The materializer reads the constraint; it does not restate it. A second declaration site is forbidden.
 - **Consistency Conventions, Configuration errors**: "A refusal never degrades to a warning (CG-3)." This applies to the materializer's refusal as much as to the component's startup refusals.
 - **Not this story:** the component's own startup refusal contract at `src/config/startup/` (Epic 4, AD-26) is a different mechanism at a different stage. Do not reuse `ImproperlyConfigured` here — the materializer is not Django and raises `InvalidCombinationError` from `tools/materializer/errors.py`.
@@ -78,7 +78,7 @@ No structural change. `tools/materializer/` is `machinery` per the Structural Se
 
 ### Testing Requirements
 
-- `tests/unit/materializer/test_validate.py` — isolated, no filesystem, milliseconds. Parametrize over all sixteen points of the four-boolean space so the twelve/four split is asserted rather than assumed.
+- `tests/unit/materializer/test_validate.py` — isolated, no filesystem, milliseconds. Parametrize over all eight points of the three-boolean space so the six/two split is asserted rather than assumed.
 - `tests/integration/materializer/test_refusal_produces_nothing.py` — `@pytest.mark.integration`, `tmp_path` for every destination, leaves state as found.
 - The refusal message assertion must check for the constraint identifier and for the substantive words of the reason, not for an exact string — but it must be strict enough that a generic message fails. Asserting only `pytest.raises(InvalidCombinationError)` is insufficient for AC #2.
 - Coverage floor 90% including templates, `COVERAGE_CORE=ctrace` (AD-20).
