@@ -124,6 +124,10 @@ pytest = ">=9.1,<10"
 pytest-cov = ">=7.0,<8"
 pytest-django = ">=4.13,<5"
 pytest-sugar = ">=1.1,<2"
+# Declared because tests/unit/test_gate_contract.py imports it directly to parse
+# the workflow files. It already reaches the environment transitively, but
+# transitive availability is not declaration.
+pyyaml = ">=6.0,<7"
 mkdocs = ">=1.6,<2"
 mkdocs-material = ">=9.7,<10"
 ruff = ">=0.16,<0.17"
@@ -203,4 +207,20 @@ docs = { cmd = "mkdocs build --strict", default-environment = "dev", description
 docs-serve = { cmd = "mkdocs serve", default-environment = "dev", description = "Serve the documentation with live reload" }
 changelog = { cmd = "git cliff -o CHANGELOG.md", default-environment = "dev", description = "Regenerate CHANGELOG.md with git-cliff" }
 precommit = { cmd = "pre-commit run --all-files", default-environment = "dev", description = "Run every pre-commit hook over the repository" }
-ci = { depends-on = ["test-cov", "lint", "typecheck", "build"], description = "The gate: test-cov, lint, typecheck, build" }
+# The gate (AD-18). One task, one invocation, and CI runs exactly this and
+# nothing else -- so a developer's `pixi run ci` and the pipeline's execute the
+# identical sequence.
+#
+# Order is load-bearing and fast-fail-first: the static checks run before the
+# suite, so a type or lint error surfaces without paying for the tests. pixi
+# executes `depends-on` sequentially in declaration order, stops at the first
+# failure and propagates its exit code, which is why the order lives in this
+# list rather than in a chain of per-task `depends-on` -- chaining would make
+# `pixi run lint` drag the whole gate behind it.
+ci = { depends-on = [
+  "precommit",  # ruff format + ruff lint (auto-fix) + mypy, over every file
+  "build",      # the package is distributable: catches import and packaging errors
+  "typecheck",  # mypy over the full src/ tree with strict pyproject.toml settings
+  "lint",       # ruff over everything, zero findings
+  "test-cov",   # full suite, coverage >= 90% including templates
+], description = "The gate: precommit, build, typecheck, lint, test-cov -- in that order" }

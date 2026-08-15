@@ -31,8 +31,27 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      checks: read # required to verify the commit's Gate check-run before releasing
 
     steps:
+      # Fail before touching any release mechanics if the commit being
+      # released never passed the gate. ci.yml's `Gate` job is what makes
+      # `pixi run ci` mean anything for a given commit; without this check
+      # nothing here ever verified that.
+      - name: Verify the gate passed for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          conclusion=$(gh api "repos/${REPO}/commits/${SHA}/check-runs" \
+            --jq '[.check_runs[] | select(.name == "Gate")] | sort_by(.started_at) | last | .conclusion')
+          echo "Gate conclusion for ${SHA}: ${conclusion:-<no Gate check-run found>}"
+          if [ "${conclusion}" != "success" ]; then
+            echo "::error::Refusing to release ${SHA} -- its Gate check-run did not succeed (conclusion: ${conclusion:-none})."
+            exit 1
+          fi
+
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v1
@@ -170,15 +189,12 @@ jobs:
             echo "ℹ️  Release ${VERSION} doesn't exist, nothing to remove"
           fi
 
-      - name: Run quality checks
-        if: steps.should_skip.outputs.skip != 'true'
-        run: |
-          pixi run lint
-          pixi run typecheck
-
-      - name: Run tests with coverage
-        if: steps.should_skip.outputs.skip != 'true'
-        run: pixi run test-cov
+      # Quality checks are not run here. AD-18 puts every gate step inside the
+      # single `pixi run ci` invocation in ci.yml, which runs on every push to
+      # main -- so the commit this release builds from has already passed lint,
+      # typecheck, build and the covered suite. Re-running them on the release
+      # cron would make a schedule the thing that first invokes a gate step,
+      # which is exactly what AD-18 forbids.
 
       - name: Create temporary tag for changelog generation
         if: steps.should_skip.outputs.skip != 'true'
@@ -208,11 +224,16 @@ jobs:
           git tag -a "v${{ env.NEW_TAG }}" -m "Release v${{ env.NEW_TAG }}"
           git push origin main --tags
 
-      # Not published anywhere -- this is a packaging sanity check, and it
-      # confirms hatch-vcs resolves the freshly created tag.
-      - name: Build package
-        if: steps.should_skip.outputs.skip != 'true'
-        run: pixi run build
+      # The packaging sanity check that stood here ran `pixi run build` after
+      # the tag was created, which confirmed hatch-vcs resolved the new tag.
+      # AD-18 moves `build` onto the gate and forbids a cron from invoking it,
+      # so it is gone from this workflow.
+      #
+      # Known consequence: the gate builds every commit on main, but always
+      # before the release tag exists, so it proves the package builds and does
+      # not prove the tag resolves to the intended version. Nothing here checks
+      # that any more. Restoring it needs a step that asserts the resolved
+      # version without invoking a gate step.
 
       - name: Generate release notes
         if: steps.should_skip.outputs.skip != 'true'

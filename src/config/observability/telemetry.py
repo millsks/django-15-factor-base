@@ -60,8 +60,7 @@ def _has_otlp_endpoint() -> bool:
 
     """
     return bool(
-        os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-        or os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
+        os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
     )
 
 

@@ -41,11 +41,7 @@ def _events(caplog: pytest.LogCaptureFixture, name: str) -> list[dict[str, Any]]
         Every captured event dictionary with that event name.
 
     """
-    return [
-        record.msg
-        for record in caplog.records
-        if isinstance(record.msg, dict) and record.msg.get("event") == name
-    ]
+    return [record.msg for record in caplog.records if isinstance(record.msg, dict) and record.msg.get("event") == name]
 
 
 @pytest.fixture

@@ -25,9 +25,7 @@ class TestAsgiInstrumentationIsAvailable:
     """
 
     def test_asgi_support_is_enabled(self):
-        from opentelemetry.instrumentation.django.middleware.otel_middleware import (  # noqa: PLC0415
-            _is_asgi_supported,
-        )
+        from opentelemetry.instrumentation.django.middleware.otel_middleware import _is_asgi_supported  # noqa: PLC0415
 
         assert _is_asgi_supported is True
 

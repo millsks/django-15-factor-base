@@ -39,6 +39,10 @@ js.indent_size = 2
 
 # ==== ruff ====
 [tool.ruff]
+# 120, not the ruff default of 88. E501 stays selected, so the limit is enforced
+# rather than advisory.
+line-length = 120
+
 # Exclude a variety of commonly ignored directories.
 extend-exclude = [
   "*/migrations/*.py",
@@ -49,6 +53,10 @@ extend-exclude = [
   ".claude",
   ".pixi",
   "_bmad",
+  # Planning artifacts. Prose, not source -- and their fenced python blocks
+  # quote upstream code verbatim, so formatting them would misrepresent what
+  # the quoted source actually looks like.
+  "_bmad-output",
 ]
 
 lint.select = [
@@ -102,6 +110,10 @@ lint.select = [
   "YTT",
 ]
 lint.ignore = [
+  # Conflicts with the formatter, which owns trailing commas -- ruff warns on
+  # every run while this is selected. Arrives via the "COM" group above; COM818
+  # and COM819 do not conflict and stay enabled.
+  "COM812", # Trailing comma missing
   "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
   "S101",   # Use of assert detected https://docs.astral.sh/ruff/rules/assert/
   "SIM102", # sometimes it's better to nest

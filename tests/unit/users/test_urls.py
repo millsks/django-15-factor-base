@@ -4,9 +4,7 @@ from django.urls import reverse
 
 def test_detail():
     username = "testuser"
-    assert (
-        reverse("users:detail", kwargs={"username": username}) == f"/users/{username}/"
-    )
+    assert reverse("users:detail", kwargs={"username": username}) == f"/users/{username}/"
     assert resolve(f"/users/{username}/").view_name == "users:detail"
 
 

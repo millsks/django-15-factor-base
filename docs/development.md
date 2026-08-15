@@ -126,10 +126,42 @@ behaviour the sqlite backend cannot show you.
 | `pixi run docs` | Build the documentation (`--strict`) |
 | `pixi run docs-serve` | Serve the documentation with live reload |
 | `pixi run changelog` | Regenerate `CHANGELOG.md` with git-cliff |
-| `pixi run ci` | The gate: test-cov, lint, typecheck, build |
+| `pixi run ci` | The gate — see below |
 
 `pixi task list` prints this table straight from `pixi.toml`, so it cannot
 drift from the manifest.
+
+## The gate
+
+`pixi run ci` is the single entry point to the quality gate. It runs five steps
+in this order, stopping at the first failure:
+
+| # | Step | What it checks |
+| --- | --- | --- |
+| 1 | `precommit` | `ruff format`, `ruff check --fix` and `mypy` over every file |
+| 2 | `build` | the package is distributable — catches import and packaging errors |
+| 3 | `typecheck` | `mypy` over the whole `src/` tree with the strict `pyproject.toml` settings |
+| 4 | `lint` | `ruff` over everything, zero findings |
+| 5 | `test-cov` | the full suite, coverage at or above 90% including templates |
+
+The order is fast-fail-first: the static checks run before the suite, so a type
+or lint error surfaces without paying to run the tests.
+
+**CI runs exactly this task and nothing else.** The `gate` job in
+`.github/workflows/ci.yml` invokes `pixi run ci` and no other step, so the
+sequence a developer runs locally and the sequence the pipeline runs are the
+same sequence — no step exists only in one of them. No other workflow may run a
+gate step on its own: `sonarqube.yml` consumes the gate's `coverage.xml` rather
+than measuring the suite again, and `release.yml` runs no quality checks because
+the commit it releases has already passed the gate on `main`.
+
+`tests/unit/test_gate_contract.py` asserts all of this against `pixi.toml` and
+the workflow files, so the contract fails the build rather than drifting.
+
+A second job in `ci.yml` runs `pixi run test` across ubuntu, windows and macos.
+That job claims the reference application runs on all three platforms; it is not
+a second gate. The gate itself is ubuntu-only because GitHub Actions `services:`
+containers — which the PostgreSQL gate needs — run only on Linux runners.
 
 `pixi run ci` must exit 0 before any change is considered done.
 
