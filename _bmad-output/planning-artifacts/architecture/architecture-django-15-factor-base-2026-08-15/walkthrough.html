@@ -1,0 +1,717 @@
+<title>The Fifteen-Factor Spine</title>
+<style>
+  :root {
+    --paper: #EDF0EF;
+    --surface: #F6F8F7;
+    --surface-2: #E3E8E6;
+    --ink: #16211F;
+    --ink-2: #3D4A47;
+    --ink-3: #64716E;
+    --rule: #CBD4D1;
+    --rule-2: #DDE4E2;
+    --accent: #1E4D42;
+    --accent-2: #2F7566;
+    --risk: #9A5A0E;
+    --risk-bg: #F5EADA;
+    --diverge: #963425;
+    --diverge-bg: #F6E4E0;
+    --settled: #245C4E;
+    --settled-bg: #DCE9E4;
+
+    --f-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --f-body: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --f-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+    --measure: 68ch;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0E1413;
+      --surface: #161E1C;
+      --surface-2: #1E2726;
+      --ink: #E2E9E6;
+      --ink-2: #B3C0BC;
+      --ink-3: #7E8C89;
+      --rule: #2C3937;
+      --rule-2: #222D2B;
+      --accent: #6FB3A0;
+      --accent-2: #8AC7B5;
+      --risk: #D89A4A;
+      --risk-bg: #2A2117;
+      --diverge: #D97A68;
+      --diverge-bg: #2B1B18;
+      --settled: #7FC0AC;
+      --settled-bg: #16261F;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #0E1413;
+    --surface: #161E1C;
+    --surface-2: #1E2726;
+    --ink: #E2E9E6;
+    --ink-2: #B3C0BC;
+    --ink-3: #7E8C89;
+    --rule: #2C3937;
+    --rule-2: #222D2B;
+    --accent: #6FB3A0;
+    --accent-2: #8AC7B5;
+    --risk: #D89A4A;
+    --risk-bg: #2A2117;
+    --diverge: #D97A68;
+    --diverge-bg: #2B1B18;
+    --settled: #7FC0AC;
+    --settled-bg: #16261F;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 16.5px;
+    line-height: 1.62;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 clamp(1.1rem, 4vw, 3rem) 6rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  @media (min-width: 1040px) {
+    .wrap { grid-template-columns: 210px minmax(0, 1fr); column-gap: 3.5rem; }
+    .masthead { grid-column: 1 / -1; }
+    nav.rail { grid-column: 1; }
+    main { grid-column: 2; }
+  }
+
+  /* ---- masthead ---- */
+  .masthead {
+    border-bottom: 1.5px solid var(--ink);
+    padding: 3.5rem 0 1.4rem;
+    margin-bottom: 2.5rem;
+  }
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 1rem;
+  }
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: clamp(2.2rem, 5.5vw, 3.4rem);
+    line-height: 1.06;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    margin: 0 0 0.9rem;
+  }
+  .standfirst {
+    font-family: var(--f-display);
+    font-size: clamp(1.05rem, 2vw, 1.24rem);
+    line-height: 1.5;
+    color: var(--ink-2);
+    max-width: 60ch;
+    margin: 0;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.6rem;
+    margin-top: 1.6rem;
+    font-family: var(--f-mono);
+    font-size: 0.73rem;
+    color: var(--ink-3);
+    letter-spacing: 0.03em;
+  }
+  .meta b { color: var(--ink-2); font-weight: 600; }
+
+  /* ---- rail ---- */
+  nav.rail { margin-bottom: 3rem; }
+  @media (min-width: 1040px) {
+    nav.rail { position: sticky; top: 1.5rem; align-self: start; margin-bottom: 0; }
+  }
+  nav.rail ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+  nav.rail a {
+    display: flex;
+    gap: 0.7rem;
+    padding: 0.32rem 0;
+    font-size: 0.83rem;
+    color: var(--ink-2);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+  }
+  nav.rail a:hover, nav.rail a:focus-visible { color: var(--accent-2); }
+  nav.rail .n { font-family: var(--f-mono); font-size: 0.7rem; color: var(--ink-3); padding-top: 0.18em; }
+
+  /* ---- structure ---- */
+  main { min-width: 0; }
+  section { margin-bottom: 4.2rem; scroll-margin-top: 1.5rem; }
+  h2 {
+    font-family: var(--f-display);
+    font-size: clamp(1.5rem, 3vw, 1.95rem);
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+    font-weight: 600;
+    text-wrap: balance;
+    margin: 0 0 0.35rem;
+  }
+  h3 {
+    font-family: var(--f-body);
+    font-size: 1rem;
+    font-weight: 650;
+    letter-spacing: -0.005em;
+    margin: 2.2rem 0 0.5rem;
+  }
+  .kicker {
+    font-family: var(--f-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 0.75rem;
+  }
+  p { max-width: var(--measure); margin: 0 0 1rem; }
+  p.lead { font-family: var(--f-display); font-size: 1.1rem; color: var(--ink-2); max-width: 62ch; }
+  a { color: var(--accent-2); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  code {
+    font-family: var(--f-mono);
+    font-size: 0.855em;
+    background: var(--surface-2);
+    padding: 0.1em 0.34em;
+    border-radius: 2px;
+  }
+  strong { font-weight: 650; }
+  hr.div { border: 0; border-top: 1px solid var(--rule); margin: 2.5rem 0; }
+
+  /* ---- entry points ---- */
+  .entries { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin-top: 1.5rem; }
+  @media (min-width: 700px) { .entries { grid-template-columns: repeat(3, 1fr); } }
+  .entry {
+    background: var(--surface);
+    padding: 1.3rem 1.25rem 1.45rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    text-decoration: none;
+    color: inherit;
+  }
+  .entry:hover, .entry:focus-visible { background: var(--surface-2); }
+  .entry .who { font-family: var(--f-mono); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+  .entry .what { font-family: var(--f-display); font-size: 1.12rem; line-height: 1.28; }
+  .entry .go { font-size: 0.82rem; color: var(--ink-3); margin-top: auto; padding-top: 0.5rem; }
+
+  /* ---- AD registry ---- */
+  .ad {
+    border-top: 1px solid var(--rule);
+    padding: 1.15rem 0 1.25rem;
+  }
+  .ad:last-of-type { border-bottom: 1px solid var(--rule); }
+  .ad-head { display: flex; gap: 0.9rem; align-items: baseline; flex-wrap: wrap; }
+  .ad-id {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.05em;
+    color: var(--paper);
+    background: var(--accent);
+    padding: 0.16rem 0.42rem;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .ad-title { font-family: var(--f-display); font-size: 1.14rem; line-height: 1.3; font-weight: 600; }
+  .ad-rule { margin: 0.6rem 0 0; max-width: var(--measure); }
+  .ad details { margin-top: 0.7rem; max-width: var(--measure); }
+  .ad summary {
+    cursor: pointer;
+    font-family: var(--f-mono);
+    font-size: 0.71rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    list-style: none;
+  }
+  .ad summary::-webkit-details-marker { display: none; }
+  .ad summary::before { content: "▸ "; color: var(--accent-2); }
+  .ad details[open] summary::before { content: "▾ "; }
+  .ad summary:hover, .ad summary:focus-visible { color: var(--accent-2); }
+  .ad .why {
+    border-left: 2px solid var(--rule);
+    padding: 0.35rem 0 0.1rem 0.95rem;
+    margin-top: 0.7rem;
+    color: var(--ink-2);
+    font-size: 0.95rem;
+  }
+  .ad .why p { margin-bottom: 0.6rem; }
+  .ad .why p:last-child { margin-bottom: 0; }
+
+  /* ---- flagged blocks ---- */
+  .flag {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--ink-3);
+    padding: 1rem 1.15rem;
+    margin: 0 0 0.9rem;
+    max-width: var(--measure);
+  }
+  .flag.risk { border-left-color: var(--risk); background: var(--risk-bg); }
+  .flag.diverge { border-left-color: var(--diverge); background: var(--diverge-bg); }
+  .flag .tag {
+    font-family: var(--f-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+  .flag.risk .tag { color: var(--risk); }
+  .flag.diverge .tag { color: var(--diverge); }
+  .flag p { margin: 0; max-width: none; }
+
+  /* ---- build order ---- */
+  .track { margin-bottom: 1.6rem; border: 1px solid var(--rule); background: var(--surface); }
+  .track-head {
+    display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap;
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface-2);
+  }
+  .track-head .tid { font-family: var(--f-mono); font-size: 0.72rem; letter-spacing: 0.08em; color: var(--accent); }
+  .track-head .tname { font-family: var(--f-display); font-size: 1.05rem; font-weight: 600; }
+  .track-head .tdep { font-family: var(--f-mono); font-size: 0.7rem; color: var(--ink-3); margin-left: auto; }
+  .track ol { margin: 0; padding: 0.55rem 0; list-style: none; counter-reset: step; }
+  .track li {
+    display: grid;
+    grid-template-columns: 2.3rem minmax(0, 1fr);
+    gap: 0.2rem 0.4rem;
+    padding: 0.4rem 1rem;
+    font-size: 0.94rem;
+    align-items: baseline;
+  }
+  .track li::before {
+    counter-increment: step;
+    content: counter(step, decimal-leading-zero);
+    font-family: var(--f-mono);
+    font-size: 0.7rem;
+    color: var(--ink-3);
+  }
+  .track li .refs { font-family: var(--f-mono); font-size: 0.7rem; color: var(--ink-3); grid-column: 2; }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; margin-bottom: 1.2rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; min-width: 460px; }
+  th, td { text-align: left; padding: 0.55rem 0.9rem 0.55rem 0; border-bottom: 1px solid var(--rule-2); vertical-align: top; }
+  th { font-family: var(--f-mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); border-bottom-color: var(--rule); }
+
+  /* ---- diagram ---- */
+  figure { margin: 1.6rem 0; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { font-size: 0.83rem; color: var(--ink-3); margin-top: 0.6rem; max-width: 58ch; }
+
+  ul.plain { max-width: var(--measure); padding-left: 1.1rem; margin: 0 0 1rem; }
+  ul.plain li { margin-bottom: 0.45rem; }
+
+  :focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">django-15-factor-base · phase 1</p>
+    <h1>The Fifteen-Factor Spine</h1>
+    <p class="standfirst">Thirty-two decisions that keep independently-built epics from diverging — and an honest account of what was traded, deferred, and left open.</p>
+    <div class="meta">
+      <span><b>Status</b> final</span>
+      <span><b>Decisions</b> 32</span>
+      <span><b>Reviewed</b> 25 findings applied</span>
+      <span><b>Dated</b> 15 Aug 2026</span>
+    </div>
+  </header>
+
+  <nav class="rail" aria-label="Contents">
+    <ol>
+      <li><a href="#start"><span class="n">01</span><span>Start here</span></a></li>
+      <li><a href="#shape"><span class="n">02</span><span>The shape</span></a></li>
+      <li><a href="#load"><span class="n">03</span><span>Load-bearing decisions</span></a></li>
+      <li><a href="#traded"><span class="n">04</span><span>Traded knowingly</span></a></li>
+      <li><a href="#diverge"><span class="n">05</span><span>Diverges from the PRD</span></a></li>
+      <li><a href="#order"><span class="n">06</span><span>Build order</span></a></li>
+      <li><a href="#bite"><span class="n">07</span><span>Rules that bite</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section id="start">
+      <p class="kicker">01 — Start here</p>
+      <h2>Three readers, one document</h2>
+      <p class="lead">This is a build substrate, not a tutorial. It fixes only the calls a future builder could not read off compliant code. Everything structural — the tree, the exact package versions — belongs to the code once the code exists.</p>
+      <div class="entries">
+        <a class="entry" href="#load">
+          <span class="who">Returning to this</span>
+          <span class="what">What did we decide, and what lost?</span>
+          <span class="go">→ Load-bearing decisions</span>
+        </a>
+        <a class="entry" href="#traded">
+          <span class="who">Platform group</span>
+          <span class="what">What does this guarantee, and what does it cost?</span>
+          <span class="go">→ Traded knowingly</span>
+        </a>
+        <a class="entry" href="#bite">
+          <span class="who">New to the codebase</span>
+          <span class="what">What will catch me out in week one?</span>
+          <span class="go">→ Rules that bite</span>
+        </a>
+      </div>
+    </section>
+
+    <section id="shape">
+      <p class="kicker">02 — The shape</p>
+      <h2>Two products share one tree</h2>
+      <p>The accelerator is <strong>manifest-driven projection</strong>: one hand-authored catalogue, many derived artifacts. Twelve materialized source trees, the disposition rule, the orphan checks and the eventual FreeMarker copy are all projections of the same file.</p>
+      <p>The component is <strong>layered Django with a composition root</strong>, plus a plugin space. Its base package is a stable public API that reusable apps import by a constant name.</p>
+
+      <figure>
+        <svg viewBox="0 0 720 300" role="img" aria-labelledby="d1title">
+          <title id="d1title">accelerator.toml projects into twelve trees; component.toml travels with each one</title>
+          <g font-family="ui-monospace, Menlo, monospace" font-size="12">
+            <rect x="8" y="20" width="150" height="52" fill="var(--surface-2)" stroke="var(--accent)" stroke-width="1.5"/>
+            <text x="83" y="42" text-anchor="middle" fill="var(--ink)" font-size="12.5">accelerator.toml</text>
+            <text x="83" y="59" text-anchor="middle" fill="var(--ink-3)" font-size="10">catalogue · machinery</text>
+
+            <rect x="8" y="112" width="150" height="52" fill="var(--surface)" stroke="var(--rule)"/>
+            <text x="83" y="134" text-anchor="middle" fill="var(--ink)" font-size="12.5">reference app</text>
+            <text x="83" y="151" text-anchor="middle" fill="var(--ink-3)" font-size="10">real, runnable, gated</text>
+
+            <rect x="250" y="66" width="120" height="52" fill="var(--surface)" stroke="var(--ink-3)"/>
+            <text x="310" y="88" text-anchor="middle" fill="var(--ink)" font-size="12.5">materializer</text>
+            <text x="310" y="105" text-anchor="middle" fill="var(--ink-3)" font-size="10">subtractive</text>
+
+            <rect x="250" y="180" width="120" height="46" fill="var(--surface)" stroke="var(--rule)"/>
+            <text x="310" y="200" text-anchor="middle" fill="var(--ink)" font-size="11.5">reconciliation</text>
+            <text x="310" y="215" text-anchor="middle" fill="var(--ink-3)" font-size="10">in · out</text>
+
+            <rect x="462" y="20" width="150" height="46" fill="var(--settled-bg)" stroke="var(--settled)"/>
+            <text x="537" y="41" text-anchor="middle" fill="var(--ink)" font-size="12">12 materialized trees</text>
+            <text x="537" y="56" text-anchor="middle" fill="var(--ink-3)" font-size="10">one lean env each</text>
+
+            <rect x="462" y="90" width="150" height="42" fill="var(--surface-2)" stroke="var(--rule)"/>
+            <text x="537" y="108" text-anchor="middle" fill="var(--ink)" font-size="12">component.toml</text>
+            <text x="537" y="123" text-anchor="middle" fill="var(--ink-3)" font-size="10">core · travels</text>
+
+            <rect x="462" y="156" width="150" height="42" fill="var(--surface-2)" stroke="var(--rule)"/>
+            <text x="537" y="174" text-anchor="middle" fill="var(--ink)" font-size="12">.accelerator.json</text>
+            <text x="537" y="189" text-anchor="middle" fill="var(--ink-3)" font-size="10">receipt</text>
+
+            <rect x="462" y="222" width="150" height="42" fill="var(--surface)" stroke="var(--rule)" stroke-dasharray="4 3"/>
+            <text x="537" y="240" text-anchor="middle" fill="var(--ink-2)" font-size="12">FreeMarker copy</text>
+            <text x="537" y="255" text-anchor="middle" fill="var(--ink-3)" font-size="10">one-way · out of tree</text>
+
+            <g stroke="var(--ink-3)" fill="none" stroke-width="1.2">
+              <path d="M158 46 L250 82" marker-end="url(#a)"/>
+              <path d="M158 138 L250 106" marker-end="url(#a)"/>
+              <path d="M158 60 L200 60 L200 200 L250 200" marker-end="url(#a)"/>
+              <path d="M370 82 L416 82 L416 43 L462 43" marker-end="url(#a)"/>
+              <path d="M370 92 L416 92 L416 111 L462 111" marker-end="url(#a)"/>
+              <path d="M370 100 L400 100 L400 177 L462 177" marker-end="url(#a)"/>
+              <path d="M537 66 L537 90" marker-end="url(#a)"/>
+              <path d="M612 43 L650 43 L650 243 L612 243" stroke-dasharray="4 3" marker-end="url(#a)"/>
+            </g>
+            <defs>
+              <marker id="a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M0 0 L8 4 L0 8 z" fill="var(--ink-3)"/>
+              </marker>
+            </defs>
+          </g>
+        </svg>
+        <figcaption>The catalogue never travels; the component's own declaration always does. A rule a materialized component must obey at runtime cannot live in a file it does not have — that split is <code>AD-28</code>, and it was the fix for a hole that made materialized components unable to adopt reusable apps at all.</figcaption>
+      </figure>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Territory</th><th>Namespace</th><th>Travels?</th><th>Who owns it</th></tr></thead>
+          <tbody>
+            <tr><td>Composition root</td><td><code>src/config/</code></td><td>Always</td><td>The accelerator</td></tr>
+            <tr><td>Platform base</td><td><code>src/django_service/</code></td><td>Always, entire</td><td>The accelerator — public API</td></tr>
+            <tr><td>Tenant space</td><td><code>src/django_apps/</code></td><td>Never judged</td><td>The team that owns the component</td></tr>
+            <tr><td>Machinery</td><td><code>accelerator.toml</code>, materializer, Dockerfile</td><td>Never</td><td>The accelerator, and only here</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="load">
+      <p class="kicker">03 — Load-bearing decisions</p>
+      <h2>The eight that carry the rest</h2>
+      <p class="lead">Thirty-two decisions are recorded in the spine. These eight are the ones whose absence would let two competent epics build incompatible things — expand any one for the alternatives it beat.</p>
+
+      <div class="ad">
+        <div class="ad-head"><span class="ad-id">AD-3</span><span class="ad-title">Materialization is subtractive, and dependencies are native pixi features</span></div>
+        <p class="ad-rule">The materializer copies the reference application and removes what the carrier says a combination did not select. The four features are pixi features with an <code>[environments]</code> matrix, so one lock file yields twelve pre-locked environments — all sharing one <code>solve-group</code>.</p>
+        <details>
+          <summary>Why, and what lost</summary>
+          <div class="why">
+            <p>Three alternatives were weighed: in-source markers alone, an external manifest, and full composition from per-feature fragments. Composition lost because it would make the reference application itself a materialized artifact, which changes what this repository <em>is</em> and makes "output for the all-features combination equals the reference application" trivially true and therefore worthless as a check.</p>
+            <p>The pixi feature matrix was the decisive addition. Without it, twelve combinations mean twelve dependency solves, or — worse — twelve gates running in one fat environment where a combination that accidentally imports <code>celery</code> still passes. With it, combination seven's environment genuinely lacks celery, and the hole closes structurally rather than by a check someone has to remember to write.</p>
+            <p>The <code>solve-group</code> clause was added after review: <code>django-celery-beat</code> caps <code>django &lt;6.1</code> and Django 6.1 is on the channel, so without it the four Celery combinations would resolve a different Django from the other eight, and "all twelve pass" would be measuring two different things.</p>
+          </div>
+        </details>
+      </div>
+
+      <div class="ad">
+        <div class="ad-head"><span class="ad-id">AD-5</span><span class="ad-title"><code>django_service</code> is public API, not a package name</span></div>
+        <p class="ad-rule">The name is a constant, never parameterized. Moving a module inside the guaranteed surface, changing <code>AUTH_USER_MODEL</code>, or renaming a guaranteed setting is a breaking change, tracked by an integer <code>__api_version__</code>.</p>
+        <details>
+          <summary>Why, and what lost</summary>
+          <div class="why">
+            <p>The PRD lists <code>src/django_service/</code> under paths the materializer parameterizes. That is wrong, and the reason matters: reusable apps import from it. An app doing <code>from django_service.users.models import User</code> only works if that name is identical in every deployment. Parameterize the package and every reusable app breaks in every component that renamed it differently.</p>
+            <p>So the constant is not a convenience — it is what makes apps portable across components at all. The consequence is that a routine tidy-up inside the base becomes an estate-wide break, which is why the version constant exists and why <code>AD-29</code> forbids feature dispositions inside the package.</p>
+            <p>This also deleted a whole planned work item: the readiness review ranked the package rename medium-high and warned it would conflict with every in-flight branch at once.</p>
+          </div>
+        </details>
+      </div>
+
+      <div class="ad">
+        <div class="ad-head"><span class="ad-id">AD-10</span><span class="ad-title">The mapper is two operations at different frequencies</span></div>
+        <p class="ad-rule"><strong>Resolve</strong> — find the user by identity key — runs on every authentication, including every Bearer request. <strong>Sync</strong> — diff groups, write memberships, set staff and superuser — runs once per credential epoch, in one transaction.</p>
+        <details>
+          <summary>Why, and what lost</summary>
+          <div class="why">
+            <p>The requirement says the mapper runs "on every authentication." For a browser login that is once. For DRF that is every single request — so read literally it mandates a group diff and up to two writes per API call, forever, for one identity.</p>
+            <p>The obvious fix — cache the whole mapping per token — quietly reintroduces the revocation latency the requirement exists to eliminate. Splitting the operation is the only answer that gives neither outcome: resolution stays per-request because DRF needs <code>request.user</code>, and the writes happen once.</p>
+            <p>Review found two gaps in the first version. The epoch record cannot live in <code>django.core.cache</code>, because eight of twelve combinations have no Redis and the in-process backend degrades "first sighting" to first-sighting-per-worker-per-restart. And a token with no <code>jti</code> had no rule at all — one builder would sync every request, another would never sync again, delivering both outcomes this decision claims to prevent. It is now a 401.</p>
+          </div>
+        </details>
+      </div>
+
+      <div class="ad">
+        <div class="ad-head"><span class="ad-id">AD-11</span><span class="ad-title">One identity key; credential, key and attribute stay separate</span></div>
+        <p class="ad-rule">The IdP holds the credential. <code>User.idp_subject</code> is the identity key and the sole store. <code>username</code>, <code>email</code> and <code>name</code> are attributes — displayed, used in URLs, never resolved by.</p>
+        <details>
+          <summary>Why, and what lost</summary>
+          <div class="why">
+            <p>Resolving users by email is the instinct and it fails two ways. Someone changes their address at the IdP and the next sign-in creates a second account, orphaning their groups and history. Or two identities present the same email claim — reused after a leaver, or simply unverified — and the second inherits the first's authorization. That is account takeover, and it is silent.</p>
+            <p>The subtle half is that allauth already stores a subject in <code>SocialAccount.uid</code>. If the browser flow resolved there and the Bearer flow resolved on <code>idp_subject</code>, the same person seen first through the API and later through the browser would become two users — the exact divergence the single-mapper rule exists to stop. So <code>idp_subject</code> is the only store and allauth becomes bookkeeping.</p>
+          </div>
+        </details>
+      </div>
+
+      <div class="ad">
+        <div class="ad-head"><span class="ad-id">AD-13</span><span class="ad-title">Locality and process type are declared per pixi task</span></div>
+        <p class="ad-rule">Local tasks set <code>COMPONENT_RUNTIME=local</code> in their own task <code>env</code>. <code>web</code>, <code>worker</code> and <code>beat</code> set nothing and inherit <em>deployed</em>, and each sets <code>COMPONENT_PROCESS</code>. No <code>COMPONENT_*</code> variable may appear in <code>[activation.env]</code>.</p>
+        <details>
+          <summary>Why, and what lost</summary>
+          <div class="why">
+            <p>The requirement assumed the local declaration would be inert in production "because a container runs its server process directly." On this platform that is false: the golden base image has pixi and deployment runs <code>pixi run web</code>. So anything in <code>[activation.env]</code> — where <code>COVERAGE_CORE</code> already lives — reaches production and declares it local, and you would then need <em>deployment</em> to remember to override it. That inverts the fail-closed property that is the whole point.</p>
+            <p>Per-task <code>env</code> is precise instead of structural, and it pays off twice. It kills the trap where a fail-closed environment rule refuses the entire test suite on the first run after landing. And it lets the same declaration carry the process type, which means the process model, the locality rule and the per-process scoping of the refusals are one declaration rather than three that can disagree.</p>
+          </div>
+        </details>
+      </div>
+
+      <div class="ad">
+        <div class="ad-head"><span class="ad-id">AD-26</span><span class="ad-title">The refusal contract has one location, one owner, and a fixed order</span></div>
+        <p class="ad-rule">One module at <code>src/config/startup/</code>, holding both stages and the allowlist. Stage 1 is the last statement of every settings module. Stage 2 is owned by one named core <code>AppConfig</code>. Predicates resolve objects, never strings.</p>
+        <details>
+          <summary>Why, and what lost</summary>
+          <div class="why">
+            <p>This is the product's highest-consequence surface — the separation between a local component and a deployed one rests entirely on it — and the first draft of this spine did not say where it lived. Two developers could both satisfy the requirement and end up with the contract in two different modules, one of them coupled to an app the UI feature edits.</p>
+            <p>Ordering turned out to be load-bearing for a reason nobody had noticed: the reusable-app composition step appends to the end of <code>base.py</code>, and stage 1 runs at import. Put stage 1 anywhere but last and a contributed database with its automatic local substitution is never seen by the sqlite refusal — a deployed component serving a contributed database out of a sqlite file.</p>
+            <p>"Predicates resolve objects" closes the sharpest hole review found. Fixing the local sign-in path's <em>shape</em> is not enough: a route named <code>local_persona_login</code> mounted under <code>/accounts/</code> satisfies every stated rule, escapes a name-matching refusal, and passes an allowlist that already permits <code>/accounts/</code> for allauth — shipping a live persona sign-in into production.</p>
+          </div>
+        </details>
+      </div>
+
+      <div class="ad">
+        <div class="ad-head"><span class="ad-id">AD-27</span><span class="ad-title">Authorization data has an owner</span></div>
+        <p class="ad-rule"><code>Group</code> and <code>Permission</code> rows are provisioned by a data migration inside <code>django_service</code>, seeded from the claims contract. The local persona task calls that same mechanism. A designated group missing at startup is a refusal.</p>
+        <details>
+          <summary>Why, and what lost</summary>
+          <div class="why">
+            <p>Without this, every deployed component grants nobody any authorization and nobody can reach the admin — and all twelve local smoke checks pass anyway.</p>
+            <p>The chain: the persona epic seeds groups locally, so the harness is green. Deployed, the seeding task is refused, the mapper may not create groups, <code>createsuperuser</code> is retired, and the component cannot migrate itself. The first real sign-in asserts the staff group, no group matches, the claim is ignored and logged, <code>is_staff</code> is never set, the admin is unreachable — and the only place a human could create the group is the admin.</p>
+            <p>Requiring the persona task to <em>call</em> the provisioning mechanism rather than reimplement it is the part that makes the harness able to see the failure at all.</p>
+          </div>
+        </details>
+      </div>
+
+      <div class="ad">
+        <div class="ad-head"><span class="ad-id">AD-30</span><span class="ad-title">The core has an unprunable assertion suite</span></div>
+        <p class="ad-rule">The smoke check asserts a rendered admin index, a real Bearer request and a rendered 404 — not just boot and sign-in. A <code>core</code>-disposed core assertion suite runs inside every combination's gate and no feature can prune it.</p>
+        <details>
+          <summary>Why, and what lost</summary>
+          <div class="why">
+            <p>The coverage signal that catches incomplete feature removal is asymmetric by construction. It catches a template <em>left behind</em>, because it reports zero. It is structurally blind to a template <em>wrongly removed</em>, because the removed thing's tests left with it, coverage measures only what remains, and the floor is still met.</p>
+            <p>Concretely: take <code>templates/</code> wholesale as UI-owned and six combinations lose <code>base.html</code>, which the 403, 404 and 500 pages extend. Every check in the harness passes. Nothing renders an error page.</p>
+            <p>So one success criterion — "excluded features leave nothing behind" — was well defended, and its twin — "the immovable core functions in every combination" — was defended by nothing at all.</p>
+          </div>
+        </details>
+      </div>
+
+      <p style="margin-top:1.6rem;font-size:0.92rem;color:var(--ink-3);max-width:var(--measure)">The remaining twenty-four decisions cover dependency direction, the tenant-space contract, parameterization, health and drain, provenance, the gate, and the coverage floor. All of them are in <code>ARCHITECTURE-SPINE.md</code> alongside this page.</p>
+    </section>
+
+    <section id="traded">
+      <p class="kicker">04 — Traded knowingly</p>
+      <h2>What this costs</h2>
+      <p class="lead">The product's own requirements document is deliberately unflattering about itself. A uniformly confident architecture document would misrepresent it. These are accepted, not mitigated.</p>
+
+      <div class="flag risk">
+        <span class="tag">R-1 · unproven fitness</span>
+        <p><code>django-storages 1.14.6</code> is on the approved channel — but it was released in April 2025 and declares no Django 6.0 or Python 3.14 support; that support exists only on unreleased upstream master. Object storage is in six of twelve combinations, does not exist yet, and most components will select it, so deferring it is not available. Escalation is ordered: spike compatibility first, then push the channel feedstock with a time-boxed exception, and only as a last resort own an S3 backend. A permanent supply-chain exception is not on the list.</p>
+      </div>
+
+      <div class="flag risk">
+        <span class="tag">R-2 · revocation latency</span>
+        <p>Syncing once per token means a group revoked at the identity provider is honoured until that token expires. This is unavoidable for bearer credentials — the claims are <em>in</em> the token — but it narrows the requirement, and it is not the same question as the open one about session lifetime.</p>
+      </div>
+
+      <div class="flag risk">
+        <span class="tag">R-3 · a fail-open hole</span>
+        <p>A serving process started outside <code>pixi run web</code> does not fire the unapplied-migrations refusal. Process type fails open deliberately; failing it closed would make <code>manage.py migrate</code> — the one action that clears the condition — refuse to run.</p>
+      </div>
+
+      <div class="flag risk">
+        <span class="tag">R-4 · two component shapes</span>
+        <p>"Use this template" on GitHub produces a fork of the base, not a generated component. It copies the default branch, so the reduced-verification-on-PR argument does not hold for it; it carries the machinery Dockerfile, so it can opt out of the platform image pipeline; and it can adopt reusable apps where a materialized component cannot. A component that must carry the platform's guarantees is materialized, not templated.</p>
+      </div>
+
+      <div class="flag risk">
+        <span class="tag">R-5 · local runs prove less than they look like</span>
+        <p>Inherited unchanged from the requirements: sqlite accepts schemas PostgreSQL rejects, eager execution never exercises delivery or retries, and synthetic claims never exercise key retrieval or rotation. The gate covers all three, so this is a slower feedback loop rather than an unverified product — but a component running locally is not evidence it will run deployed.</p>
+      </div>
+    </section>
+
+    <section id="diverge">
+      <p class="kicker">05 — Diverges from the PRD</p>
+      <h2>Five places the documents disagree</h2>
+      <p>Each needs the requirements amended or this spine corrected. They must not be left to disagree silently.</p>
+
+      <div class="flag diverge">
+        <span class="tag">D-1</span>
+        <p>The PRD parameterizes <code>src/django_service/</code>. It is a constant — see <code>AD-5</code>. This also dissolves a work item the readiness review ranked medium-high.</p>
+      </div>
+      <div class="flag diverge">
+        <span class="tag">D-2</span>
+        <p>The PRD requires the materializer's declarations be authored once and shared with the eventual template, cross-checkable during the transition. The FreeMarker copy is one-way and out of tree, so it is really "derived once, then drifts."</p>
+      </div>
+      <div class="flag diverge">
+        <span class="tag">D-3</span>
+        <p>"On every authentication" is narrowed to once per credential epoch for the API flow. Deliberate; the consequence is <code>R-2</code>.</p>
+      </div>
+      <div class="flag diverge">
+        <span class="tag">D-4</span>
+        <p>The PRD says the browser flow costs no new dependency. It costs <code>requests</code> — imported directly by the OIDC provider, absent from the channel recipe's declared dependencies, and reaching the environment only transitively through the telemetry exporter.</p>
+      </div>
+      <div class="flag diverge">
+        <span class="tag">D-5</span>
+        <p>The PRD does not know about reusable apps, <code>src/django_apps/</code>, or the GitHub-template consumer. All three govern real invariants here.</p>
+      </div>
+    </section>
+
+    <section id="order">
+      <p class="kicker">06 — Build order</p>
+      <h2>What blocks what</h2>
+      <p class="lead">The dependency structure has one trap that reads as sensible and is not: "build the verification model" is not a single epic. The materializer can go early; the smoke check cannot go until nearly everything else is done.</p>
+
+      <div class="track">
+        <div class="track-head"><span class="tid">TRACK 0</span><span class="tname">Foundations</span><span class="tdep">no dependencies · do first</span></div>
+        <ol>
+          <li>Consolidate the gate behind one <code>pixi run ci</code>; move coverage out of the SonarCloud workflow; take <code>build</code> off its fortnightly cron; enable strict typing.<span class="refs">AD-18 · <code>pixi run ci</code> has never executed in CI</span></li>
+          <li>Add a PostgreSQL service to CI against the reference application alone.<span class="refs">isolates latent sqlite-vs-Postgres failures before twelve combinations can misattribute them</span></li>
+          <li>Delete the websocket handler, its ASGI dispatcher, and its coverage exemption.<span class="refs">AD-16 · removes an unauthenticated network surface</span></li>
+          <li>Collapse the five import-root declarations to one.<span class="refs">AD-7 · prerequisite for tenant space</span></li>
+        </ol>
+      </div>
+
+      <div class="track">
+        <div class="track-head"><span class="tid">TRACK A</span><span class="tname">Declarations</span><span class="tdep">after 0 · unblocks everything</span></div>
+        <ol>
+          <li>Author <code>accelerator.toml</code> and <code>component.toml</code>; build the two-way input reconciliation check.<span class="refs">AD-1 · AD-2 · AD-28</span></li>
+          <li>Parameterization axis and the fixture set.<span class="refs">AD-25 · must precede the materializer or every entry is re-cut</span></li>
+          <li>Sub-file region markers and region reconciliation.<span class="refs">AD-24 · the three files that matter: settings, telemetry, pixi.toml</span></li>
+          <li>pixi feature matrix, <code>[environments]</code>, shared solve-group.<span class="refs">AD-3</span></li>
+        </ol>
+      </div>
+
+      <div class="track">
+        <div class="track-head"><span class="tid">TRACK B</span><span class="tname">Runtime contract</span><span class="tdep">after A · gates track C</span></div>
+        <ol>
+          <li>Process model as pixi tasks; locality and process-type declarations.<span class="refs">AD-13 · AD-14</span></li>
+          <li>Refusal contract module — both stages, the allowlist, object-resolving predicates.<span class="refs">AD-26 · AD-21</span></li>
+          <li>Health endpoints, drain ordering, explicit session engine, identity-provider configuration out of the database.<span class="refs">AD-22 · AD-31</span></li>
+        </ol>
+      </div>
+
+      <div class="track">
+        <div class="track-head"><span class="tid">TRACK C</span><span class="tname">Identity</span><span class="tdep">after B · gates the smoke check</span></div>
+        <ol>
+          <li><code>Group</code> and <code>Permission</code> provisioning migration.<span class="refs">AD-27 · must precede personas, or the deadlock stays invisible</span></li>
+          <li><code>idp_subject</code>, the mapper's resolve and sync, the epoch table.<span class="refs">AD-10 · AD-11 · AD-12</span></li>
+          <li>DRF Bearer authentication class and the key-ID rotation policy.<span class="refs">AD-23 · we build it; PyJWT does not provide it</span></li>
+          <li>Remove the static-token surface and land the allowlist <em>in the same change</em>.<span class="refs">separated, there is a window where the paths return unnoticed</span></li>
+          <li>Personas, the local sign-in route, the development keypair.<span class="refs">AD-21 · calls the provisioning from step 1</span></li>
+        </ol>
+      </div>
+
+      <div class="track">
+        <div class="track-head"><span class="tid">TRACK D</span><span class="tname">Completing the reference app</span><span class="tdep">parallel with B/C · gates track E</span></div>
+        <ol>
+          <li>Spike <code>django-storages</code> against the locked Django and Python.<span class="refs">R-1 · gates the next step</span></li>
+          <li>Build the object storage feature.<span class="refs">one of four features does not exist; the materializer materializes "from the reference application"</span></li>
+          <li>Move genuinely UI-only surface out of <code>django_service</code>.<span class="refs">AD-29 · error templates and base.html stay</span></li>
+        </ol>
+      </div>
+
+      <div class="track">
+        <div class="track-head"><span class="tid">TRACK E</span><span class="tname">Harness</span><span class="tdep">materializer after A+D · smoke check last</span></div>
+        <ol>
+          <li>Materializer, twelve trees, output reconciliation, determinism test.<span class="refs">AD-2 · AD-3</span></li>
+          <li>Report all twelve coverage numbers, then make the floor hard.<span class="refs">AD-20 · the advisory window's exit condition is that report</span></li>
+          <li>Twelve-combination gate with the all-pairs subset pinned as data.<span class="refs">AD-19</span></li>
+          <li>Smoke check and the unprunable core assertion suite.<span class="refs">AD-30 · depends on B, C and D — this is the trap</span></li>
+        </ol>
+      </div>
+
+      <h3>Cheap spikes, any time</h3>
+      <ul class="plain">
+        <li>Drop <code>uvicorn-worker</code> for gunicorn 26's native ASGI worker — the pinned version is eleven months stale and imports a private uvicorn module.</li>
+        <li>Declare <code>requests</code> explicitly rather than relying on it arriving transitively (<code>D-4</code>).</li>
+      </ul>
+    </section>
+
+    <section id="bite">
+      <p class="kicker">07 — Rules that bite</p>
+      <h2>If you are new here</h2>
+      <p class="lead">Six things that look like ordinary Django and are not. Every one of them is invisible in compliant code, which is exactly why they are written down.</p>
+
+      <h3>The package name is not yours to change</h3>
+      <p><code>django_service</code> is a constant everywhere, in every deployment. Reusable apps import from it by that name. Renaming it, or moving a module inside its guaranteed surface, breaks every app anyone has written on top.</p>
+
+      <h3>Your app goes in <code>src/django_apps/</code>, and that directory has no <code>__init__.py</code></h3>
+      <p>It is a path root, not a package. An app at <code>src/django_apps/billing/</code> is imported and installed as <code>billing</code> — unqualified. That is what lets it graduate to a channel package later without its import path changing.</p>
+
+      <h3>Your app may add configuration, never change it</h3>
+      <p>Contribute a new key and the composition step merges it. Touch a key that already exists and the component refuses to start. Additions to ordered lists append in adoption order. The contributable surface is closed and enumerated — global defaults like <code>MIDDLEWARE</code> and DRF's permission classes are refused, whether or not the base already sets them.</p>
+
+      <h3>Nothing sets <code>sys.path</code>, and nothing puts <code>COMPONENT_*</code> in <code>[activation.env]</code></h3>
+      <p>Import roots are declared in the build configuration alone. And because the deployed image runs pixi, anything in activation env reaches production — which is how you would accidentally declare production to be a local development machine.</p>
+
+      <h3>A deployed component authenticates nobody</h3>
+      <p>The identity provider does. There is no local login form, no static token, no break-glass account. Nine startup conditions refuse a component that has any of them, and an allowlist test fails the build if you add a credential path without deciding to.</p>
+
+      <h3>Coverage includes templates, and that is not a formality</h3>
+      <p>It is the only signal that catches a feature extraction that left something behind. Do not add to the coverage <code>omit</code> list, do not add pragmas, and do not lower the floor — those are named as forbidden precisely because each of them makes the number go green while destroying what it measures.</p>
+    </section>
+
+  </main>
+</div>
