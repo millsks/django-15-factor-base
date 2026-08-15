@@ -105,6 +105,51 @@ reached in production, so a deployment can never silently come up on sqlite.
 Point `DATABASE_URL` at a real PostgreSQL instance whenever you need to check
 behaviour the sqlite backend cannot show you.
 
+### The parity gap between local runs and the gate
+
+Local runs use sqlite. **The gate uses PostgreSQL** — `.github/workflows/ci.yml`
+declares a `postgres:18` service on the `gate` job and sets `DATABASE_URL` at
+job level, so all five steps of `pixi run ci` see it. Nothing in the settings
+selects the backend beyond that URL.
+
+That divergence is deliberate. It is risk **R-5** — *local development proves
+less than running suggests* — a knowingly traded gap, not a defect. sqlite
+accepts schemas and queries PostgreSQL rejects, so a green local suite is
+weaker evidence than the same suite green in CI.
+
+The consequence is worth stating plainly: **a failure that reproduces only in
+CI is the expected behaviour of this trade.** It is fixed at its source — the
+model, the view, the form, or a new migration — never by narrowing the gate.
+Skipping such a test, marking it `xfail`, or branching on the engine inside it
+would convert a refusal into a warning, which the project forbids.
+
+To reproduce a CI-only failure, run the gate against a real PostgreSQL. The
+host port is deliberately not 5432 — that one is often already taken by a local
+PostgreSQL — and `--rm` means the container disposes of itself on stop:
+
+```sh
+docker run -d --rm --name pg-local -e POSTGRES_USER=gateuser \
+  -e POSTGRES_PASSWORD=gatepass -e POSTGRES_DB=gatedb -p 55432:5432 postgres:18
+until docker exec pg-local pg_isready -U gateuser -d gatedb; do sleep 1; done
+
+DATABASE_URL=postgres://gateuser:gatepass@localhost:55432/gatedb pixi run ci
+
+docker stop pg-local
+```
+
+`--reuse-db` is set in `pyproject.toml`, which is right for a CI service
+container recreated on every run but hides schema drift across repeated local
+runs. **After changing a migration, rebuild the test database** rather than
+reusing it:
+
+```sh
+DATABASE_URL=postgres://gateuser:gatepass@localhost:55432/gatedb \
+  pixi run test-cov --create-db
+```
+
+Every command here goes through `pixi run`; invoking `pytest` directly picks up
+a different environment than the gate uses.
+
 ## Tasks
 
 | Task | What it does |
@@ -158,10 +203,19 @@ the commit it releases has already passed the gate on `main`.
 `tests/unit/test_gate_contract.py` asserts all of this against `pixi.toml` and
 the workflow files, so the contract fails the build rather than drifting.
 
-A second job in `ci.yml` runs `pixi run test` across ubuntu, windows and macos.
-That job claims the reference application runs on all three platforms; it is not
-a second gate. The gate itself is ubuntu-only because GitHub Actions `services:`
-containers — which the PostgreSQL gate needs — run only on Linux runners.
+The gate job declares a `postgres:18` service and runs against it, so the five
+steps above execute against the database the immovable core actually names —
+see [the parity gap](#the-parity-gap-between-local-runs-and-the-gate).
+
+A second job in `ci.yml` runs `pixi run test` and then `pixi run test-integration`
+across ubuntu, windows and macos. That job claims the reference application runs
+on all three platforms; it is not a second gate, and it stays on the sqlite
+substitution. The integration leg is there because the unit tests never open a
+database connection at all — once the gate moved to PostgreSQL, that leg became
+the only place in CI where sqlite is actually exercised rather than merely
+configured. The gate itself is ubuntu-only because GitHub Actions `services:`
+containers — which the PostgreSQL gate needs — run only on Linux runners, so the
+database could not exist on two of that matrix's three legs.
 
 `pixi run ci` must exit 0 before any change is considered done.
 

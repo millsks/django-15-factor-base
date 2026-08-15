@@ -13,10 +13,10 @@ on:
 #
 # Why the split below is a split and not a narrowed gate: GitHub Actions
 # `services:` containers run only on Linux runners, so the PostgreSQL service
-# the gate needs (Story 1.2, FR-32) cannot be attached to a three-OS matrix.
-# The gate therefore runs on ubuntu only, and a separate matrix job keeps the
-# three-OS claim by running the suite against the sqlite substitution. The two
-# jobs assert different things and neither replaces the other.
+# the gate needs (FR-32) cannot be attached to a three-OS matrix. The gate
+# therefore runs on ubuntu only, and a separate matrix job keeps the three-OS
+# claim by running the suite against the sqlite substitution. The two jobs
+# assert different things and neither replaces the other.
 #
 # Any future six-combination job is Linux-only for a second, independent reason:
 # `gunicorn` has no win-64 build, and pixi.toml scopes gunicorn/uvicorn-worker
@@ -26,6 +26,41 @@ jobs:
   gate:
     name: Gate
     runs-on: ubuntu-latest
+
+    # FR-32 requires the gate to run against the database the immovable core
+    # names, and no workflow declared one before Story 1.2 -- the suite had only
+    # ever run against the sqlite substitution, which accepts schemas PostgreSQL
+    # rejects.
+    #
+    # The tag is chosen to match the `libpq = ">=18.4,<19"` pin at pixi.toml:16,
+    # but note that pin does not enforce it: libpq is the *client* library and an
+    # 18 client talks to an older server without complaint. Nothing in the repo
+    # can fail on a server-version mismatch, so keep this tag and that pin moving
+    # together by hand.
+    #
+    # This block stays on the ubuntu-only gate job. GitHub Actions `services:`
+    # containers run on Linux runners only, so it cannot be attached to the
+    # three-OS compatibility matrix below, which continues on sqlite.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: gateuser
+          POSTGRES_PASSWORD: gatepass
+          POSTGRES_DB: gatedb
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # Job level, not step level, so every step of `pixi run ci` sees it.
+    # config/settings/base.py:57 reads DATABASE_URL first and hands it to
+    # env.db(), so this URL is the whole mechanism that selects PostgreSQL --
+    # no settings change is involved.
+    env:
+      DATABASE_URL: postgres://gateuser:gatepass@localhost:5432/gatedb
 
     steps:
     - uses: actions/checkout@v6
@@ -39,8 +74,8 @@ jobs:
         environments: dev
         cache: true
 
-    # Story 1.2 attaches a PostgreSQL `services:` block and DATABASE_URL to this
-    # job. Keep it shaped so that is a pure insertion.
+    # Runs against the PostgreSQL service declared above, via the job-level
+    # DATABASE_URL. `pixi run ci` is otherwise identical to the local invocation.
     - name: Run the gate
       run: pixi run ci
 
@@ -78,8 +113,16 @@ jobs:
         environments: dev
         cache: true
 
-    # Unit tests only, against the sqlite substitution. This job claims "the
-    # reference application runs on all three platforms", not "the gate passed";
-    # the gate job above is what makes that second claim.
+    # This job claims "the reference application runs on all three platforms",
+    # not "the gate passed"; the gate job above is what makes that second claim.
     - name: Run unit tests
       run: pixi run test
+
+    # Deliberately NOT given a DATABASE_URL, so this is the sqlite substitution.
+    # Once the gate moved onto PostgreSQL, this became the only place in CI that
+    # opens a database connection on sqlite at all -- the unit tests never touch
+    # one. Without it, AC #4's "it still runs on sqlite" would be asserted as
+    # configuration only, and PostgreSQL-only ORM code would pass every CI job
+    # while breaking `pixi run ci` for every developer with nothing running.
+    - name: Run integration tests on the sqlite substitution
+      run: pixi run test-integration
