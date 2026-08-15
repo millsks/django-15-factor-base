@@ -2,7 +2,7 @@
 title: "PRD: django-15-factor-base"
 status: final
 created: 2026-08-14
-updated: 2026-08-15
+updated: 2026-08-16
 ---
 
 # PRD: django-15-factor-base
@@ -11,7 +11,7 @@ updated: 2026-08-15
 
 This PRD specifies phase 1 of `django-15-factor-base`: the reference application and the verification harness that must exist before the repository becomes a FreeMarker template. It is written for the architect who will sequence this work, the developers who will implement it, and the platform group who will hold it to the platform's standard. It builds on `_bmad-output/planning-artifacts/briefs/brief-django-15-factor-base-2026-08-08/` — the product brief and its addendum — and does not duplicate them: the brief carries the case for the product, the addendum carries mechanism, findings, and rejected alternatives, and reasoning the addendum already worked through stays there.
 
-Structure: a Glossary that the rest of the document uses verbatim, features grouped with functional requirements nested and numbered globally as FR-1 through FR-50, cross-cutting non-functional requirements in their own section, and a Factor Coverage section that holds the product to the fifteen factors its name commits it to. Each feature group carries a priority. Assumptions are tagged inline as `[ASSUMPTION]` and indexed in §14.
+Structure: a Glossary that the rest of the document uses verbatim, features grouped with functional requirements nested and numbered globally as FR-1 through FR-56, cross-cutting non-functional requirements in their own section, and a Factor Coverage section that holds the product to the fifteen factors its name commits it to. Each feature group carries a priority. Assumptions are tagged inline as `[ASSUMPTION]` and indexed in §14.
 
 **Tense discipline, inherited from the addendum:** present tense describes what is true in the repository today. *Must* and *will* describe what this PRD requires and what is not yet built.
 
@@ -108,6 +108,11 @@ Downstream workflows and readers must use these terms exactly. Functional requir
 - **Orphan** — a file, dependency, settings fragment, or test left behind by feature removal that no import graph, linter, or dependency analyzer flags. Detected only by the coverage gate reporting zero.
 - **Provenance stamp** — the record inside a component of the accelerator version and the order values that produced it.
 - **Deployment repository** — the separate repository, outside this team's control, that runs a component on the platform. This PRD specifies the contract to it, never its contents.
+- **Base package** — the component's platform-provided application package. Its name is identical in every component and is never parameterized, because reusable apps import from it.
+- **Reusable app** — a Django application built *on* the base rather than inside it. It lives in the tenant space while it is being developed and, once it has proven itself, is published to the approved channel and adopted by other components as an ordinary dependency.
+- **Tenant space** — the declared location in a component where the applications that component owns live. The accelerator neither provides nor judges its contents.
+- **Contribution** — the configuration a reusable app adds to the component that adopts it. Additive only: an app may introduce configuration and may never change configuration that already exists.
+- **Template repository** — this repository consumed directly by the code host's create-from-template facility, producing a fork of the base rather than a generated component.
 
 ## 4. Features
 
@@ -156,7 +161,7 @@ Selecting or omitting the server-rendered UI feature does not affect the presenc
 
 **Priority: Phase-1 must-have.** This is the largest unbuilt block in the product and none of it is implemented.
 
-**Description:** A deployed component authenticates exclusively against the IdP, through two distinct flows that must not be conflated. The interactive flow serves the Django admin and the server-rendered UI over Authorization Code with PKCE, and costs no new dependency — the OpenID Connect provider ships in the installed allauth distribution. The programmatic flow serves API clients over `Authorization: Bearer <JWT>` validated against the IdP's JWKS endpoint, and requires new dependencies: PyJWT and `cryptography`, both confirmed on the approved channel. Realizes UJ-1, UJ-2.
+**Description:** A deployed component authenticates exclusively against the IdP, through two distinct flows that must not be conflated. The interactive flow serves the Django admin and the server-rendered UI over Authorization Code with PKCE, and costs no new *framework* — the OpenID Connect provider ships in the installed allauth distribution. It does cost a package: the provider imports `requests` directly, and the approved channel's allauth recipe does not declare it, because upstream places it in a `socialaccount` extra the recipe drops. `requests` reaches the environment today only transitively, through the telemetry exporter (FR-49). The programmatic flow serves API clients over `Authorization: Bearer <JWT>` validated against the IdP's JWKS endpoint, and requires new dependencies: PyJWT and `cryptography`, both confirmed on the approved channel. Realizes UJ-1, UJ-2.
 
 Four credential paths currently bypass the IdP, all verified in the source. The defect is not that they exist — §4.4 keeps every one of them available locally — but that they are **enabled by default and unguarded**, so a deployed component bypasses the IdP unless someone remembers to configure it not to. The remediation inverts that: available where configured on, refused at startup where not permitted.
 
@@ -180,7 +185,7 @@ An API client can authenticate by presenting `Authorization: Bearer <JWT>`, whic
 **Consequences (testable):**
 - Validation is performed by a `rest_framework.authentication.BaseAuthentication` subclass using PyJWT and `cryptography`.
 - Signature, `iss`, `aud`, and `exp` are each verified; a token failing any one is rejected with 401.
-- JWKS material is fetched from the IdP and cached. `[ASSUMPTION: cache TTL and the key-rotation refresh trigger are set by architecture against the real IdP; this PRD requires only that rotation is survivable without a restart.]`
+- JWKS material is fetched from the IdP and cached by key identifier. A credential presenting an identifier the component does not hold triggers exactly one refetch, rate-limited, so a key rotation is survived without a restart and without knowing the identity provider's rotation schedule. A cache lifetime remains only as a backstop for key *removal*, where any reasonable value serves.
 - **Retrieval is lazy**: JWKS is fetched on the first Bearer request that needs it, never at import or at boot. A component must boot with no route to the IdP (FR-18).
 - A successful validation invokes the mapper (FR-8).
 
@@ -225,9 +230,11 @@ On every authentication the mapper resolves or creates the user, adds the group 
 - An identity whose claims drop a group loses the corresponding Django group membership on its next authentication.
 - An identity whose claims drop the designated staff group loses staff status on its next authentication and can no longer reach the admin.
 - Each authorization change produces a structured log event correlated with `request_id` and `trace_id`.
+- **Resolution and re-sync run at different frequencies, and the difference is a requirement.** Resolving an identity to a user runs on every authentication, including every request of the programmatic flow. Re-syncing group membership runs once per credential epoch: every interactive authentication, and once per bearer credential rather than once per request. Read without this distinction, the requirement mandates a membership diff and up to two writes on every API call for a single identity, which no component can sustain.
 
 **Out of Scope:**
 - Propagating a revocation to an already-established session before its next authentication. `[ASSUMPTION: session lifetime is short enough that per-login re-sync is the accepted revocation latency; architecture confirms against the platform's session policy.]`
+- Propagating a revocation to an already-issued bearer credential before it expires. This is not a design choice that could have gone the other way: the claims are carried *in* the credential, so a component honours them until it expires no matter how often it re-syncs. Re-syncing per request would rewrite the same rows without shortening that window by a second. The lever is credential lifetime, and it belongs to the identity provider.
 
 #### FR-10: The claims contract is configuration
 
@@ -246,6 +253,8 @@ In a deployed component, the first administrator is established by IdP group cla
 - Staff status is set exclusively by the mapper from the designated group.
 - Superuser status is likewise group-driven, from a second designated group in the claims contract, and is cleared when the claims stop asserting it. Without this, an administrator promoted by claim reaches an admin with no permissions in it, and any pre-existing superuser stays permanently outside IdP control.
 - Documentation states the bootstrap path; `createsuperuser` remains available only where the refusals do not apply.
+- **The groups themselves exist before the first authentication.** The designated groups, and the permissions attached to them, are provisioned by the component rather than assumed to be present — and the local persona path uses that same provisioning rather than creating groups of its own. Without this the product deadlocks in a way no local check can see: claims assert a group that does not exist, FR-9 ignores it, staff status is never granted, and the only place a human could create the group is the admin they cannot reach.
+- A designated group absent from a deployed component refuses at startup (FR-13), on the same reasoning that refuses an unconfigured claims contract.
 
 ---
 
@@ -448,7 +457,8 @@ Where selected, a component stores documents and blobs against an S3-compatible 
 
 **Consequences (testable):**
 - The storage backend is configured through Django's storages configuration from environment variables alone; no bucket, endpoint, or credential is baked into the image.
-- The packages are `django-storages` and `boto3`, both confirmed on the approved channel. Neither is present in the repository today — this feature is greenfield, not a rewire.
+- The packages are `django-storages` and `boto3`, both present on the approved channel. `boto3` already resolves into the environment as a transitive dependency of the mail package; `django-storages` does not, and no storage configuration or application code exists — this feature is greenfield, not a rewire.
+- `[ASSUMPTION: the channel's `django-storages` build works against the pinned Django and Python. Its released version predates both and declares support for neither; support exists only on unreleased upstream. Compatibility is proven before the feature is committed to, and if it fails the answer is to correct the channel recipe under FR-49's exception discipline, never to drop the feature — most components will select it.]`
 - User media is out of scope: avatars resolve from IdP profile metadata as remote URLs, so no media pipeline exists to build.
 - Where the feature is absent, no storage configuration, dependency, or call site remains (FR-28).
 
@@ -511,7 +521,7 @@ A developer or CI job can materialize the complete source of any of the twelve v
 - Materializing a combination produces a self-contained source tree that its own gate can run against.
 - The same selections produce the same output; materialization is deterministic.
 - Materialized output for the all-features-selected combination is equivalent to the reference application.
-- The declarations the materializer reads are authored once and shared with the eventual template. The FR-24 carrier, the FR-31 fixture set, and the FR-37 disposition rule are single-authored artifacts that the phase-2 template consumes rather than restates. This bounds what the materializer costs, and makes the two mechanisms cross-checkable during the transition, since both should produce equivalent source for the same combination.
+- The declarations the materializer reads are authored once. The FR-24 carrier, the FR-31 fixture set, and the FR-37 disposition rule are single-authored artifacts, and the phase-2 template is derived from them rather than restating them. **What this does not buy is an ongoing cross-check.** The template is produced by copying this repository into a separate source tree and interleaving directives there, so from that moment the two drift and neither validates the other. The materializer's cost is bounded by single-authoring; its durability rests on the reference application and the template-repository consumer (§10) outliving the transition, not on the template consuming the carrier.
 - The materializer excludes itself, the carrier, and the fixture set from its own output (FR-37).
 
 **Notes:** this PRD does not choose the materializer's implementation. Several architectures satisfy every consequence above at materially different cost, and picking among them is architecture's work; what the PRD fixes is the shape of the inputs it reads, which makes the choice bounded rather than open-ended.
@@ -575,7 +585,8 @@ Materialized output excludes the accelerator's tooling and planning artifacts, a
 - Unlisted paths default to excluded, so a file no declaration claims does not silently travel into every component. This is FR-17's lesson applied to materialization: a rule maintained as an enumeration is always one omission behind.
 - Directory-level granularity is insufficient and must not be used. `src/config/`, `tests/`, `pixi.toml` and `pixi.lock` each contain both core and feature-owned content — `src/config/celery_app.py` exists today and must be absent from the eight combinations without background task processing, and the dependency manifest differs in eleven of the twelve. A rule that keeps those paths wholesale produces twelve identical components and makes FR-2's entire testable surface unreachable.
 - **Excluded, as accelerator machinery:** `_bmad/`, `_bmad-output/`, `.agents/`, `.bmad-loop/`, `.claude/`, and the materializer, the FR-24 carrier and the FR-31 fixture set themselves.
-- **Parameterized:** `sonar-project.properties`, `README.md`, `CHANGELOG.md`, `LICENSE`, `pyproject.toml`, `mkdocs.yml`, and the component package path currently named `src/django_service/`.
+- **Parameterized:** `sonar-project.properties`, `README.md`, `CHANGELOG.md`, `LICENSE`, `pyproject.toml`, and `mkdocs.yml`. The component name is one parameter with several sites, not one file.
+- **Not parameterized, and this is load-bearing:** the component package path `src/django_service/` is a **constant** in every component. Reusable apps (§4.10) import from it by that name, so renaming it per component would break every reusable app in every component that renamed it differently. It is the stable import surface, not a placeholder.
 - **Split, not kept wholesale:** `.github/` contains both the component's own pipeline and the accelerator's twelve-combination harness, release, and code-quality workflows; only the component's own pipeline travels. `docs/` splits the same way and already has a stated rule: what describes how to work on any component travels with it; what describes the accelerator does not.
 - A materialized combination does not report code quality into the accelerator's own project — the hardcoded project key at `sonar-project.properties:6` is parameterized. Shipped unparameterized, nothing fails and the metrics merge silently.
 - The `COVERAGE_CORE` setting of FR-29 travels with every combination, since the orphan signal is worthless without it.
@@ -605,7 +616,7 @@ A deployed component reads all configuration from environment variables, with no
 A deployed component starts under a UID assigned by the platform and writes to no fixed path. Realizes UJ-1.
 
 **Consequences (testable):**
-- Startup succeeds under an arbitrary non-root UID with a read-only root filesystem except for explicitly declared writable paths. `[ASSUMPTION: the set of writable paths is empty or limited to a temporary directory; architecture confirms against the platform's security context constraints.]`
+- Startup succeeds under an arbitrary non-root UID with a read-only root filesystem. The component declares **no** writable path beyond a temporary directory, and this is asserted rather than assumed: static files are collected at build and served by the application, user media is a non-goal, logs go to the event stream, and sessions are database-backed, so nothing in a running component writes to disk.
 
 #### FR-40: The process model is declared per combination
 
@@ -724,8 +735,81 @@ Every dependency in every combination resolves from the approved channel, and an
 A new selectable feature is not accepted until its dependencies are confirmed present on the approved channel. Realizes UJ-3.
 
 **Consequences (testable):**
-- Object storage was the first test of this rule and it held — the storage and cloud-SDK packages are both available, as are the JWT and cryptography packages the authentication rewire needs.
+- Object storage was the first test of this rule and it half held. The storage and cloud-SDK packages are both available, as are the JWT and cryptography packages the authentication rewire needs — but availability turned out to be the weaker half of the question. The storage package is present and its released version declares support for neither the pinned Django nor the pinned Python (FR-25).
+- **Availability is not fitness, and the rule now tests both.** A dependency is confirmed present on the channel *and* confirmed to work against the pinned runtime before a feature is committed to. Checking only presence is how a feature gets committed to on the strength of a package that cannot run.
 - A proposed feature whose dependencies are absent from the channel forces an explicit supply-chain exception decision rather than a silent addition.
+
+---
+
+### 4.10 The Extension Model
+
+**Priority: Phase-1 must-have.** None of it exists; the tenant space, the contribution mechanism and the compatibility check are all to be built.
+
+**Description:** A component is not a renamed copy of the base with business logic poured into it. The base keeps its name and its shape, and the work a team actually came to do arrives *alongside* it as Django applications. An application that turns out to be useful twice stops being local: it is published to the approved channel and adopted by other components as an ordinary dependency. Realizes UJ-1, UJ-2.
+
+This is the difference between an accelerator that produces independent forks and a platform whose components share code. It is also what makes the base package name a constant rather than a parameter (FR-37): an application that imports from the base only works if the base is called the same thing everywhere it is adopted.
+
+**Functional Requirements:**
+
+#### FR-51: The base package is a stable import surface
+
+The component's base package presents a declared surface that reusable apps may depend on, and changes to it are treated as breaking. Realizes UJ-1.
+
+**Consequences (testable):**
+- The base package name is identical in every component and is never parameterized (FR-37).
+- The surface a reusable app may depend on is declared explicitly; anything else inside the base is internal and may change freely.
+- The declared surface is present in all twelve valid combinations. No feature selection may remove part of it, or an app would import successfully in some components and fail in others.
+- Moving a module within the declared surface, changing the user model, or renaming a guaranteed setting is a breaking change and is versioned as one.
+
+#### FR-52: A component extends through a declared tenant space
+
+A component has one declared location for the applications it owns, and the accelerator neither supplies nor judges their contents. Realizes UJ-1.
+
+**Consequences (testable):**
+- The tenant space has a single declared location, named in the carrier (FR-24).
+- The materializer neither prunes nor reports the tenant space: a path there is not an orphan (FR-29) and is never excluded as unclaimed (FR-37).
+- A component with applications of its own passes the same gate as one without.
+
+#### FR-53: A reusable app graduates without changing its import path
+
+An application developed inside a component keeps its import path when it is published to the channel and adopted elsewhere. Realizes UJ-1.
+
+**Consequences (testable):**
+- The same application is importable by the same name in both residencies — while it lives in the tenant space, and once it is installed from the channel.
+- Graduating an application requires no change to the installed-app list, imports, or migration references of any component that adopts it.
+- Adoption is explicit: a manifest entry and a declaration in the component. Nothing self-registers on installation.
+
+#### FR-54: A reusable app adds configuration and never changes it
+
+An adopted application may introduce configuration a component did not have, and may not alter configuration that already exists. Realizes UJ-1.
+
+**Consequences (testable):**
+- Introducing new configuration succeeds; writing to configuration the component already defines raises `ImproperlyConfigured` at startup.
+- Additions to ordered configuration append in adoption order, so composition is deterministic and no application can place itself ahead of the base or of another application.
+- The configuration an application may contribute is a closed, declared set. Global defaults that would give an application authority over every request — request middleware, and the framework-wide authentication and permission defaults — are outside it, whether or not the component already sets them.
+- An application contributing configuration that depends on a feature the combination did not select is refused at startup rather than silently doing nothing.
+
+**Notes:** the closed set and the authentication allowlist of FR-17 are one declaration. Maintained apart, they disagree — and §4.3 already demonstrated what happens to a list kept in two places.
+
+#### FR-55: A contributed backing service inherits the local development contract
+
+Where an adopted application brings its own backing service, the substitutions of §4.4 extend to it without the application having to arrange it. Realizes UJ-2.
+
+**Consequences (testable):**
+- A component that adopts an application with its own database still starts, serves and authenticates a persona with nothing installed (FR-18).
+- The refusals that guard the component's own database guard the contributed one identically: a deployed component whose contributed database has fallen back to the local substitution refuses to start (FR-13).
+- Unapplied migrations on a contributed database refuse a serving process exactly as they do on the component's own (FR-41).
+- Readiness reports a contributed backing service as required unless the component declares otherwise (FR-42).
+- The component declares one release-stage migration step per database, so the deployment repository does not have to infer how many there are (FR-40).
+
+#### FR-56: Base compatibility is declared and checked at adoption
+
+A reusable app states which versions of the base it supports, and adopting it into an incompatible component fails the gate rather than failing in production. Realizes UJ-3.
+
+**Consequences (testable):**
+- The base exposes its surface version; an application declares the range it supports.
+- The declaration lives somewhere both residencies of FR-53 can read, so the check behaves identically for an application in the tenant space and one installed from the channel.
+- Adopting an application outside the supported range fails the component's gate.
 
 ---
 
@@ -743,6 +827,7 @@ A new selectable feature is not accepted until its dependencies are confirmed pr
 - **A local identity-provider container.** The highest-fidelity local option, rejected because it reintroduces exactly the per-machine service dependency the substitutions exist to remove. It remains the right answer for deliberate work on the authentication layer itself, as an optional path rather than a requirement.
 - **A break-glass account in a deployed component.** Every credential path is delegated to the IdP; see §11.
 - **Becoming a general-purpose Django starter.** The platform assumptions in §2.2 are load-bearing throughout.
+- **Carrying the platform's guarantees into a template repository.** Consuming this repository through the code host's create-from-template facility produces a fork of the base, not a component: it copies the accelerator's own machinery, performs no parameterization, selects no features, and is taken from whatever is on the default branch rather than a released version. It is a legitimate way to start work and it is outside every guarantee this PRD makes. A repository that must carry those guarantees is generated, not templated.
 
 ## 6. MVP Scope
 
@@ -757,6 +842,7 @@ A new selectable feature is not accepted until its dependencies are confirmed pr
 - The deployment interface: environmental configuration, arbitrary UID, declared process model, release-stage migrations, two health endpoints, drain ordering, explicit session engine, environmental trace export (§4.7).
 - Observability hardening: correlated logs, ASGI tracing, conditional instrumentors, visible cache degradation (§4.8).
 - Supply-chain policy and the channel check for new features (§4.9).
+- The extension model: the base's declared import surface, the tenant space, additive contribution, and the compatibility check (§4.10).
 
 ### 6.2 Out of Scope for MVP
 
@@ -813,6 +899,8 @@ Each names a way a primary criterion could be made to pass while the product got
 - The IdP is the only credential authority in a deployed component. Local credential paths exist only where the refusals do not apply.
 - Authorization is decided in exactly one place (FR-8). Divergence between the interactive and programmatic flows is the default outcome of independent implementation, not an unlikely one, because the natural place to put mapping is wherever the developer happens to be working.
 - Revocation at the IdP must reach the component (FR-9). Mapping only at account creation means revoked access never propagates.
+- No network surface exists beneath the component's URL routing. A protocol handled below the router is invisible to the authentication allowlist of FR-17, because it is not a route — so it cannot be reasoned about by any mechanism in §4.3. Any such surface is a designed feature with its own authentication story and its own entry in the carrier, never an inherited one.
+- An adopted application cannot acquire authority over requests it does not own (FR-54).
 
 **Supply chain**
 
@@ -831,6 +919,8 @@ Each names a way a primary criterion could be made to pass while the product got
 - **Approved package channel** — resolves every dependency, with no exceptions as of 2026-08-14 (FR-49).
 - **Code-quality platform** — receives per-component metrics, so the project key must be parameterized (FR-37).
 - **CI provider** — runs both verification levels and must supply a PostgreSQL service, which no workflow declares today.
+- **Code host, as a template repository** — consumes this repository directly to start a fork of the base (§5). It performs no generation, so nothing in this PRD's contract applies to what it produces.
+- **Reusable applications** — resolved from the same approved channel as every other dependency (§4.10). An application must reach the channel before a component may depend on it, which makes publishing one a supply-chain obligation rather than a convenience.
 
 ## 11. Risk and Mitigations
 
@@ -850,7 +940,7 @@ The product's name commits it to fifteen factors, so each is accounted for. *Sat
 | # | Factor | How it is accounted for | Status |
 |---|---|---|---|
 | 1 | Codebase | One repository per component, in version control from generation | Satisfied |
-| 2 | Dependencies | Declared and lock-pinned, resolved from the approved channel with no exceptions; no system packages (FR-49) | Satisfied in policy; the repository change moving `django-celery-beat` off the package index is **pending** |
+| 2 | Dependencies | Declared and lock-pinned, resolved from the approved channel with no exceptions; no system packages (FR-49) | Satisfied. The repository change moving `django-celery-beat` off the package index has landed, and a later build removed the test dependency it was carrying into the runtime environment |
 | 3 | Config | Environment-only; no configuration file in the image (FR-38) | Satisfied |
 | 4 | Backing services | PostgreSQL, cache, and object storage attach by environment variable. The §4.4 substitutions are the same contract pointed at a different endpoint | Partly — **object storage does not exist**; `django-storages` and `boto3` are absent from the manifest (FR-25) |
 | 5 | Build, release, run | CI builds and containerizes; the deployment repository runs. Migrations are a release-stage step guarded by a refusal (FR-41) | Decided, **not implemented** |
@@ -876,8 +966,10 @@ Two questions remain, each with an owner and the condition that would let it be 
 
 Every `[ASSUMPTION]` still live in this document, each with an owner and the condition that would resolve it. Five assumptions present in the first draft were resolved during review and are now requirements rather than assumptions: the settings-module detection mechanism (FR-12), the enumerability of the credential surface (FR-17), the claims-contract default (FR-13), the no-network-at-boot property (FR-23), and the telemetry-overhead claim (NFR-6, now measured rather than assumed).
 
-1. **§4.2 / FR-5 — JWKS cache TTL and key-rotation refresh trigger.** This PRD requires only that rotation is survivable without a restart; the values are not stated. *Owner:* architecture, against the real IdP. *Revisit when:* the IdP's key-rotation policy is known.
+Two more were resolved by architecture and are struck below rather than renumbered. The **JWKS cache TTL and rotation trigger** turned out not to need the identity provider's policy at all: caching keys by key identifier and refetching once on an unrecognized one survives rotation without a restart, which leaves the lifetime a backstop for key *removal* where any sane value works. **Writable paths** were closed from the component's side rather than measured against the platform.
+
+1. **§4.5 / FR-25 — the channel's object-storage build works against the pinned Django and Python.** Its released version predates both and declares support for neither. *Owner:* architecture. *Revisit when:* compatibility is proven, before the feature is committed to. If it fails, the answer is to correct the channel recipe under FR-49's exception discipline — the feature is not droppable.
 2. **§4.2 / FR-9 — Session lifetime is short enough that per-authentication re-sync is the accepted revocation latency.** *Owner:* platform group. *Revisit when:* the session policy is known. *(See Open Question 1 — if the window is too wide, the fix is a shorter session lifetime, not a change to the mapper.)*
-3. **§4.7 / FR-39 — Writable paths are empty or limited to a temporary directory.** *Owner:* architecture, against the platform's security context constraints. *Revisit when:* the first containerized deployment is attempted. *(See Open Question 2.)*
+3. *(Resolved.)* **§4.7 / FR-39 — writable paths.** Architecture closed this from the component's side rather than measuring it against the platform: static files are collected at build and served by the application, media is a non-goal, logs go to the event stream, and sessions are database-backed, so nothing writes to disk. The component asserts zero writable paths beyond a temporary directory and the harness verifies it. Open Question 2 is closed with it.
 4. **§4.7 / FR-43 — The platform's termination grace period exceeds the longest expected drain.** The component owns the drain ordering; the value is a deployment-repository setting. *Owner:* deployment repository. *Revisit when:* drain duration is observed under load.
 5. **§8 / NFR-1 — A platform startup-time budget exists.** NFR-1's substantive requirement — that the nine refusal checks are cheap enough to be irrelevant to startup — does not depend on knowing the budget. *Owner:* architecture. *Revisit when:* the platform publishes one.

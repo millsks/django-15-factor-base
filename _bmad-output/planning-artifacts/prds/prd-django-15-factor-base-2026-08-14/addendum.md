@@ -59,7 +59,9 @@ Resolved during this PRD run, 2026-08-14. conda-forge `django-celery-beat` build
 
 The verification method generalizes. Channel *availability* is not the question when the blocker is a version constraint — a package can be present and still unusable. The check is to read the specific build's `depends` list from `api.anaconda.org/package/conda-forge/<name>` and compare builds, since the fix arrives as a build-number bump at an unchanged version. Here `2.9.0` appears twice with different constraint sets, and only the newer build resolves the conflict. Any future channel-availability check under PRD FR-50 should take this shape rather than stopping at "the package exists."
 
-The consequence for the repository is not yet applied. `pixi.toml` still declares the dependency under `[pypi-dependencies]` (line 90) with a rationale comment (lines 86-89) that is now historical, and a related comment at lines 21-23 explaining why its transitive dependencies are declared separately. Moving the dependency and updating both comment blocks is repository work, deliberately not performed during this PRD run.
+The consequence for the repository has since been applied, and the method paid off twice. The dependency moved into the channel block with its reasoning rewritten. A later build, `pyhcf101f3_2`, then moved `pytest` from run requirements to test — so re-locking also removed `pytest`, `iniconfig`, `pygments` and `colorama` from the runtime environment, four pure-Python packages a deployed component had been carrying and never importing. Both were found by reading a specific build's `depends` list rather than asking whether the package existed.
+
+**The method has a second half, learned later.** Reading `depends` answers whether a package *resolves*. It does not answer whether it *works*. The object-storage package is present on the channel and its released version declares support for neither the pinned Django nor the pinned Python — a fitness question that no dependency list can answer, and one that presence-checking passes cleanly. PRD FR-50 now tests both.
 
 ## 5. Why the PRD states criteria rather than outcome metrics (PRD §7)
 
@@ -77,3 +79,21 @@ The PRD names four things that must not be optimized. The reasoning is worth kee
 - **Verification set shrinkage.** Twelve materialize-and-gate runs per template change is expensive, and the pressure to sample will be real and recurring. FR-35's reporting rule exists because a silently reduced set reads exactly like a full one.
 - **Refusal softening.** A refusal that logs and continues is strictly easier to deploy against. It is also the single mechanism separating a local component from a deployed one.
 - **Substitution creep.** The reasoning is in §2: the constraint is the principle, not the count.
+
+## 7. The extension model — alternatives considered (PRD §4.10)
+
+§4.10 arrived during architecture, from a constraint that had not been stated: reusable Django applications are configured *on top of* the base, developed in the component and then published to the channel for other components to adopt. That single fact is what makes the base package name a constant rather than a parameter, and it opened a design question the PRD had no position on — how much of the platform an adopted application is allowed to touch.
+
+Three positions were weighed against one concrete case: an application that needs a second database.
+
+**An application is just a Django application.** It ships documentation saying which settings to add, and the component's own configuration carries them. Cheapest to build, and it fails the goal outright — every adoption becomes a hand edit that a human must get right, repeated identically in every component that adopts it. That is the class of work the product exists to delete.
+
+**An application is a full participant.** It may contribute startup conditions, claim paths in the feature carrier, ship configuration fragments. Capable, and it makes installing a package able to change platform behaviour; the accelerator's compatibility surface becomes as wide as the set of applications anyone has written.
+
+**An application contributes additively, on a closed set, and collisions are refused.** Chosen. It gives adoption the plug-in property the first option lacks without granting the authority the second one does, and it is enforced by the mechanism the product already uses everywhere else — a refusal at startup rather than a documented convention.
+
+Two sub-decisions are worth recording because they went against the obvious answer. The contributable set is **closed** rather than open: an open set means a future application contributes request middleware, or a framework-wide permission default, and quietly acquires authority over every request in the component. And a contributed backing service **inherits the local substitution automatically** rather than declaring its own, which keeps the run-with-nothing-installed property true by construction instead of by each application author's diligence.
+
+The cost, stated plainly: an application contributing a database is not a configuration entry but a chain — routing, one release-stage migration step per database, the startup refusals iterating every configured database, the local substitution, and a readiness decision. FR-55 exists because naming only the first link would leave five to be answered differently by five teams.
+
+**Entry-point auto-discovery was rejected** despite being the obvious mechanism for plug-in registration. An application being developed in the tenant space has no distribution metadata, so discovery would work in one residency and not the other — and FR-53's whole point is that the two residencies behave identically.
