@@ -2398,7 +2398,8 @@ So that installing a package cannot give it authority over every request.
 
 **Given** the contributable surface
 **When** it is declared
-**Then** it is closed and enumerated in the carrier by explicit key, never by namespace
+**Then** it is closed and enumerated by explicit key, never by namespace
+**And** its authoritative location is `src/config/startup/`, which a materialized component carries, mirrored into `accelerator.toml` with a gate test asserting equality (AD-26) — the carrier is machinery and never travels, so it cannot be the runtime authority for a rule that executes at settings import
 **And** it comprises additional `DATABASES` entries and their routers, `INSTALLED_APPS` entries, the application's own namespaced settings, and named non-global DRF and Celery keys
 
 **Given** a global-default key

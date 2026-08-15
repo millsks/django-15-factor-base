@@ -6,7 +6,7 @@ Status: ready-for-dev
 
 As a lead developer,
 I want object storage as a selectable feature that works deployed and locally,
-so that the six combinations that select it have both a real backing service and a local story.
+so that the three combinations that select it have both a real backing service and a local story.
 
 ## Acceptance Criteria
 
@@ -48,7 +48,7 @@ so that the six combinations that select it have both a real backing service and
   - [ ] **Outcome C — Story 1.8 has not run.** Stop and surface it. FR-50's rule is that fitness is proven before a feature is committed to; this story is the commitment.
 
 - [ ] Task 1 — Declare the storage feature's surface in the carrier (AC: #1, #6)
-  - [ ] Complete `[features.storage]` in `accelerator.toml`: `packages = ["django-storages", "boto3"]`, and the path list for every file this story creates. Every new file gets a `feature:storage` disposition; every new region gets a `[[regions]]` entry.
+  - [ ] Complete `[features.storage]` in `accelerator.toml`: `packages = ["django-storages", "boto3"]` — the *dependency* surface — plus the regions this story creates and its own tests. **The feature owns no source package and no path root.** AD-33 is retired: there is no `src/features/`, no `django_storage` package and no third import root, so storage's code-shaped surface is entirely `feature:storage` regions inside `core` settings modules. Every new region gets a `[[regions]]` entry; the only new *files* are this story's tests and its documentation page.
   - [ ] Record the R-1 outcome and its evidence pointer in the carrier beside the feature, so the supply-chain state travels with the feature declaration rather than living only in a commit message.
   - [ ] `boto3` is already in `pixi.lock` transitively via `django-anymail`. The spine's Supply chain convention is explicit: *"Transitive availability is not declaration: a package the code imports directly is declared directly, even when something else already pulls it in."* Declare `boto3` directly if the feature's code imports it directly; if only `django-storages` imports it, declare only `django-storages` and record that reasoning.
 
@@ -68,7 +68,7 @@ so that the six combinations that select it have both a real backing service and
 
 - [ ] Task 4 — Document the substitution's limits (AC: #4)
   - [ ] Add the limits to `docs/development.md` (exists) or a sibling under `docs/`, stating in the document's own words that the filesystem substitution does **not** exercise: bucket policy, presigned URLs, eventual consistency, multipart upload, or the network failure modes of a remote object store.
-  - [ ] Frame it as R-5's instance for storage — *"local development proves less than running suggests"* — not as a caveat. This is component-facing documentation and travels with the component (NFR-8); disposition it `feature:storage` so it is pruned in the six combinations that do not select the feature.
+  - [ ] Frame it as R-5's instance for storage — *"local development proves less than running suggests"* — not as a caveat. This is component-facing documentation and travels with the component (NFR-8); disposition it `feature:storage` so it is pruned in the three combinations that do not select the feature.
   - [ ] Record the FR-25 / AC #5 scope statement in the same place: user media is out of scope because avatars resolve from IdP profile metadata as remote URLs.
 
 - [ ] Task 5 — Keep user media out of scope (AC: #5)
@@ -84,7 +84,7 @@ so that the six combinations that select it have both a real backing service and
   - [ ] `tests/unit/storage/test_settings.py` (NEW): the deployed configuration resolves `S3Storage` with `OPTIONS` from the environment; a missing required variable raises `ImproperlyConfigured`; no credential appears in any default.
   - [ ] `tests/integration/storage/test_local_substitution.py` (NEW), `@pytest.mark.integration`: with `COMPONENT_RUNTIME=local` and nothing running, a save/open/exists/delete round-trip through the `Storage` API succeeds against `tmp_path`; the test leaves no files behind.
   - [ ] `tests/integration/storage/test_no_direct_backend_imports.py` (NEW), `@pytest.mark.integration`: AST-level assertion that no module outside the feature's configuration imports `storages` or `boto3`.
-  - [ ] Both test packages are disposition `feature:storage` and are pruned with the feature (spine test-location convention). Mirror `src/` in their location, consistent with wherever Story 7.4 placed the feature-owned code.
+  - [ ] Both test packages are disposition `feature:storage` and are pruned with the feature (spine test-location convention). Mirror `src/` in their location — the settings modules they cover live under `src/config/`, so `tests/{unit,integration}/storage/` beside the existing `tests/unit/` and `tests/integration/` trees is the right shape. There is no feature-owned source directory to mirror; AD-33 is retired.
   - [ ] Do **not** write tests that require a real S3 endpoint. The deployed path is asserted at the configuration level here; end-to-end object-store behaviour has no environment in phase 1 and pretending otherwise is the SC-3/SC-6 mistake at smaller scale.
   - [ ] `pixi run ci` exits 0, coverage ≥90% including templates.
 
@@ -92,7 +92,7 @@ so that the six combinations that select it have both a real backing service and
 
 ### Architecture Constraints
 
-**R-1 — the named residual risk this story carries.** From the spine, verbatim on the escalation order: *"`django-storages` fitness is unproven, and object storage cannot be deferred. Present on the channel, which is FR-50's test, but released 2025-04-02 with no declared Django 6.0 or Python 3.14 support and nothing newer available; Django 6.0 support exists only on unreleased upstream master. Object storage appears in six of twelve combinations, does not exist yet, and is expected to be selected by most components — so dropping it is not an available answer and the risk must be carried rather than avoided. The escalation is ordered: spike `1.14.6` against the locked Django and Python first, since it is a thin wrapper over a `boto3` already in the lock and Django's `Storage` API has been stable; if that fails, push the conda-forge feedstock as was done for `django-celery-beat`, with a **time-boxed** package-index exception whose exit condition is that build landing; a component-owned S3 backend against `django.core.files.storage.Storage` is the last resort, because a platform product owning its own storage backend is a permanent maintenance and security cost. A permanent supply-chain exception is not on the list."*
+**R-1 — the named residual risk this story carries.** From the spine, verbatim on the escalation order: *"`django-storages` fitness is unproven, and object storage cannot be deferred. Present on the channel, which is FR-50's test, but released 2025-04-02 with no declared Django 6.0 or Python 3.14 support and nothing newer available; Django 6.0 support exists only on unreleased upstream master. Object storage appears in three of six combinations, does not exist yet, and is expected to be selected by most components — so dropping it is not an available answer and the risk must be carried rather than avoided. The escalation is ordered: spike `1.14.6` against the locked Django and Python first, since it is a thin wrapper over a `boto3` already in the lock and Django's `Storage` API has been stable; if that fails, push the conda-forge feedstock as was done for `django-celery-beat`, with a **time-boxed** package-index exception whose exit condition is that build landing; a component-owned S3 backend against `django.core.files.storage.Storage` is the last resort, because a platform product owning its own storage backend is a permanent maintenance and security cost. A permanent supply-chain exception is not on the list."*
 
 **Stack, authoritative — do not web-search for versions.** `django-storages` 1.14.6 / `boto3` 1.43.65. Note beside them in the spine's Stack table: *"`boto3` already locked via `django-anymail`. `django-storages` released 2025-04-02, declares no Django 6.0 or py3.14 — see residual risk R-1."* Python 3.14, Django 6.0.
 

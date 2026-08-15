@@ -38,7 +38,7 @@ so that "which components predate this change" has an answer.
 
 - [ ] Task 1: Define the stamp (AC: #1, #2, #5)
   - [ ] `tools/materializer/stamp.py` (NEW) — `build_stamp(order, accelerator_version, source_ref) -> dict[str, object]` and `write_stamp(output_root, stamp) -> None`.
-  - [ ] Exactly three top-level keys, and the schema is the contract an external enumerator reads: `accelerator_version` (string), `source_ref` (string), `order` (object). `order` carries the **full** order values — the four feature booleans and every parameter value resolved by Story 8.6, not a subset and not just the selected features.
+  - [ ] Exactly three top-level keys, and the schema is the contract an external enumerator reads: `accelerator_version` (string), `source_ref` (string), `order` (object). `order` carries the **full** order values — the three feature booleans (`celery`, `redis`, `storage`) and every parameter value resolved by Story 8.6, not a subset and not just the selected features. There is no `ui` boolean; the interface mechanism is `core` (AD-29, revision 3).
   - [ ] Serialize with `json.dumps(stamp, sort_keys=True, indent=2)` plus a trailing newline. Sorted keys at every level, not only the top.
   - [ ] `accelerator_version` comes from the released, tagged version the generation ran from (AD-19's soundness precondition); `source_ref` is the git ref of that release. Derive both from the repository at materialization time; if neither can be resolved, raise `MaterializerError` rather than writing a placeholder — a misleading provenance record is the failure AD-17 names.
 
@@ -61,8 +61,8 @@ so that "which components predate this change" has an answer.
   - [ ] `tests/unit/test_reference_application_is_unstamped.py` (NEW) — assert no `.accelerator.json` exists at the repository root. This is also the honest signal AD-32 describes: the GitHub-template fork "arrives unstamped".
 
 - [ ] Task 6: Tests (AC: #1, #2, #3, #4, #5)
-  - [ ] `tests/unit/materializer/test_stamp.py` — the three-key schema; sorted keys at every level; no timestamp; byte-identical output across repeated calls; the full order round-trips including every parameter and all four booleans; an unresolvable version or ref raises rather than defaulting.
-  - [ ] `tests/integration/materializer/test_stamp_in_output.py` (`@pytest.mark.integration`, `tmp_path`) — materialize all twelve and assert each output root carries exactly one `.accelerator.json`; that the twelve stamps' `order` objects are pairwise distinct; that reconciliation passes with the stamp declared and fails with it undeclared; and that `json.load` on each stamp yields the combination the tree was materialized for.
+  - [ ] `tests/unit/materializer/test_stamp.py` — the three-key schema; sorted keys at every level; no timestamp; byte-identical output across repeated calls; the full order round-trips including every parameter and all three booleans; an unresolvable version or ref raises rather than defaulting.
+  - [ ] `tests/integration/materializer/test_stamp_in_output.py` (`@pytest.mark.integration`, `tmp_path`) — materialize all six and assert each output root carries exactly one `.accelerator.json`; that the six stamps' `order` objects are pairwise distinct; that reconciliation passes with the stamp declared and fails with it undeclared; and that `json.load` on each stamp yields the combination the tree was materialized for.
   - [ ] Extend `tests/integration/materializer/test_determinism.py` (Story 8.4) coverage implicitly — the stamp is inside the tree the digest covers, so a nondeterministic stamp fails that test too. Do not weaken the digest to exclude it.
 
 ## Dev Notes
@@ -94,14 +94,14 @@ so that "which components predate this change" has an answer.
 
 #### Project Structure Notes
 
-The Structural Seed's second diagram shows `M["materializer"] --> STAMP[".accelerator.json"]` alongside `M --> T12` and `M --> COMP`, confirming the stamp is a materializer output distinct from `component.toml`. No new directory is introduced; `tools/materializer/` is `machinery` and everything here lives inside it or in the carrier.
+The Structural Seed's second diagram shows `M["materializer"] --> STAMP[".accelerator.json"]` alongside the materialized-trees node and `M --> COMP`, confirming the stamp is a materializer output distinct from `component.toml`. (That node is still labelled `T12` in the spine's diagram, a leftover from the twelve-combination model; the count is six under revision 3 and the edge is what this story depends on, not the label.) No new directory is introduced; `tools/materializer/` is `machinery` and everything here lives inside it or in the carrier.
 
 ### Testing Requirements
 
 - `tests/unit/materializer/test_stamp.py` — isolated, no filesystem beyond `tmp_path` for the write helper, milliseconds.
 - `tests/unit/test_reference_application_is_unstamped.py` — a whole-repository policy test in the style of `tests/unit/test_dependency_policy.py`; it reads the repository root and asserts an absence.
 - `tests/integration/materializer/test_stamp_in_output.py` — `@pytest.mark.integration`, `tmp_path`, leaves state as found.
-- Specific assertions the ACs demand: exactly three top-level keys; sorted keys at every level; no timestamp anywhere; byte-identical across repeated builds; the full order present including all four booleans and every parameter; exactly one stamp per output root; twelve pairwise-distinct `order` objects; reconciliation passes only because the stamp is declared; no stamp in the reference application.
+- Specific assertions the ACs demand: exactly three top-level keys; sorted keys at every level; no timestamp anywhere; byte-identical across repeated builds; the full order present including all three booleans and every parameter; exactly one stamp per output root; six pairwise-distinct `order` objects; reconciliation passes only because the stamp is declared; no stamp in the reference application.
 - Coverage floor 90% including templates, `COVERAGE_CORE=ctrace` (AD-20).
 - Disposition: `tools/materializer/stamp.py` and all three test files are `machinery`. `.accelerator.json` itself is a declared generated artifact, which is a third category — neither copied nor `machinery`.
 

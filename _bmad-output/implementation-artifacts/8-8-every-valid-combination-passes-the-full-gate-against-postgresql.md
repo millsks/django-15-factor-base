@@ -69,17 +69,18 @@ so that a defect is found before the first lead developer to order that combinat
 - [ ] Task 6: Assert the floor is one constant (AC: #4, #5)
   - [ ] `tests/unit/test_coverage_floor_is_one_constant.py` — assert the value 90 appears as the coverage floor in exactly one declared place and that no per-combination, per-file or per-directory floor exists anywhere in `pixi.toml`, `pyproject.toml`, `accelerator.toml` or the harness.
   - [ ] Assert the effective `[tool.coverage.run] omit` list equals the carrier-declared closed surface (Story 7.8 moved it into `accelerator.toml`; Story 1.5 authored it). Today `omit` is at `pyproject.toml:162-169` and lists `*/migrations/*`, `*/tests/*`, `**/*.egg-info/**`, `src/config/wsgi.py`, `src/config/asgi.py`, `src/config/websocket.py` — the last of which Epic 1 Story 1.4 deletes together with `src/config/websocket.py` itself.
+  - [ ] Do **not** move the template-coverage configuration. AD-18 correction 13: `django_coverage_plugin` and `template_extensions` are already correct in `pyproject.toml` and `COVERAGE_CORE=ctrace` is already correct in `pixi.toml [activation.env]`; only the coverage *run invocation* moves out of `sonarqube.yml:36` (`pixi run test-cov`). Likewise `build` comes off the fortnightly cron in **`release.yml`**, which also runs `lint`, `typecheck` and `test-cov` inline — four gate steps leave that workflow, not one. Epic 1 owns those moves; this story must not duplicate or contradict them.
 
 ## Dev Notes
 
 ### Architecture Constraints
 
-- **AD-18** (binding): "A single workflow invokes `pixi run ci`, which has never run in CI... The twelve-combination harness is Linux-only, `gunicorn` having no win-64 build; the three-OS matrix stays on the reference application, where it claims something different. Type checking is strict." *Prevents:* "the orphan detector being disabled by a change nobody understood as security-relevant; thirty-six gate runs that cannot exercise the process model."
-- **AD-20** (binding): "Ninety percent, including templates, everywhere. `COVERAGE_CORE=ctrace` travels with every combination and a test asserts it is in force during a gate run. Never a lower floor, a pragma, or a narrowed measurement. **The coverage `omit`/`exclude` list is a closed, carrier-declared surface** subject to two-way reconciliation... **Bring-up mode, time-boxed:** ... Until the materializer has reported all twelve numbers once, materialized-combination gates run with the floor advisory and the numbers published as an artifact. The exit condition is that report; after it, the floor is hard everywhere and a combination that misses is answered with tests." *Prevents:* "a per-combination floor becoming the place a structurally sparse combination hides; and the narrowing that is already precedented in this tree — `[tool.coverage.run] omit` — being used to clear the floor while every stated rule still passes."
+- **AD-18** (binding): "A single workflow invokes `pixi run ci`, which has never run in CI. A `ci` task **already exists** at `pixi.toml:206` as `depends-on = [\"test-cov\", \"lint\", \"typecheck\", \"build\"]` — no pre-commit step and roughly the reverse of the fast-fail ordering, so this AD reshapes an existing task rather than creating one... The six-combination harness is Linux-only, `gunicorn` having no win-64 build; the three-OS matrix stays on the reference application, where it claims something different. Type checking is strict." *Prevents:* "the orphan detector being disabled by a change nobody understood as security-relevant; thirty-six gate runs that cannot exercise the process model."
+- **AD-20** (binding): "Ninety percent, including templates, everywhere. `COVERAGE_CORE=ctrace` travels with every combination and a test asserts it is in force during a gate run. Never a lower floor, a pragma, or a narrowed measurement. **The coverage `omit`/`exclude` list is a closed, carrier-declared surface** subject to two-way reconciliation... **Bring-up mode, time-boxed:** ... Until the materializer has reported all six numbers once, materialized-combination gates run with the floor advisory and the numbers published as an artifact. The exit condition is that report; after it, the floor is hard everywhere and a combination that misses is answered with tests." *Prevents:* "a per-combination floor becoming the place a structurally sparse combination hides; and the narrowing that is already precedented in this tree — `[tool.coverage.run] omit` — being used to clear the floor while every stated rule still passes."
 - **CG-1** (binding constraint, counterbalances SC-1): "Do not reach the coverage threshold by narrowing what is measured... Excluding files, adding coverage pragmas to unreached code, or dropping template measurement makes SC-1 pass and destroys SC-2." A failing combination is answered with tests. Never with a pragma, an omit entry, or a lower floor.
 - **AD-3**: "combination *n*'s gate runs its materialized source under environment *n*" — the pre-locked `combo-<id>` environment from Story 8.1 supplies the packages; the materialized tree supplies the source. Never run a combination under `dev` or `default`.
 - **FR-29 / Story 7.8**: the orphan signal is declared in Epic 7 and exercised per combination here; the deliberate-orphan test lives in this epic "because it needs a materialized combination to run against".
-- **Cross-epic thread**: "FR-32's PostgreSQL service and the single `pixi run ci` invocation begin in Epic 1 against the reference application; Epic 8 extends both to twelve combinations." If Epic 1 Stories 1.1 and 1.2 have not landed, this story is blocked on them.
+- **Cross-epic thread**: "FR-32's PostgreSQL service and the single `pixi run ci` invocation begin in Epic 1 against the reference application; Epic 8 extends both to six combinations." If Epic 1 Stories 1.1 and 1.2 have not landed, this story is blocked on them.
 - **SC-1** requires PostgreSQL "rather than the local sqlite substitution". A gate run against sqlite does not discharge this story.
 
 ### Source Tree — files to touch
@@ -87,9 +88,9 @@ so that a defect is found before the first lead developer to order that combinat
 | Path | NEW/UPDATE | What changes |
 |---|---|---|
 | `tools/harness/__init__.py` | NEW | Package marker. `tools/harness/` does not exist. |
-| `tools/harness/run.py` | NEW | The twelve-combination runner: materialize, reconcile, gate, aggregate. |
-| `tools/harness/coverage_report.py` | NEW | Writes `twelve-combination-coverage.json` with sorted keys. |
-| `.github/workflows/combinations.yml` | NEW | Linux-only twelve-leg matrix with a PostgreSQL service and an aggregating job. |
+| `tools/harness/run.py` | NEW | The six-combination runner: materialize, reconcile, gate, aggregate. |
+| `tools/harness/coverage_report.py` | NEW | Writes `six-combination-coverage.json` with sorted keys. |
+| `.github/workflows/combinations.yml` | NEW | Linux-only six-leg matrix with a PostgreSQL service and an aggregating job. |
 | `.github/workflows/ci.yml` | UPDATE | Today 55 lines: a `test` job over `ubuntu/windows/macos` running `pixi run test`, and a `lint` job running `pixi run lint` and `pixi run typecheck`. Epic 1 consolidates it to one `pixi run ci`. This story leaves the three-OS matrix on the reference application and adds nothing to it. Preserve `pixi-version: v0.70.2` and `actions/checkout@v6`. |
 | `accelerator.toml` | UPDATE | Adds `[verification] coverage_bringup` with its exit-condition comment; dispositions `combinations.yml` as `machinery`. |
 | `pixi.toml` | UPDATE | Add a `combinations` task in `[feature.dev.tasks]` invoking `python -m tools.harness.run`, with `default-environment = "dev"` and a `description`. Preserve `test-cov`'s `--cov-fail-under=90` (`:196`) and the `ci` task's `depends-on` list (`:206`). |
@@ -100,7 +101,7 @@ so that a defect is found before the first lead developer to order that combinat
 
 #### Project Structure Notes
 
-`tools/harness/` is NEW and is `machinery`. It sits beside `tools/materializer/`, which the Structural Seed names. The seed does not mention a harness directory; separating the runner from the materializer keeps AD-3's materialization concern distinct from AD-18/AD-19's verification concern, and both are `machinery` so neither travels.
+`tools/harness/` is NEW and is `machinery`. The Structural Seed names it explicitly — `tools/harness/  # machinery — six-combination verification runner` — beside `tools/materializer/`. Separating the runner from the materializer keeps AD-3's materialization concern distinct from AD-18/AD-19's verification concern, and both are `machinery` so neither travels.
 
 `tests/unit/harness/` and `tests/integration/harness/` are NEW test packages; add `__init__.py` to each to match `tests/unit/__init__.py` and `tests/integration/__init__.py`.
 
@@ -108,7 +109,7 @@ so that a defect is found before the first lead developer to order that combinat
 
 - `tests/unit/harness/test_bringup_mode.py` and `tests/unit/test_coverage_floor_is_one_constant.py` — isolated declaration-file parsing, milliseconds. `test_coverage_floor_is_one_constant.py` is a whole-repository policy test in the style of `tests/unit/test_dependency_policy.py`.
 - `tests/integration/harness/test_deliberate_orphan.py` — `@pytest.mark.integration`, `tmp_path`, must never touch the reference application's `src/django_service/templates/`.
-- The full twelve-leg run belongs in `.github/workflows/combinations.yml`, not in `pixi run ci` — running twelve materialize-and-gate cycles inside the reference application's own gate would make every local commit unaffordable. The harness's *unit* behaviour is what `pixi run ci` covers.
+- The full six-leg run belongs in `.github/workflows/combinations.yml`, not in `pixi run ci` — running six materialize-and-gate cycles inside the reference application's own gate would make every local commit unaffordable. The harness's *unit* behaviour is what `pixi run ci` covers.
 - Coverage floor 90% including templates, one global constant, `COVERAGE_CORE=ctrace` in force (AD-20).
 - Disposition: `tools/harness/`, its tests, and `combinations.yml` are all `machinery`.
 
