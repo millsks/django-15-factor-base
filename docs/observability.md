@@ -167,3 +167,14 @@ collides with `opentelemetry-api`'s requirement of `importlib-metadata>=6.0`
 and makes the two impossible to install together. PyPI honours the marker, so
 on Python 3.14 there is no cap. Its own dependencies still come from
 conda-forge.
+
+This is expected to be temporary. Two pull requests remove the cap —
+[conda-forge/django-celery-beat-feedstock#18][cf-pr] on the recipe and
+[celery/django-celery-beat#1080][upstream-pr] upstream, which carries out a
+`TODO` upstream had already written against its own requirement. Once either
+lands and a build reaches conda-forge, move the dependency into
+`[dependencies]` in `pixi.toml` and delete this note along with the comment
+above the `[pypi-dependencies]` entry.
+
+[cf-pr]: https://github.com/conda-forge/django-celery-beat-feedstock/pull/18
+[upstream-pr]: https://github.com/celery/django-celery-beat/pull/1080
