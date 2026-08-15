@@ -32,9 +32,9 @@ jobs:
     # ever run against the sqlite substitution, which accepts schemas PostgreSQL
     # rejects.
     #
-    # The tag is chosen to match the `libpq = ">=18.4,<19"` pin at pixi.toml:16,
-    # but note that pin does not enforce it: libpq is the *client* library and an
-    # 18 client talks to an older server without complaint. Nothing in the repo
+    # The tag is chosen to match the `libpq = ">=17,<18"` pin at pixi.toml:16,
+    # but note that pin does not enforce it: libpq is the *client* library and a
+    # 17 client talks to an older server without complaint. Nothing in the repo
     # can fail on a server-version mismatch, so keep this tag and that pin moving
     # together by hand.
     #
@@ -43,7 +43,7 @@ jobs:
     # three-OS compatibility matrix below, which continues on sqlite.
     services:
       postgres:
-        image: postgres:18
+        image: postgres:17
         env:
           POSTGRES_USER: gateuser
           POSTGRES_PASSWORD: gatepass

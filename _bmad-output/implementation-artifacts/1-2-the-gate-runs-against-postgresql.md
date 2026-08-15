@@ -42,7 +42,7 @@ so that the database named in the immovable core is actually verified before any
 ## Tasks / Subtasks
 
 - [x] Task 1 — Declare the PostgreSQL service on the gate job (AC: #1)
-  - [x] In `.github/workflows/ci.yml`, add a `services:` block to the `gate` job created by Story 1.1. Use `postgres:18` to match the `libpq = ">=18.4,<19"` pin at `pixi.toml:16`. Declare `POSTGRES_PASSWORD`, `POSTGRES_USER`, `POSTGRES_DB`, `ports: ["5432:5432"]`, and health options `--health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5`.
+  - [x] In `.github/workflows/ci.yml`, add a `services:` block to the `gate` job created by Story 1.1. Use `postgres:17` to match the `libpq = ">=17,<18"` pin at `pixi.toml:16`. *(As implemented this read `postgres:18` / `libpq >=18.4,<19`; repinned to 17 — see the Change Log.)* Declare `POSTGRES_PASSWORD`, `POSTGRES_USER`, `POSTGRES_DB`, `ports: ["5432:5432"]`, and health options `--health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5`.
   - [x] Set `DATABASE_URL` on the gate job's `env:` (job level, not step level, so every step of `pixi run ci` sees it). `src/config/settings/base.py:57-58` reads `DATABASE_URL` first and hands it to `env.db(...)`, so the URL is the whole mechanism — no settings change is needed to select PostgreSQL. Format: `postgres://<user>:<password>@localhost:5432/<db>`.
   - [x] The service block runs only on Linux runners. Keep it on the ubuntu-only `gate` job; do not attach it to the three-OS compatibility matrix job, which continues on the sqlite substitution.
   - [x] Add a comment beside the service block stating why it exists: FR-32 requires the gate to run against the database the immovable core names, and no workflow declared one before this story.
@@ -223,10 +223,12 @@ ever attached to the three-OS `compatibility` job. Task 1 states that
 constraint but nothing enforced it, and a service on a matrix job would break
 two of its three legs at runtime rather than at review time.
 
-**The `postgres:18` image tag is asserted only by family** (`postgres:`) in the
-contract test. `pixi.toml`'s `libpq = ">=18.4,<19"` is what fixes the major
-version; pinning it in a second place would give two things to update and one
-of them would drift.
+**The `postgres:17` image tag is asserted only by family** (`postgres:`) in the
+contract test, so the major version is fixed by the tag and the `pixi.toml`
+pins rather than by an assertion. *(Superseded 2026-08-15 — this paragraph
+originally read `postgres:18` and claimed `libpq` fixed the server major
+version; see the Change Log entries for the review correction and the
+subsequent move to 17.)*
 
 **Unverified locally — GitHub Actions cannot run on this machine.** Everything
 above tests the *mechanism* (a real PostgreSQL 18 at a `DATABASE_URL`) but not
@@ -237,9 +239,11 @@ that the job-level `env` is visible to every step of `pixi run ci`. All three
 are standard GitHub Actions behaviour and the local run reproduces their effect,
 but the first CI run is the confirmation.
 
-**Untouched by design.** `pixi.toml` gains nothing — `psycopg >=3.3,<4` and
-`libpq >=18.4,<19` were already declared, so this story adds no dependency and
-`[pypi-dependencies]` still holds only the editable self-install. `--reuse-db`
+**`pixi.toml` was untouched as implemented, then repinned.** As built, this
+story added no dependency: `psycopg >=3.3,<4` and `libpq >=18.4,<19` were
+already declared. Both pins were subsequently narrowed to track a PostgreSQL 17
+server — see the Change Log. `[pypi-dependencies]` still holds only the editable
+self-install either way. `--reuse-db`
 stays in `pyproject.toml` as Task 2 directs; the `--create-db` caveat is now
 documented rather than worked around.
 
@@ -247,18 +251,20 @@ documented rather than worked around.
 
 | Path | Change |
 | --- | --- |
-| `.github/workflows/ci.yml` | `gate` job gains a `postgres:18` `services:` block (health-checked, `ports: ["5432:5432"]`) and a job-level `DATABASE_URL`; the Story 1.1 placeholder comment and two now-stale forward references to Story 1.2 rewritten to the present tense. *(review patch)* the `libpq`-fixes-the-server-version rationale corrected — libpq is the client library and pins nothing server-side; the `compatibility` matrix job gains a `pixi run test-integration` leg so sqlite is still exercised somewhere in CI. |
+| `.github/workflows/ci.yml` | `gate` job gains a `postgres:17` `services:` block (health-checked, `ports: ["5432:5432"]`) and a job-level `DATABASE_URL`; the Story 1.1 placeholder comment and two now-stale forward references to Story 1.2 rewritten to the present tense. *(review patch)* the `libpq`-fixes-the-server-version rationale corrected — libpq is the client library and pins nothing server-side; the `compatibility` matrix job gains a `pixi run test-integration` leg so sqlite is still exercised somewhere in CI. |
 | `docs/development.md` | New "The parity gap between local runs and the gate" subsection under Database — records R-5 by name, states that a CI-only failure is expected behaviour of the trade and is fixed at source, gives the local `docker run` reproduction, and documents the `--create-db` caveat around `--reuse-db`. "The gate" section updated to say the gate runs against PostgreSQL and why the three-OS job cannot. *(review patch)* reproduction recipe made runnable and pixi-only (concrete URL, `--rm`, host port 55432, `pixi run test-cov --create-db`); the matrix-job description corrected to name its new integration leg. |
 | `tests/unit/test_gate_contract.py` | Three new tests: the gate declares a `postgres:`-family service; the gate sets `DATABASE_URL` at job level; no job other than the gate declares any service. *(review patch)* three more — the `DATABASE_URL` *value* must name the declared service, the service must be `pg_isready`-health-gated and publish 5432, and no other job may set `DATABASE_URL`; the no-other-service check narrowed to database services so a future Redis is not blocked. |
 | `tests/unit/test_database_selection.py` | NEW — 7 tests over the three-branch selection in `base.py`: `DATABASE_URL` wins and is not sqlite, `POSTGRES_*` selects postgresql, neither falls back to sqlite, `DATABASE_URL` beats `POSTGRES_DB`, and `ATOMIC_REQUESTS` holds on every branch (asserted across all configured aliases, per AD-9). Uses the evict-and-reimport pattern from `tests/unit/test_settings.py`. *(review patch)* two more tests — half-configured `POSTGRES_*` refuses rather than degrading, and an empty `DATABASE_URL` falls back; the fixture now restores the original module and the parent-package attribute; module docstring corrected to stop claiming "no I/O". |
 | `tests/integration/test_postgres_schema.py` | NEW — 5 tests, all `@pytest.mark.integration`, skip-free and engine-blind: migrated schema reachable, boundary-length value round-trips whole, over-length value rejected, duplicate `username` rejected by the database, `NULL` in a `NOT NULL` column rejected. Failing writes are wrapped in an inner `transaction.atomic()` so the `db` fixture leaves the database as found. *(review patch)* two more — the live connection must be the backend `DATABASE_URL` names (the only test that can tell a PostgreSQL gate from a sqlite one), and the column's declared width is read out of the schema by introspection; `NAME_MAX_LENGTH` guarded against `None`. *(third pass)* the PostgreSQL URL schemes are derived from `environ.Env.DB_SCHEMES` instead of a hand-written pair; the `db` fixture is no longer miscalled "transactional", which is the name of the fixture with the opposite property. |
+| `pixi.toml` | *(post-completion repin)* `libpq` narrowed to `>=17,<18` and `psycopg` to `>=3.2.4,<3.2.11` so the client tracks the `postgres:17` server; both carry comments naming the constraint and what lifting it requires. Untouched by the story as originally implemented. |
 | `tests/unit/test_suite_policy.py` | NEW *(third pass)* — the enforcement AC #2 lacked. Parses every test module and `conftest.py` with `ast` and fails on `pytest.mark.skip`/`skipif`/`xfail`, `pytest.skip`/`xfail`/`importorskip`, `django_db(databases=…)` narrowing, and any branch condition reading a connection's `.vendor`. Parsed rather than grepped so prose about the prohibition is not an offence and an `assert` on the vendor is distinguished from an `if`. |
 
 **Unchanged, verified only:** `src/config/settings/base.py` (all three branches
 and the fallback comment intact), `src/config/settings/production.py:26-28`
 (the sqlite refusal still raises), `src/django_service/users/models.py`,
-`.../api/views.py`, `.../forms.py`, `pixi.toml`, `pyproject.toml`, and every
-migration directory.
+`.../api/views.py`, `.../forms.py`, `pyproject.toml`, and every
+migration directory. (`pixi.toml` was in this list as implemented; the
+post-completion repin moved it into the table above.)
 
 ## Change Log
 
@@ -269,6 +275,8 @@ migration directory.
 | 2026-08-15 | Added `tests/unit/test_database_selection.py` and `tests/integration/test_postgres_schema.py`, and extended `tests/unit/test_gate_contract.py` with the service, `DATABASE_URL` and no-service-on-the-matrix assertions. |
 | 2026-08-15 | Recorded the sqlite/PostgreSQL parity gap in `docs/development.md` as risk R-5, with the local reproduction recipe and the `--reuse-db` / `--create-db` caveat. |
 | 2026-08-15 | Applied 11 review patches, all in tests, comments and docs — no source or workflow behaviour changed beyond one added sqlite integration leg. The theme all three reviewers converged on: the story's mechanism could be silently reverted with a green suite, because nothing asserted the *value* of `DATABASE_URL` or that the live connection was the backend it names. |
+| 2026-08-15 | **Post-completion: the gate's PostgreSQL moved from 18 to 17 at the user's direction.** `.github/workflows/ci.yml` now declares `postgres:17`; `pixi.toml` narrows `libpq` to `>=17,<18` and — because conda-forge builds `psycopg-c` against exactly one libpq major — `psycopg` from `>=3.3,<4` down to `>=3.2.4,<3.2.11`, the only window linking libpq 17. Resolved to libpq 17.11 / psycopg 3.2.10. The cost was accepted knowingly: a superseded psycopg behind an upper pin that blocks routine updates until the server moves to 18. No planning artifact names a PostgreSQL major version, so nothing upstream contradicts either choice. |
+| 2026-08-15 | Re-verified against a real PostgreSQL 17.11 (`postgres:17`, Debian 17.11-1.pgdg13+2, host port 55432) after the repin: `test-integration` 51 passed; `test-cov` 169 passed at 92.31%. The PostgreSQL 18.4 evidence recorded in the Debug Log above describes the story as originally built and is retained as history, not as evidence for the shipped configuration. |
 | 2026-08-15 | Third review pass: 10 more patches, no source or CI behaviour change. The one that mattered — AC #2's only non-vacuous obligation, that no future PostgreSQL failure is skipped or made engine-conditional, was held by a one-time grep; it is now a parsed, mutation-verified contract test (`tests/unit/test_suite_policy.py`). The recurring theme this pass was guards that knew one spelling of a thing: `DATABASE_URL` but not `POSTGRES_DB`, `postgres:` but not `postgresql:`, two URL schemes but not seven, and `host:container` but not `ip:host:container`. |
 | 2026-08-15 | Follow-up review pass: 11 more patches. The one that mattered — `internal_size` is `None` for `varchar` on PostgreSQL too, so the story's only schema-reading assertion could not fail on any backend; switched to `display_size` and mutation-verified. Also pinned the URL's host and port (a `55432:5432` port edit had passed every check while breaking the gate), scoped the service health check to TCP, and asserted the sqlite integration leg that nothing was holding in place. No source file touched; one real CI behaviour change, the health command. |
 
@@ -339,7 +347,7 @@ Status: done
 
 ### Summary of implemented change
 
-CI's `gate` job declares a health-checked `postgres:18` service and sets
+CI's `gate` job declares a health-checked `postgres:17` service and sets
 `DATABASE_URL` at job level, so all five steps of `pixi run ci` execute against
 PostgreSQL rather than the sqlite substitution (FR-32, AD-18). No settings
 change is involved — `src/config/settings/base.py:57` already reads
@@ -461,6 +469,9 @@ taken locally by an unrelated container.
 - **`tests/` is still outside mypy's scope**, so the annotations in the new
   policy module — including its `ast` type hints — are unchecked. Deferred, and
   recorded as such.
-- **The `postgres:18` tag and `libpq = ">=18.4,<19"` are kept aligned by hand.**
+- **The `postgres:17` tag and `libpq = ">=17,<18"` are kept aligned by hand.**
   `libpq` is the client library and pins no server version, so no test can catch
-  drift between them without also rejecting valid combinations.
+  drift between them without also rejecting valid combinations. The alignment is
+  now additionally constrained by `psycopg = ">=3.2.4,<3.2.11"`: conda-forge
+  builds `psycopg-c` against exactly one libpq major, and that window is the set
+  linking libpq 17. Moving the server to 18 means lifting all three together.

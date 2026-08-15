@@ -108,7 +108,7 @@ behaviour the sqlite backend cannot show you.
 ### The parity gap between local runs and the gate
 
 Local runs use sqlite. **The gate uses PostgreSQL** — `.github/workflows/ci.yml`
-declares a `postgres:18` service on the `gate` job and sets `DATABASE_URL` at
+declares a `postgres:17` service on the `gate` job and sets `DATABASE_URL` at
 job level, so all five steps of `pixi run ci` see it. Nothing in the settings
 selects the backend beyond that URL.
 
@@ -130,7 +130,7 @@ PostgreSQL — and `--rm` means the container disposes of itself on stop:
 ```sh
 docker rm -f pg-local >/dev/null 2>&1 || true
 docker run -d --rm --name pg-local -e POSTGRES_USER=gateuser \
-  -e POSTGRES_PASSWORD=gatepass -e POSTGRES_DB=gatedb -p 55432:5432 postgres:18
+  -e POSTGRES_PASSWORD=gatepass -e POSTGRES_DB=gatedb -p 55432:5432 postgres:17
 
 ready=""
 for _ in $(seq 30); do
@@ -240,7 +240,7 @@ the commit it releases has already passed the gate on `main`.
 `tests/unit/test_gate_contract.py` asserts all of this against `pixi.toml` and
 the workflow files, so the contract fails the build rather than drifting.
 
-The gate job declares a `postgres:18` service and runs against it, so the five
+The gate job declares a `postgres:17` service and runs against it, so the five
 steps above execute against the database the immovable core actually names —
 see [the parity gap](#the-parity-gap-between-local-runs-and-the-gate).
 
