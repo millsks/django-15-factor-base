@@ -2,7 +2,7 @@
 title: "Addendum: django-15-factor-base Product Brief"
 status: draft
 created: 2026-08-09
-updated: 2026-08-14
+updated: 2026-08-15
 ---
 
 # Addendum
@@ -301,7 +301,7 @@ Beat must run as exactly one replica. `DatabaseScheduler` keeps the schedule in 
 
 Sessions are database-backed in every combination (§7, factor 6), and Django does not prune expired rows on its own. `manage.py clearsessions` must run periodically, as a one-off admin process the platform schedules.
 
-It is deliberately *not* a Celery beat task: beat exists in only 8 of the 12 combinations, and a component whose session table grows without bound in the other 4 would make session hygiene a property of an unrelated toggle.
+It is deliberately *not* a Celery beat task: beat exists in only **4** of the 12 combinations, and a component whose session table grows without bound in the other **8** would make session hygiene a property of an unrelated toggle. (Background tasks require the Redis cache, so they are present only in the `on/on` pairing: one of three valid pairings, times two UI states, times two object-storage states.)
 
 ### 5.4 Health signal
 
@@ -329,6 +329,7 @@ The counterpart to §5. Where the deployment interface states what a component m
 | PostgreSQL | sqlite | `base.py:57-78` selects sqlite when neither `DATABASE_URL` nor `POSTGRES_DB` is set | ORM, migrations, full suite | PostgreSQL-specific DDL and constraint behavior, transaction and isolation semantics, native JSON and array types |
 | Redis cache | in-memory cache | `local.py:22-28` sets `LocMemCache` | The cache API at every call site | Eviction, shared state across processes, serialization |
 | Celery and broker | eager execution | `local.py` sets `CELERY_TASK_ALWAYS_EAGER` and `CELERY_TASK_EAGER_PROPAGATES` | Task bodies, invoked synchronously in-process | Delivery, retries, scheduling, argument serialization, worker concurrency |
+| Object storage | filesystem-backed storage | Django's filesystem storage backend where the object storage feature is selected | The storage API at every call site | Bucket policy, presigned URLs, eventual consistency, multipart upload, remote failure modes |
 | Corporate IdP | local users and admins | §1.6 — local credential paths, synthetic claims through the shared mapper | Claims-to-groups mapping, `is_staff` promotion, per-login re-sync | JWKS retrieval, signature and issuer validation, key rotation, IdP-side revocation |
 
 ### 6.1.1 Observability is not substituted
@@ -351,7 +352,7 @@ The rejected implementation is worth recording, because it is the obvious one: a
 
 ### 6.1.2 Provenance of the substitutions
 
-Three of the four substitutions already held before this was written, inherited from `cookiecutter-django` and undocumented. Stating them as a contract changes their status: they become properties every generated combination is verified to have (§4.3), rather than defaults that happen to survive feature extraction.
+Three of the five substitutions already held before this was written, inherited from `cookiecutter-django` and undocumented. Stating them as a contract changes their status: they become properties every generated combination is verified to have (§4.3), rather than defaults that happen to survive feature extraction.
 
 ### 6.2 The consequence for the feature constraint
 
@@ -359,7 +360,9 @@ The brief's constraint — background task processing requires a broker, so the 
 
 ### 6.3 What this does not license
 
-The substitutions are for local development only, and every one of them is guarded by the same mechanism: a deployed component that would run on a local substitute refuses to start. One rule, six conditions.
+The substitutions are for local development only, and every one of them is guarded by the same mechanism: a deployed component that would run on a local substitute refuses to start. One rule, nine conditions.
+
+The list below was recorded here as six and was wrong in three places, each found during PRD review. §1.6 already stated that the refusal must catch a deployed component reaching for the development keypair, and this table omitted it. The claims contract was never enumerated at all. And the local sign-in route of §1.6 is a credential path this product itself introduces and then guarded nowhere. Each is a separate mechanism, which by this addendum's own principle earns its own check.
 
 | Condition | Applies | Built |
 |---|---|---|
@@ -367,10 +370,15 @@ The substitutions are for local development only, and every one of them is guard
 | Any local credential path live (§1.6) | Always | No |
 | Unapplied migrations (§5.2) | Always | No |
 | `OTEL_SDK_DISABLED` true | Always | No |
+| JWKS trust anchor is not the configured IdP | Always | No |
+| Claims contract unconfigured | Always | No |
+| Local sign-in route reachable in the URL conf | Always | No |
 | `LocMemCache` as the cache backend | Only where the Redis feature is selected | No |
 | `CELERY_TASK_ALWAYS_EAGER` true | Only where background tasks are selected | No |
 
-**Two of the six are conditional, and the reason matters.** `production.py:32-43` hardcodes the Redis cache backend, so the generator removes that block from a component that did not select Redis — and Django's default `LocMemCache` then applies in production. That is legitimate: a component with no cache feature gets per-replica in-process caching, which is the honest consequence of not selecting one. An unconditional refusal would reject four valid combinations. The same reasoning applies to eager Celery, which is meaningless in a component with no Celery.
+**Where each is evaluated matters as much as the list.** Conditions readable from settings are evaluated at settings import, by shared code every settings module imports — not inside `production.py`, which cannot fire when the failure being caught is a component pointed at the local settings module. Conditions needing the resolved URL configuration are evaluated at serving-process startup, because settings import cannot resolve it. The unapplied-migration condition is scoped to serving processes only: applied to every process it would forbid the `manage.py migrate` that clears it. The PRD carries this as FR-12.
+
+**Two of the nine are conditional, and the reason matters.** `production.py:32-43` hardcodes the Redis cache backend, so the generator removes that block from a component that did not select Redis — and Django's default `LocMemCache` then applies in production. That is legitimate: a component with no cache feature gets per-replica in-process caching, which is the honest consequence of not selecting one. An unconditional refusal would reject four valid combinations. The same reasoning applies to eager Celery, which is meaningless in a component with no Celery.
 
 **The one place the product degrades rather than refuses, now deliberately.** `production.py:40` sets `IGNORE_EXCEPTIONS: True` on the Redis cache, so cache failures are swallowed and reads return misses. That stays: a cache outage should degrade a component, not stop it, which is the whole reason a cache is not a database. What changes is that it stops being silent — `DJANGO_REDIS_LOG_IGNORED_EXCEPTIONS` turns every swallowed failure into a log event, correlated with `request_id` and `trace_id` like everything else. The objection was never that the cache degrades; it was that it degraded invisibly in a component whose telemetry is immovable.
 
@@ -381,7 +389,7 @@ The product's name commits it to fifteen factors, so this is where each one is a
 | # | Factor | How it is accounted for | Status |
 |---|---|---|---|
 | 1 | Codebase | One repository per generated component, in version control from the moment it is generated | Satisfied |
-| 2 | Dependencies | Declared in `pixi.toml`, resolved from conda-forge, pinned in `pixi.lock`; no reliance on system packages | Satisfied, with the one pending exception in §8 |
+| 2 | Dependencies | Declared in `pixi.toml`, resolved from conda-forge, pinned in `pixi.lock`; no reliance on system packages | Satisfied — no exceptions remain (§8) |
 | 3 | Config | `django-environ` reads `DJANGO_*` and `OTEL_*` from the environment; no configuration file is baked into the image (§5) | Satisfied |
 | 4 | Backing services | PostgreSQL, Redis, and object storage attach by environment variable. The §6 substitutions are the same contract pointed at a different endpoint, which is the factor working as intended | Satisfied |
 | 5 | Build, release, run | CI builds and containerizes; the deployment repository runs. Migrations are a release-stage step, and a component refuses to start against an unmigrated schema (§5.2) | Decided, **not yet implemented** |
@@ -400,10 +408,12 @@ The four that were open when this table was first written — 5, 6, 8 and 9 — 
 
 ## 8. Open items carried forward
 
-1. Tracking, not a decision: the single supply-chain exception is pending upstream. `django-celery-beat` resolves from PyPI because the conda-forge recipe transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"` without the environment marker, making the cap unconditional and irreconcilable with `opentelemetry-api`'s `>=6.0,<8.8.0`. [conda-forge/django-celery-beat-feedstock#18](https://github.com/conda-forge/django-celery-beat-feedstock/pull/18) removes the cap, and [celery/django-celery-beat#1080](https://github.com/celery/django-celery-beat/pull/1080) removes it upstream — executing a `TODO` upstream had already written against its own requirement. On merge and build, the dependency moves to conda-forge and the exception in the brief disappears
+1. **Closed 2026-08-14.** The single supply-chain exception is resolved. `django-celery-beat` resolved from PyPI because the conda-forge recipe had transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"` without the environment marker, making the cap unconditional and irreconcilable with `opentelemetry-api`'s `>=6.0,<8.8.0`. [conda-forge/django-celery-beat-feedstock#18](https://github.com/conda-forge/django-celery-beat-feedstock/pull/18) removed the cap and [celery/django-celery-beat#1080](https://github.com/celery/django-celery-beat/pull/1080) removed it upstream. Build `2.9.0 pyhcf101f3_1` carries the fix, and the dependency now resolves from conda-forge. No floor pin was needed: an older build cannot satisfy both constraints, so the solver selects the corrected one unaided.
+
+   One residue, already fixed upstream: that build still listed `pytest` under *run* requirements rather than test, so moving to conda-forge briefly pulled pytest and three of its dependencies into the runtime environment. [feedstock#19](https://github.com/conda-forge/django-celery-beat-feedstock/pull/19) corrected it in build `pyhcf101f3_2`. Also worth watching: the recipe caps `django <6.1`, which will block a Django 6.1 upgrade until relaxed.
 
 No open decisions remain. What is left is implementation, and the architecture work that sequences it.
 
 One capability is named but deliberately unbuilt: **propagating an accelerator change into components already generated.** The version stamp in §4.2.1 makes those components enumerable, which is the precondition for any mechanism at all. The mechanism itself — a bot opening pull requests against repositories that are behind, in the shape `cruft` and `copier update` take for their own template systems — is a second product with its own lifecycle, and it is not in scope here.
 
-Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6. Factors 5, 6, 8 and 9, raised by the audit in §7 and settled in §5 — session state is database-backed in every combination, the process model is declared per combination, migrations are a release-stage step guarded by a startup refusal, and shutdown drains on SIGTERM. The health signal is two asymmetric endpoints (§5.4); the development keypair is generated on demand and never committed (§1.6); local personas are seeded from declared claims (§1.6); the refusal list is settled at six conditions (§6.3); and local runnability is verified by a smoke check per combination (§4.3). Phase-2 verification — the template's CI renders all 12 and runs each generated repository's own gate (§4.2.3). Package-name parameterization — FreeMarker expands it from the developer-portal order. The shared mapper's placement — `src/config/authorization/`, beside the observability package (§1.4.1).
+Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6. Factors 5, 6, 8 and 9, raised by the audit in §7 and settled in §5 — session state is database-backed in every combination, the process model is declared per combination, migrations are a release-stage step guarded by a startup refusal, and shutdown drains on SIGTERM. The health signal is two asymmetric endpoints (§5.4); the development keypair is generated on demand and never committed (§1.6); local personas are seeded from declared claims (§1.6); the refusal list is settled at nine conditions (§6.3); and local runnability is verified by a smoke check per combination (§4.3). Phase-2 verification — the template's CI renders all 12 and runs each generated repository's own gate (§4.2.3). Package-name parameterization — FreeMarker expands it from the developer-portal order. The shared mapper's placement — `src/config/authorization/`, beside the observability package (§1.4.1).

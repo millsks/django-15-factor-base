@@ -2,7 +2,7 @@
 title: "PRD: django-15-factor-base"
 status: final
 created: 2026-08-14
-updated: 2026-08-14
+updated: 2026-08-15
 ---
 
 # PRD: django-15-factor-base
@@ -652,7 +652,7 @@ Expired session rows are pruned by a one-off management process the platform sch
 - Sessions are database-backed in every combination, with the session engine set explicitly rather than left to the framework default, so session behaviour never varies by toggle.
 - Pruning is documented as a scheduled admin process, deliberately not as a scheduled background task — background task processing exists in only four of the twelve combinations, and a component whose session table grew without bound in the other eight would make session hygiene a property of an unrelated toggle.
 
-**Notes:** the arithmetic here is inverted in the source addendum §5.3, which reads "8 of the 12" and "the other 4". Background tasks require the Redis cache, so they are present only in the `on/on` pairing: one of three valid pairings, times two UI states, times two object-storage states — four combinations. The correction strengthens the requirement, since two thirds of the space is affected rather than one third.
+**Notes:** the source addendum §5.3 originally inverted this arithmetic, reading "8 of the 12" and "the other 4"; it has since been corrected to match. Background tasks require the Redis cache, so they are present only in the `on/on` pairing: one of three valid pairings, times two UI states, times two object-storage states — four combinations. The correction strengthens the requirement, since two thirds of the space is affected rather than one third.
 
 **Priority note:** setting the session engine explicitly is phase-1 must-have; scheduling the pruning process is **Next**, because the schedule lives in the deployment repository.
 
@@ -716,7 +716,7 @@ Every dependency in every combination resolves from the approved channel, and an
 **Consequences (testable):**
 - The dependency manifest carries the reasoning for its own non-obvious lines.
 - Zero exceptions. The single historical exception — `django-celery-beat` from the package index, because the channel recipe transcribed an upstream version cap without its environment marker, making the cap unconditional and irreconcilable with the OpenTelemetry API's own requirement — is resolved: the corrected build is on the channel with the cap removed, and the dependency moves out of the package-index block. Confirmed 2026-08-14.
-- A test or gate step asserts that the package-index dependency block is empty, so a future exception has to be added deliberately rather than accumulating.
+- A test asserts that **no third-party package resolves from the package index**. The block is not empty and cannot be: it carries the component's own editable path install, which is how the source tree reaches the environment rather than a supply-chain exception. Anything else appearing there fails the build, so a future exception has to be added deliberately rather than accumulating.
 - Dependencies are pinned in a lock file, and no component relies on system packages.
 
 #### FR-50: Channel availability is checked before a feature is committed to
