@@ -143,14 +143,18 @@ The promise is that the *generated* component works. A green gate on this reposi
 
 ## What Is Not Yet Decided
 
-One question, and one thing to watch.
+No decisions remain open.
 
-**Should the cache keep failing silently?** The Redis cache is configured to swallow its own exceptions, so a cache outage degrades to silent misses rather than an error. That is defensible for a cache — a cache outage should not be an application outage — but it is the single place this product degrades quietly, in a design whose posture everywhere else is to refuse to start. It was inherited from `cookiecutter-django` rather than chosen, and it deserves to be chosen.
+**One thing to watch:** the single supply-chain exception is pending upstream. Pull requests against both the conda-forge recipe and `django-celery-beat` itself remove the constraint that forces one dependency to resolve from PyPI. When either lands, the exception disappears on its own.
 
-**Watching, not deciding:** the one supply-chain exception is pending upstream. Pull requests against both the conda-forge recipe and `django-celery-beat` itself remove the constraint that forces a single dependency to resolve from PyPI. When either lands, the exception disappears on its own.
+**One capability is named but unbuilt:** propagating an accelerator change into components already generated, described in Vision. The version stamp makes those components enumerable; the mechanism that would act on that is out of scope.
 
 Everything else this brief raised is settled. What remains is not decisions but work: none of the authentication rewire is implemented, no health endpoint exists, no startup refusal beyond the database one is built, and no combination has ever been generated. The addendum states, factor by factor, which of those are designed and which are running.
 
 ## Vision
 
-The accelerator becomes the only way a Django component starts inside the platform, and the fastest — so compliance is a side effect of convenience rather than a review gate. Further out, the base stops being a starting point and becomes a living one: a Django release, a new mandatory factor, or a changed auth posture is absorbed once here and propagated, instead of being negotiated with every team that ever forked a repo.
+The accelerator becomes the only way a Django component starts inside the platform, and the fastest — so compliance is a side effect of convenience rather than a review gate.
+
+Further out, the base stops being a starting point and becomes a living one: a Django release, a new mandatory factor, or a changed auth posture is absorbed once here and reaches the components already built from it.
+
+That last step is genuinely not solved. Generation produces an independent repository, and a repository someone else now owns and edits is a fork by any honest definition — which is the thing this product exists to stop, reappearing one level up. What the design does provide is the precondition: every generated component records the template version that produced it, so the question *which components predate this fix* has an answer. Turning that answer into pull requests is a second product, and naming it here is not the same as having built it.

@@ -213,7 +213,27 @@ Generation produces a **new repository** for the new component. It runs that rep
 
 The consequence for verification is the useful part: **the gate ships inside the generated component rather than living beside the template.** There is no separate harness to maintain, and no risk of the harness and the component drifting apart, because the thing that proves a component is sound is the component's own pipeline.
 
-### 4.2.2 Two levels of verification
+**A generated component records the template version that produced it, and the order values it was built from.** That costs one templated value and buys the only question worth asking after an accelerator change: *which components predate it?* Without the stamp, that question has no answer — not a slow answer, no answer — because a generated repository is otherwise indistinguishable from any other Django service. Every propagation mechanism that could ever exist starts from being able to enumerate what is behind.
+
+### 4.2.2 What generation strips, parameterizes, and keeps
+
+Not everything tracked here belongs in a generated component. Some of it is the accelerator's own machinery, and some is correct for this repository in a way that is silently wrong for any other.
+
+| Disposition | Paths |
+|---|---|
+| **Stripped** — accelerator machinery | `_bmad/`, `_bmad-output/`, `.agents/`, `.bmad-loop/`, `.claude/` |
+| **Parameterized** — correct here, wrong elsewhere | `sonar-project.properties`, `README.md`, `CHANGELOG.md`, `LICENSE`, `pyproject.toml`, `mkdocs.yml`, `src/django_service/` |
+| **Kept** — the component itself | `src/config/`, `tests/`, `manage.py`, `pixi.toml`, `pixi.lock`, `.github/`, `.pre-commit-config.yaml`, `.gitignore`, `.gitattributes`, `docs/development.md`, `docs/observability.md` |
+
+Two entries deserve naming, because both look correct in review:
+
+**`sonar-project.properties:6` hardcodes `sonar.projectKey=millsks_django-15-factor-base`.** Shipped unparameterized, every generated component reports its code quality into the accelerator's own SonarCloud project. Nothing fails; the metrics merge silently.
+
+**The planning artifacts are the accelerator's, not the component's.** `_bmad-output/` holds this brief. A generated service repository containing its accelerator's product brief is confusing at best, and it is the kind of thing nobody notices until it is in twenty repositories.
+
+`docs/` splits. `development.md` and `observability.md` describe how to work on any component built this way and should travel with it; anything describing the accelerator itself should not.
+
+### 4.2.3 Two levels of verification
 
 The generated repository's CI answers "is *this* component sound." It does not answer "are all twelve combinations sound," and only the second is a claim this product makes. Left there, the first developer to order an untried combination is the one who discovers the defect.
 
@@ -352,7 +372,7 @@ The substitutions are for local development only, and every one of them is guard
 
 **Two of the six are conditional, and the reason matters.** `production.py:32-43` hardcodes the Redis cache backend, so the generator removes that block from a component that did not select Redis — and Django's default `LocMemCache` then applies in production. That is legitimate: a component with no cache feature gets per-replica in-process caching, which is the honest consequence of not selecting one. An unconditional refusal would reject four valid combinations. The same reasoning applies to eager Celery, which is meaningless in a component with no Celery.
 
-**A tension to resolve elsewhere.** `production.py:40` sets `IGNORE_EXCEPTIONS: True` on the Redis cache, so cache failures are swallowed and reads silently return misses. A product whose stated posture is refusing to start rather than degrading quietly configures its cache to degrade quietly at runtime. That is defensible for a cache specifically — a cache outage should not be an application outage — but it is inconsistent enough with everything else here to deserve a deliberate decision rather than an inherited default.
+**The one place the product degrades rather than refuses, now deliberately.** `production.py:40` sets `IGNORE_EXCEPTIONS: True` on the Redis cache, so cache failures are swallowed and reads return misses. That stays: a cache outage should degrade a component, not stop it, which is the whole reason a cache is not a database. What changes is that it stops being silent — `DJANGO_REDIS_LOG_IGNORED_EXCEPTIONS` turns every swallowed failure into a log event, correlated with `request_id` and `trace_id` like everything else. The objection was never that the cache degrades; it was that it degraded invisibly in a component whose telemetry is immovable.
 
 ## 7. Factor coverage
 
@@ -380,9 +400,10 @@ The four that were open when this table was first written — 5, 6, 8 and 9 — 
 
 ## 8. Open items carried forward
 
-1. Whether the Redis cache should keep `IGNORE_EXCEPTIONS: True` (§6.3). It is the one place the product degrades silently by design, and it was inherited rather than chosen
-2. Tracking, not a decision: the single supply-chain exception is pending upstream. `django-celery-beat` resolves from PyPI because the conda-forge recipe transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"` without the environment marker, making the cap unconditional and irreconcilable with `opentelemetry-api`'s `>=6.0,<8.8.0`. [conda-forge/django-celery-beat-feedstock#18](https://github.com/conda-forge/django-celery-beat-feedstock/pull/18) removes the cap, and [celery/django-celery-beat#1080](https://github.com/celery/django-celery-beat/pull/1080) removes it upstream — executing a `TODO` upstream had already written against its own requirement. On merge and build, the dependency moves to conda-forge and the exception in the brief disappears
+1. Tracking, not a decision: the single supply-chain exception is pending upstream. `django-celery-beat` resolves from PyPI because the conda-forge recipe transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"` without the environment marker, making the cap unconditional and irreconcilable with `opentelemetry-api`'s `>=6.0,<8.8.0`. [conda-forge/django-celery-beat-feedstock#18](https://github.com/conda-forge/django-celery-beat-feedstock/pull/18) removes the cap, and [celery/django-celery-beat#1080](https://github.com/celery/django-celery-beat/pull/1080) removes it upstream — executing a `TODO` upstream had already written against its own requirement. On merge and build, the dependency moves to conda-forge and the exception in the brief disappears
 
-Everything else this brief raised is decided. What remains is implementation, and the architecture work that sequences it.
+No open decisions remain. What is left is implementation, and the architecture work that sequences it.
 
-Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6. Factors 5, 6, 8 and 9, raised by the audit in §7 and settled in §5 — session state is database-backed in every combination, the process model is declared per combination, migrations are a release-stage step guarded by a startup refusal, and shutdown drains on SIGTERM. The health signal is two asymmetric endpoints (§5.4); the development keypair is generated on demand and never committed (§1.6); local personas are seeded from declared claims (§1.6); the refusal list is settled at six conditions (§6.3); and local runnability is verified by a smoke check per combination (§4.3). Phase-2 verification — the template's CI renders all 12 and runs each generated repository's own gate (§4.2.2). Package-name parameterization — FreeMarker expands it from the developer-portal order. The shared mapper's placement — `src/config/authorization/`, beside the observability package (§1.4.1).
+One capability is named but deliberately unbuilt: **propagating an accelerator change into components already generated.** The version stamp in §4.2.1 makes those components enumerable, which is the precondition for any mechanism at all. The mechanism itself — a bot opening pull requests against repositories that are behind, in the shape `cruft` and `copier update` take for their own template systems — is a second product with its own lifecycle, and it is not in scope here.
+
+Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6. Factors 5, 6, 8 and 9, raised by the audit in §7 and settled in §5 — session state is database-backed in every combination, the process model is declared per combination, migrations are a release-stage step guarded by a startup refusal, and shutdown drains on SIGTERM. The health signal is two asymmetric endpoints (§5.4); the development keypair is generated on demand and never committed (§1.6); local personas are seeded from declared claims (§1.6); the refusal list is settled at six conditions (§6.3); and local runnability is verified by a smoke check per combination (§4.3). Phase-2 verification — the template's CI renders all 12 and runs each generated repository's own gate (§4.2.3). Package-name parameterization — FreeMarker expands it from the developer-portal order. The shared mapper's placement — `src/config/authorization/`, beside the observability package (§1.4.1).
