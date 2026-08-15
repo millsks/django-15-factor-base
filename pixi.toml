@@ -13,7 +13,10 @@ requires-pixi = ">=0.70.2"
 # ---------------------------------------------------------------------------
 [dependencies]
 python = "3.14.*"
-libpq = ">=18.4,<19"
+# The client library is held at 17 to match the `postgres:17` server the gate
+# runs against (.github/workflows/ci.yml). This is what constrains `psycopg`
+# below -- see the note there before changing either.
+libpq = ">=17,<18"
 celery = ">=5.6,<6"
 crispy-bootstrap5 = ">=2026.3,<2027"
 django = ">=6.0,<7"
@@ -44,7 +47,11 @@ django-redis = ">=7.0,<8"
 djangorestframework = ">=3.17,<4"
 drf-spectacular = ">=0.30,<0.31"
 hiredis = ">=3.4,<4"
-psycopg = ">=3.3,<4"
+# Upper-pinned, unusually. conda-forge builds `psycopg-c` against exactly one
+# libpq major: 3.2.4-3.2.10 link libpq 17, and 3.2.11 onward link libpq 18.
+# This window is therefore the whole set compatible with the libpq 17 pin above.
+# Lift both together when the gate's PostgreSQL server moves to 18.
+psycopg = ">=3.2.4,<3.2.11"
 redis-py = ">=8.1,<9"
 uvicorn = ">=0.52,<0.53"
 whitenoise = ">=6.12,<7"
