@@ -104,7 +104,9 @@ so that the three combinations that select it have both a real backing service a
 
 **AD-29 — nothing inside `src/django_service/`.** No storage code, configuration, template or static asset goes into the base package; it is `core` in its entirety.
 
-**AD-4 — a feature's code may never import another feature's.** Storage code imports `django_service` and Django, never the celery, redis or ui feature's modules.
+**AD-4 — a feature's code may never import another feature's.** Storage configuration imports Django and nothing belonging to `celery` or `redis`. With no feature packages left (AD-33 retired) the rule is thin here, but the `feature:storage` regions must not read `REDIS_URL` or any Celery setting.
+
+**Revision 3 — what this means for storage.** Object storage is now one of **three** selectable features rather than four, and it is the only one with anything code-shaped left. Even that is settings: a `STORAGES` block in `core` settings modules, delimited by `feature:storage` markers. There is no `src/features/`, no `django_storage` package and no third import root — AD-33 is retired with no occupants precisely because celery, redis and storage own dependency entries and AD-24 regions and nothing more.
 
 **FR-38 / AD-15.** Configuration is exclusively environmental; no configuration file in the image; the component starts from environment variables alone.
 
@@ -116,11 +118,11 @@ so that the three combinations that select it have both a real backing service a
 
 | Path | NEW/UPDATE | What changes |
 |---|---|---|
-| `pixi.toml` | UPDATE | Add `django-storages` and `boto3` to `[dependencies]` (Outcome A) with the R-1 evidence recorded beside them, inside a `feature:storage` region (Story 7.2 established the pattern for the celery/redis/ui dependency lines). **Today:** `[dependencies]` `:14-80` contains neither package. `[pypi-dependencies]` `:98-99` contains only `django-15-factor-base = { path = ".", editable = true }` — zero supply-chain exceptions, and Story 1.7 asserts it. `[environments]` `:141-143` has only `default` and `dev`; the twelve-combination matrix is Epic 8's. **Preserve:** every existing rationale comment, `[activation.env] COVERAGE_CORE = "ctrace"` (`:145-150`), and the platform-scoped gunicorn/uvicorn-worker blocks. |
+| `pixi.toml` | UPDATE | Add `django-storages` and `boto3` to `[dependencies]` (Outcome A) with the R-1 evidence recorded beside them, inside a `feature:storage` region (Story 7.2 established the pattern for the celery and redis dependency lines; note that the crispy packages are `core` and carry no marker, since form styling is immovable core). **Today:** `[dependencies]` `:14-80` contains neither package. `[pypi-dependencies]` `:98-99` contains only `django-15-factor-base = { path = ".", editable = true }` — zero supply-chain exceptions, and Story 1.7 asserts it. `[environments]` `:141-143` has only `default` and `dev`; the six-combination matrix is Epic 8's. **Preserve:** every existing rationale comment, `[activation.env] COVERAGE_CORE = "ctrace"` (`:145-150`), and the platform-scoped gunicorn/uvicorn-worker blocks. |
 | `src/config/settings/base.py` | UPDATE | Add the `feature:storage` `STORAGES` region. **Preserve:** the `env = environ.Env()` instance (`:19`), `MEDIA_ROOT`/`MEDIA_URL` (`:195-200`) pending the Task 5 decision, and the markers Story 7.2 placed. Nothing may be appended after the final block — Epic 4 makes the stage-1 refusal call the last statement of every settings module. |
 | `src/config/settings/production.py` | UPDATE | **Today:** `STORAGES` at `:79-86` with `"default"` = `FileSystemStorage` and `"staticfiles"` = `whitenoise.storage.CompressedManifestStaticFilesStorage`. **Changes:** restructure so `"staticfiles"` stays `core` and `"default"` becomes the feature-owned entry. **Preserve:** the sqlite refusal at `:26-28` (FR-13 condition 1, the one refusal already built), the security settings, `CACHES` at `:31-44` (a `feature:redis` region under Story 7.2), the anymail block and the structlog `LOGGING` composition. |
 | `src/config/settings/local.py` | UPDATE | Add the filesystem substitution consistent with Epic 3's locality mechanism. **Today:** `CACHES` LocMemCache (`:18-26`), the `DJANGO_DEBUG_APPS` gate (`:50-74`), Celery eager settings (`:75-80`). Epic 3 restructures this module; read its current state before editing. |
-| the storage feature's source location | NEW | Whatever Story 7.4 established as "a feature-owned location" — a top-level package under `src/`, not inside `src/django_service/` (AD-29) and not inside `src/django_apps/` (`tenant`, never pruned). Reuse that decision; do not make a second one. |
+| *(no feature source directory)* | — | Revision 2 expected a `feature:storage` package here, inherited from a decision Story 7.4 was to make. **That row is retired.** AD-33 has no occupants, so storage's entire code-shaped surface is the `feature:storage` regions in the three settings modules above, plus its dependency entries in `pixi.toml` and its own tests. Do not create `src/features/`, `src/storage/` or a `django_storage` package. |
 | `docs/` | NEW or UPDATE | The AC #4 limits and the AC #5 scope statement. `docs/` today holds `index.md`, `development.md`, `observability.md`; `mkdocs.yml:33-36` lists all three in `nav`. A new page must be added to `nav` or `pixi run docs` (`mkdocs build --strict`) fails. |
 | `.gitignore` | UPDATE | The local storage root, if Epic 3's pattern does not already cover it. |
 | `accelerator.toml` | UPDATE | `[features.storage]` completion, new `[[regions]]`, the R-1 record. Preserve Stories 7.1–7.4 content. |
@@ -135,14 +137,14 @@ so that the three combinations that select it have both a real backing service a
 - Unit: `tests/unit/storage/test_settings.py` — isolated, milliseconds, environment manipulated via `monkeypatch`, no I/O.
 - Integration: `tests/integration/storage/`, every test `@pytest.mark.integration`, `tmp_path` for the filesystem, state left exactly as found.
 - No test may require a running object store or reach the network. FR-33's smoke check runs with nothing running and FR-23 forbids network at boot; a test that needs S3 cannot run in the gate.
-- Test disposition `feature:storage` — pruned with the feature (spine Consistency Conventions, Test location). Their absence in the six non-selecting combinations is correct and is not a coverage gap.
+- Test disposition `feature:storage` — pruned with the feature (spine Consistency Conventions, Test location). Their absence in the three non-selecting combinations is correct and is not a coverage gap.
 - Coverage floor 90% including templates, `COVERAGE_CORE=ctrace` in force (AD-20).
 
 #### Project Structure Notes
 
-- The feature's source location is inherited from Story 7.4's decision; if 7.4 has not landed, that decision must be made and recorded here, under the same four constraints (not in `django_service`, not in `django_apps`, importable under the AD-7 `sources` remapping, disposable in its entirety).
+- **No new source structure.** Revision 2 had this story inherit a "feature-owned location" from Story 7.4; AD-33 is retired and no such location exists. Storage adds no package, no import root and no directory under `src/` — its surface is regions inside `src/config/settings/{base,production,local}.py`, dependency lines in `pixi.toml`, one documentation page and two test packages. If a task seems to need a feature source directory, the design is wrong, not the constraint.
 - FR-18's fifth substitution landing here rather than in Epic 3 is deliberate and recorded at `epics.md:223`. Epic 3's four substitutions and their locality helper already exist; reuse them.
-- FR-26's broker constraint does not involve storage. Object storage is independently selectable and appears in six of the twelve combinations (Story 7.6).
+- FR-26's broker constraint does not involve storage. Object storage is independently selectable and appears in three of the six combinations (Story 7.6).
 - If Outcome B applies, the `[pypi-dependencies]` exception changes the project's "zero supply-chain exceptions" state, which Story 1.7's test asserts and the project README and dependency-policy test both reflect. Extend the test to admit exactly one time-boxed, reasoned exception rather than loosening it.
 
 ### References

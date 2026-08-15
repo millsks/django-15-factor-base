@@ -25,7 +25,7 @@ Identifiers are used verbatim from their source documents: `FR-n` / `NFR-n` / `S
 
 - **FR-1:** Every valid combination provides the immovable core, and no feature selection removes any part of it.
 - **FR-2:** The immovable set is defined by capability, not by package — a materialized combination's dependency manifest carries exactly the instrumentation packages its capabilities require and no others.
-- **FR-3:** The Django admin is orthogonal to the server-rendered UI feature; omitting the UI feature removes only the end-user surface.
+- **FR-3:** The interface mechanism is immovable core — template loading, `base.html`, the navigation bar and its contribution registry, the error templates, form styling, static-file serving and the user profile views are present in every component and are not selectable.
 
 **§4.2 Authentication and Authorization** — *Phase-1 must-have; none of it is implemented*
 
@@ -195,7 +195,7 @@ Python 3.14 · Django 6.0 · django-allauth 65.19.1 (`requests` must be declared
 
 **Not applicable.** No UX design contract exists in `{planning_artifacts}` — no `ux-designs/ux-*/DESIGN.md` + `EXPERIENCE.md` spine pair, no legacy `*ux*.md`, no sharded `*ux*/index.md`.
 
-This is consistent with the product rather than a gap. The primary product surface is a repository, not an interface: the ordering surface is the enterprise developer portal (PRD §5 non-goal, §10 integration), and the only rendered surfaces a component owns are the Django admin, framework error pages, and the optional server-rendered UI feature — none of which this phase designs. PRD §2.3 states the journeys are deliberately downscaled to anchor requirements rather than feed UX work.
+This is consistent with the product rather than a gap. The primary product surface is a repository, not an interface: the ordering surface is the enterprise developer portal (PRD §5 non-goal, §10 integration), and the only rendered surfaces a component owns are the Django admin, framework error pages, and the base interface mechanism — none of which this phase designs. PRD §2.3 states the journeys are deliberately downscaled to anchor requirements rather than feed UX work.
 
 The visual-surface requirements that do exist are carried as functional requirements and are covered above: FR-3 (the interface mechanism is immovable core; error-page and admin template rendering must work in every combination), AD-29 (`base.html`, the error templates, form styling and the profile views are all `core`, and `base.html` carries no hardcoded navigation), and AD-30 (the smoke check asserts a rendered admin index and a rendered 404).
 
@@ -759,7 +759,7 @@ So that a revocation at the IdP reaches the component rather than persisting unt
 
 As a lead developer,
 I want browser sign-in to redirect to the IdP and establish a session through the shared mapper,
-So that the admin and the server-rendered UI have exactly one credential authority.
+So that the admin and the rendered interface have exactly one credential authority.
 
 **Requirements:** FR-4, FR-7 · AD-31 · SC-6
 
@@ -1783,32 +1783,32 @@ So that a reusable app cannot import a module that exists in six combinations an
 
 **Acceptance Criteria:**
 
-**Given** that no source document enumerates which templates, static assets, views and forms constitute the server-rendered UI feature
+**Given** the interface mechanism is immovable core (revision 3)
 **When** this story begins
-**Then** that surface is enumerated by audit of the existing tree and recorded in the carrier before any file moves
-**And** the enumeration distinguishes user-facing surface from `base.html` and the error templates, which stay
+**Then** the rendering surface is audited and confirmed `core` in its entirety
+**And** no enumeration of a removable UI surface is produced, because none exists
 
 **Given** any path inside `src/django_service/`
 **When** its disposition is assigned
 **Then** it is `core`
 **And** a gate test asserts that no `feature:*` disposition applies to any path inside it
 
-**Given** surface that genuinely belongs to the server-rendered UI feature
-**When** the UI feature is prepared for extraction
+**Given** the rendering surface inside `src/django_service/`
+**When** dispositions are assigned
 **Then** nothing moves out — the interface mechanism is immovable core (revision 3), so `base.html`, the error templates, form styling, static-file serving and the user profile views all stay
 **And** the `home` and `about` demonstration pages are deleted rather than made core
 **And** `base.html` carries no hardcoded navigation, its bar rendering the contributed navigation registry instead of literal links
 **And** `User.get_absolute_url()` and `LOGIN_REDIRECT_URL` stand unchanged, since `users:detail` and `users:redirect` are now core routes
 
 **Given** `base.html` and the error templates
-**When** the UI feature is absent
-**Then** they remain
+**When** any combination runs
+**Then** they are present, being `core`
 **And** the 403, 404 and 500 pages that extend `base.html` still render
 
-**Given** a combination with the server-rendered UI absent
+**Given** any of the six combinations
 **When** it runs
 **Then** the admin renders, static files serve, the messages framework is available, and template rendering works
-**And** what the UI feature removed is the end-user surface and nothing else
+**And** no feature selection can remove any of it
 
 **Given** the immovable core
 **When** any of the six combinations is inspected
@@ -1864,7 +1864,7 @@ So that the selection surface accepts every legitimate request.
 
 **Given** the three features
 **When** they are declared
-**Then** background task processing, Redis cache, server-rendered UI and object storage are each independently selectable
+**Then** background task processing, Redis cache and object storage are each independently selectable
 **And** each is selected or absent, never present-and-disabled
 
 **Given** the broker constraint
@@ -1874,9 +1874,9 @@ So that the selection surface accepts every legitimate request.
 
 **Given** the three presets
 **When** they are declared
-**Then** *API-only*, *Full web app* and *Worker-enabled* set a starting selection and remain fully editable
+**Then** *Minimal*, *Cached* and *Worker-enabled* set a starting selection and remain fully editable
 
-**Given** a selection such as *API-only plus background task processing plus object storage*
+**Given** a selection such as *Minimal plus background task processing plus object storage*
 **When** it is requested
 **Then** it is accepted
 **And** presets do not act as a menu of permitted shapes
