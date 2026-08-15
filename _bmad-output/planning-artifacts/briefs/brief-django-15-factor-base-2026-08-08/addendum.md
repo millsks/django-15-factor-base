@@ -89,7 +89,9 @@ Two failure modes escape the refusal on its own, and therefore need explicit tes
 
 What that exercises: the mapping itself, `is_staff` promotion by designated group, and re-sync on every login, including revocation when a developer's synthetic groups change. What it does not exercise: JWKS retrieval, signature verification, and issuer, audience, and expiry validation.
 
-**The programmatic flow locally.** A development-only task mints a JWT signed by a local keypair, and local settings point the JWKS location at that key. The component then validates the token through the real `BaseAuthentication` subclass described in §1.3 — signature, `iss`, `aud`, and `exp` all genuinely checked. Only the identity of the signer is local; no verification step is stubbed or skipped. The local keypair is a development artifact and must never be present in, or reachable from, a deployed component.
+**Personas are seeded, not created one at a time.** Local claims are declared as configuration — a set of named personas with their groups and profile fields — and a development task materialises them as local accounts. One persona is a member of the group that drives `is_staff`, which is what replaces `createsuperuser` as the way a developer reaches admin locally (§1.4 retires it as the bootstrap path everywhere else). Declaring several personas with different group memberships is the point: authorization differences are what the mapper exists to produce, and a single superuser cannot exercise them.
+
+**The programmatic flow locally.** A development-only task mints a JWT signed by a local keypair, and local settings point the JWKS location at that key. The component then validates the token through the real `BaseAuthentication` subclass described in §1.3 — signature, `iss`, `aud`, and `exp` all genuinely checked. Only the identity of the signer is local; no verification step is stubbed or skipped. The local keypair is generated on demand by a development task into a gitignored path, never committed. That matters more here than in an ordinary repository: a keypair committed to a template ships inside every component generated from it, so one published private key would be shared by every service the accelerator ever produces. Generating on first use gives each developer and each component a distinct key and leaves nothing to leak. A deployed component reaching for the development key is a configuration error the startup refusal must catch (§6.3).
 
 Rejected for the programmatic flow:
 
@@ -179,7 +181,7 @@ Local development and deployment do not use the same backing services (§6), so 
 | Check | Backing services | Establishes |
 |---|---|---|
 | Full gate | PostgreSQL | tests, ≥90% coverage, strict typing, lint, build against the real backend |
-| Local runnability | none | the component starts, serves, and authenticates a developer with nothing installed |
+| Local runnability | none | a smoke check per combination: the component boots, readiness returns 200, and a local persona signs in — with nothing installed |
 
 Neither the database backend nor the authentication mode is a feature toggle. They are properties of the environment a combination runs in, so they do not multiply the combination space — 12 remains 12.
 
@@ -219,13 +221,28 @@ Beat must run as exactly one replica. `DatabaseScheduler` keeps the schedule in 
 
 **A component refuses to start against a schema it does not recognise.** Unapplied migrations raise `ImproperlyConfigured`, the same shape as the sqlite and credential refusals in §1.6 and §6.3. Without it, a component started before its release step surfaces the mismatch as scattered runtime errors instead of a failed boot.
 
-**Shutdown drains.** On `SIGTERM` a web process stops accepting connections, finishes in-flight requests, and exits; a worker finishes its current task and declines new ones. The platform's termination grace period must exceed the longest expected drain, and readiness must flip before the drain begins so traffic stops arriving first. The grace values and the readiness contract belong with the health signal, which is still open.
+**Shutdown drains.** On `SIGTERM` a web process reports unready (§5.4), stops accepting connections, finishes in-flight requests, and exits; a worker finishes its current task and declines new ones. Readiness flips first so traffic stops arriving before the drain starts. The platform's termination grace period must exceed the longest expected drain; the specific values are a deployment-repository setting, but the component owns the ordering.
 
 ### 5.3 Scheduled admin processes
 
 Sessions are database-backed in every combination (§7, factor 6), and Django does not prune expired rows on its own. `manage.py clearsessions` must run periodically, as a one-off admin process the platform schedules.
 
 It is deliberately *not* a Celery beat task: beat exists in only 8 of the 12 combinations, and a component whose session table grows without bound in the other 4 would make session hygiene a property of an unrelated toggle.
+
+### 5.4 Health signal
+
+Two endpoints, deliberately asymmetric. No health route exists in `src/config/urls.py` today, so all of this is to be built.
+
+| Endpoint | Question it answers | Checks |
+|---|---|---|
+| Liveness | Is this process alive? | Nothing external. The process responds, or it does not |
+| Readiness | Can this process serve right now? | The database answers |
+
+**Liveness must not touch a backing service.** A liveness probe that queries the database converts a brief database outage into a crash loop: every replica fails the probe, the platform kills them all, and they restart into the same unreachable database. Readiness failing during that outage is correct and recoverable — traffic stops, the pods survive, and they return to service when the database does.
+
+**Readiness deliberately does not re-check migrations.** Startup already refuses to boot against an unapplied migration (§5.2), so a running process has answered that question once and permanently. Re-asking it on every probe would cost a query per probe to learn something that cannot have changed. During a rolling deploy an older replica may legitimately run against a schema newer than its code — that is what backwards-compatible migrations are for, and it must not read as unready.
+
+Readiness is also the shutdown signal: it reports unready on `SIGTERM` before the drain begins (§5.2).
 
 ## 6. Local development interface
 
@@ -268,7 +285,20 @@ The brief's constraint — background task processing requires a broker, so the 
 
 ### 6.3 What this does not license
 
-The substitutions are for local development only. `production.py` already refuses sqlite; §1.6 extends the same refusal to local credential paths. The in-memory cache and eager Celery are not currently guarded, and a deployed component that silently falls back to either would be a defect of the same class. Whether those two warrant equivalent startup refusals is open.
+The substitutions are for local development only, and every one of them is guarded by the same mechanism: a deployed component that would run on a local substitute refuses to start. One rule, six conditions.
+
+| Condition | Applies | Built |
+|---|---|---|
+| sqlite backend reached | Always | Yes — `production.py:26-28` |
+| Any local credential path live (§1.6) | Always | No |
+| Unapplied migrations (§5.2) | Always | No |
+| `OTEL_SDK_DISABLED` true | Always | No |
+| `LocMemCache` as the cache backend | Only where the Redis feature is selected | No |
+| `CELERY_TASK_ALWAYS_EAGER` true | Only where background tasks are selected | No |
+
+**Two of the six are conditional, and the reason matters.** `production.py:32-43` hardcodes the Redis cache backend, so the generator removes that block from a component that did not select Redis — and Django's default `LocMemCache` then applies in production. That is legitimate: a component with no cache feature gets per-replica in-process caching, which is the honest consequence of not selecting one. An unconditional refusal would reject four valid combinations. The same reasoning applies to eager Celery, which is meaningless in a component with no Celery.
+
+**A tension to resolve elsewhere.** `production.py:40` sets `IGNORE_EXCEPTIONS: True` on the Redis cache, so cache failures are swallowed and reads silently return misses. A product whose stated posture is refusing to start rather than degrading quietly configures its cache to degrade quietly at runtime. That is defensible for a cache specifically — a cache outage should not be an application outage — but it is inconsistent enough with everything else here to deserve a deliberate decision rather than an inherited default.
 
 ## 7. Factor coverage
 
@@ -284,7 +314,7 @@ The product's name commits it to fifteen factors, so this is where each one is a
 | 6 | Processes | Stateless. Sessions are database-backed in every combination — the current default, now an explicit decision rather than an inherited one, so session behaviour never varies by toggle. Pruning is a scheduled admin process (§5.3) | Decided, **`SESSION_ENGINE` not yet set explicitly** |
 | 7 | Port binding | uvicorn and gunicorn bind a port directly; no web server is injected at runtime | Satisfied |
 | 8 | Concurrency | gunicorn with uvicorn workers serves web. Background tasks add worker and beat process types; beat must run as exactly one replica. The process model per combination is declared in §5.1 | Satisfied, declared |
-| 9 | Disposability | Startup fails fast on misconfiguration — the `production.py` refusals in §1.6, §5.2 and §6.3. Shutdown drains on SIGTERM (§5.2); the grace values and readiness contract ride with the health signal, still open | Decided, **pending the health signal** |
+| 9 | Disposability | Startup fails fast on misconfiguration — six refusal conditions in §6.3. Shutdown reports unready, then drains (§5.2, §5.4) | Decided, **not yet implemented** |
 | 10 | Dev/prod parity | **Deliberately traded.** §6 varies the backing services between local development and deployment, which is the practice this factor exists to discourage. The reasoning and the mitigations are in the brief's risk register | Traded, knowingly |
 | 11 | Logs | structlog writes a JSON event stream to stdout; the component never manages files or rotation | Satisfied |
 | 12 | Admin processes | Management commands run as one-off processes (`pixi run manage`). Note that `createsuperuser` stops being the admin bootstrap in deployed environments (§1.4) | Satisfied |
@@ -298,12 +328,8 @@ The four that were open when this table was first written — 5, 6, 8 and 9 — 
 
 1. The phase-2 verification harness — how generated output is built and gated once the repository becomes a FreeMarker template
 2. Where the shared claims-to-groups mapper lives so all three authentication paths — interactive, programmatic, and local synthetic (§1.6) — consume one implementation
-3. The health-signal and lifecycle contract expected by the deployment repository: readiness, liveness, and a termination grace period that exceeds the longest drain (§5.2). No health route exists in `src/config/urls.py` today
-4. How local personas are defined and seeded: where the synthetic claims live, and whether the first local admin arrives via `createsuperuser` or a seeding task that can express several developers with different group memberships
-5. Where the development signing keypair lives, how it is generated, and what keeps it out of a deployed component
-6. Whether the in-memory cache, eager Celery, and `OTEL_SDK_DISABLED` warrant startup refusals in production settings, as sqlite and local credentials do (§6.3)
-7. Whether local runnability is verified by a smoke check per combination or by the suite itself running twice
-8. How the component's own name is parameterized. The tree is `src/django_service/`, and every generated component needs its own package name, module paths, and `service.name` on the telemetry resource. The generator engine is out of scope, but making the name a template parameter is the template's job, not the engine's
-9. The single supply-chain exception is pending upstream, not permanent. `django-celery-beat` resolves from PyPI because the conda-forge recipe transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"` without the environment marker, making the cap unconditional and irreconcilable with `opentelemetry-api`'s `>=6.0,<8.8.0`. [conda-forge/django-celery-beat-feedstock#18](https://github.com/conda-forge/django-celery-beat-feedstock/pull/18) removes the cap, and [celery/django-celery-beat#1080](https://github.com/celery/django-celery-beat/pull/1080) removes it upstream — executing a `TODO` upstream had already written against its own requirement. On merge and build, the dependency moves to conda-forge and the exception in the brief disappears
+3. How the component's own name is parameterized. The tree is `src/django_service/`, and every generated component needs its own package name, module paths, and `service.name` on the telemetry resource. The generator engine is out of scope, but making the name a template parameter is the template's job, not the engine's
+4. Whether the Redis cache should keep `IGNORE_EXCEPTIONS: True` (§6.3). It is the one place the product degrades silently by design, and it was inherited rather than chosen
+5. Tracking, not a decision: the single supply-chain exception is pending upstream. `django-celery-beat` resolves from PyPI because the conda-forge recipe transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"` without the environment marker, making the cap unconditional and irreconcilable with `opentelemetry-api`'s `>=6.0,<8.8.0`. [conda-forge/django-celery-beat-feedstock#18](https://github.com/conda-forge/django-celery-beat-feedstock/pull/18) removes the cap, and [celery/django-celery-beat#1080](https://github.com/celery/django-celery-beat/pull/1080) removes it upstream — executing a `TODO` upstream had already written against its own requirement. On merge and build, the dependency moves to conda-forge and the exception in the brief disappears
 
-Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6. Factors 5, 6, 8 and 9, raised by the audit in §7 and settled in §5 — session state is database-backed in every combination, the process model is declared per combination, migrations are a release-stage step guarded by a startup refusal, and shutdown drains on SIGTERM.
+Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6. Factors 5, 6, 8 and 9, raised by the audit in §7 and settled in §5 — session state is database-backed in every combination, the process model is declared per combination, migrations are a release-stage step guarded by a startup refusal, and shutdown drains on SIGTERM. The health signal is two asymmetric endpoints (§5.4); the development keypair is generated on demand and never committed (§1.6); local personas are seeded from declared claims (§1.6); the refusal list is settled at six conditions (§6.3); and local runnability is verified by a smoke check per combination (§4.3).

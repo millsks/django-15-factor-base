@@ -143,12 +143,15 @@ The promise is that the *generated* component works. A green gate on this reposi
 
 ## What Is Not Yet Decided
 
-This brief records the decisions made, not a finished design. An audit against the fifteen factors found four unaccounted for — build/release/run, stateless processes, concurrency, and disposability — and all four are now settled in the addendum's deployment interface. Nine questions remain open. These shape what comes next most directly:
+This brief records the decisions made, not a finished design — but the gaps left in it are now few and specific. An audit against the fifteen factors found four unaccounted for; all four are settled in the addendum's deployment interface, along with the health signal, the local persona and signing-key provisioning, the full refusal list, and how local runnability is verified.
 
-- How generated output is verified once this repository becomes a template
-- Where the shared claims-to-groups mapper lives, given three authentication paths must consume one implementation
-- How local personas and the development signing key are provisioned
-- Whether the remaining local substitutions warrant the startup refusal that already guards the database and credential paths
+Three questions remain genuinely open, and they cluster:
+
+- **How generated output is verified** once this repository becomes a template — the largest piece of downstream work, and the one the central quality claim depends on
+- **How the component's own name is parameterized**, which is the same problem seen from the template's side
+- **Where the shared claims-to-groups mapper lives**, so all three authentication paths consume one implementation. The requirement is settled; only its placement is not
+
+The first two are the template transition. The third is module layout. Both are architecture work, which is where this brief hands off.
 
 ## Vision
 
