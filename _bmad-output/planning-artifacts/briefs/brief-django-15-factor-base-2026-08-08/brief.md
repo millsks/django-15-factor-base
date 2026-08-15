@@ -129,6 +129,8 @@ The promise is that the *generated* component works. A green gate on this reposi
 
 **One check carries the whole guarantee.** The separation between a development component and a deployed one rests entirely on the startup refusal. A credential path it fails to inspect, or a settings module that never reaches it, puts local credentials in a deployed environment — and that vulnerability would be one this product created deliberately rather than inherited. That check needs tests asserting refusal happens, not only that startup succeeds.
 
+**Dev/prod parity is deliberately traded (accepted).** The tenth factor exists to discourage exactly what the local development contract does: varying backing services between development and deployment, with sqlite against PostgreSQL as its stock example. A product named for fifteen factors should say so rather than let a reader discover it. The trade buys a component that runs the moment it is generated, and it is bounded — the gate runs against PostgreSQL, the authentication and authorization code paths are shared rather than mocked, and observability is not substituted at all. Parity is given up at the edges the gate can re-establish, and nowhere else.
+
 **Local development proves less than running the component suggests.** sqlite accepts schemas and queries that PostgreSQL rejects; eager Celery never exercises delivery, retries, or serialization; synthetic claims never exercise JWKS retrieval or key rotation. The gate covers all three, so this is a slower feedback loop rather than an unverified product — but a component running locally is not evidence it will run deployed.
 
 **Phase 2 blinds the gate.** Verification against generated output must exist *before* the repository becomes a template, or the central quality claim goes dark exactly when the product starts being used.
@@ -141,7 +143,7 @@ The promise is that the *generated* component works. A green gate on this reposi
 
 ## What Is Not Yet Decided
 
-This brief records the decisions made, not a finished design. Nine questions remain open in the addendum; four shape what comes next:
+This brief records the decisions made, not a finished design. Thirteen questions remain open in the addendum — four of them raised by the factor audit, which found factors 5, 6, 8, and 9 unaccounted for. These shape what comes next most directly:
 
 - How generated output is verified once this repository becomes a template
 - Where the shared claims-to-groups mapper lives, given three authentication paths must consume one implementation

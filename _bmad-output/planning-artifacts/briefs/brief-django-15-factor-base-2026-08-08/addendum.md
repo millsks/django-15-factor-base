@@ -240,7 +240,31 @@ The brief's constraint — background task processing requires a broker, so the 
 
 The substitutions are for local development only. `production.py` already refuses sqlite; §1.6 extends the same refusal to local credential paths. The in-memory cache and eager Celery are not currently guarded, and a deployed component that silently falls back to either would be a defect of the same class. Whether those two warrant equivalent startup refusals is open.
 
-## 7. Open items carried forward
+## 7. Factor coverage
+
+The product's name commits it to fifteen factors, so this is where each one is accounted for. "Satisfied" means the mechanism exists in the repository today; anything else names what is missing.
+
+| # | Factor | How it is accounted for | Status |
+|---|---|---|---|
+| 1 | Codebase | One repository per generated component, in version control from the moment it is generated | Satisfied |
+| 2 | Dependencies | Declared in `pixi.toml`, resolved from conda-forge, pinned in `pixi.lock`; no reliance on system packages | Satisfied, with the one pending exception in §8 |
+| 3 | Config | `django-environ` reads `DJANGO_*` and `OTEL_*` from the environment; no configuration file is baked into the image (§5) | Satisfied |
+| 4 | Backing services | PostgreSQL, Redis, and object storage attach by environment variable. The §6 substitutions are the same contract pointed at a different endpoint, which is the factor working as intended | Satisfied |
+| 5 | Build, release, run | CI builds and containerizes; the deployment repository runs. **Migrations are unassigned** — whether they belong to the release stage or the run stage is undecided, and the deployment repository cannot infer it | **Open** |
+| 6 | Processes | No `SESSION_ENGINE` is set, so Django's database-backed sessions apply and no state lives in the process. Correct — but by default rather than by decision, and the Redis toggle offers a cache-backed alternative nobody has chosen | **Open** |
+| 7 | Port binding | uvicorn and gunicorn bind a port directly; no web server is injected at runtime | Satisfied |
+| 8 | Concurrency | gunicorn with uvicorn workers serves the web process. The background-tasks toggle adds worker and beat process types, so **the process types a component declares vary by combination** and are unstated | **Open** |
+| 9 | Disposability | Startup fails fast on misconfiguration — the `production.py` refusals in §1.6 and §6.3 are exactly this. **Graceful shutdown is unaddressed**: SIGTERM handling for in-flight requests, and draining a Celery worker mid-task during a rolling deploy | **Open** |
+| 10 | Dev/prod parity | **Deliberately traded.** §6 varies the backing services between local development and deployment, which is the practice this factor exists to discourage. The reasoning and the mitigations are in the brief's risk register | Traded, knowingly |
+| 11 | Logs | structlog writes a JSON event stream to stdout; the component never manages files or rotation | Satisfied |
+| 12 | Admin processes | Management commands run as one-off processes (`pixi run manage`). Note that `createsuperuser` stops being the admin bootstrap in deployed environments (§1.4) | Satisfied |
+| 13 | API first | DRF with drf-spectacular, immovable | Satisfied |
+| 14 | Telemetry | structlog and OpenTelemetry, immovable, and not substituted locally (§6.1.1) | Satisfied |
+| 15 | Authentication and authorization | IdP-only in deployed components, guarded by startup refusal (§1.6) | Designed, **not yet implemented** |
+
+Four factors are open, and none of them is a deployment-repository concern that §5 can defer: each one requires a decision inside the component. They are carried into §8.
+
+## 8. Open items carried forward
 
 1. The phase-2 verification harness — how generated output is built and gated once the repository becomes a FreeMarker template
 2. Where the shared claims-to-groups mapper lives so all three authentication paths — interactive, programmatic, and local synthetic (§1.6) — consume one implementation
@@ -251,5 +275,10 @@ The substitutions are for local development only. `production.py` already refuse
 7. Whether local runnability is verified by a smoke check per combination or by the suite itself running twice
 8. How the component's own name is parameterized. The tree is `src/django_service/`, and every generated component needs its own package name, module paths, and `service.name` on the telemetry resource. The generator engine is out of scope, but making the name a template parameter is the template's job, not the engine's
 9. The single supply-chain exception is pending upstream, not permanent. `django-celery-beat` resolves from PyPI because the conda-forge recipe transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"` without the environment marker, making the cap unconditional and irreconcilable with `opentelemetry-api`'s `>=6.0,<8.8.0`. [conda-forge/django-celery-beat-feedstock#18](https://github.com/conda-forge/django-celery-beat-feedstock/pull/18) removes the cap, and [celery/django-celery-beat#1080](https://github.com/celery/django-celery-beat/pull/1080) removes it upstream — executing a `TODO` upstream had already written against its own requirement. On merge and build, the dependency moves to conda-forge and the exception in the brief disappears
+
+10. **Where session state lives (factor 6).** No `SESSION_ENGINE` is set, so Django's database backend applies by default. Whether that is the intended answer, and whether a component with the Redis toggle should move sessions to the cache, is undecided — and the two differ in durability, eviction, and what a Redis outage costs
+11. **Which process types each combination declares (factor 8).** A web process always; worker and beat only when background tasks are selected. The deployment repository has to know what to run, so the process model is part of the interface in §5 rather than an implementation detail
+12. **Graceful shutdown (factor 9).** SIGTERM handling for in-flight requests, and draining a Celery worker mid-task during a rolling deploy. Startup already fails fast; shutdown has no stated behavior
+13. **Whether migrations are a release-stage or a run-stage step (factor 5).** The deployment repository cannot infer this, and the two choices behave differently under rolling deploys and multi-replica starts
 
 Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6.
