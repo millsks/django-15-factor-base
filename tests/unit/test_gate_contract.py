@@ -120,20 +120,14 @@ def test_every_gate_step_pins_its_environment(manifest: dict[str, Any]) -> None:
     non-interactive is that every step it depends on pins `dev`.
     """
     tasks = _all_tasks(manifest)
-    unpinned = [
-        step
-        for step in GATE_SEQUENCE
-        if tasks[step].get("default-environment") != "dev"
-    ]
+    unpinned = [step for step in GATE_SEQUENCE if tasks[step].get("default-environment") != "dev"]
     assert unpinned == [], f"these steps would prompt for an environment: {unpinned}"
 
 
 def test_exactly_one_workflow_invokes_the_gate(workflows: Workflows) -> None:
     """AD-18: a single workflow invokes `pixi run ci`."""
     invoking = [
-        name
-        for name, workflow in workflows.items()
-        if any(_invokes(step, "ci") for step in _run_steps(workflow))
+        name for name, workflow in workflows.items() if any(_invokes(step, "ci") for step in _run_steps(workflow))
     ]
     assert invoking == ["ci.yml"], f"only ci.yml may invoke the gate, got {invoking}"
 
@@ -143,8 +137,7 @@ def test_no_scheduled_workflow_invokes_build(workflows: Workflows) -> None:
     offenders = [
         name
         for name, workflow in workflows.items()
-        if _is_scheduled(workflow)
-        and any(_invokes(step, "build") for step in _run_steps(workflow))
+        if _is_scheduled(workflow) and any(_invokes(step, "build") for step in _run_steps(workflow))
     ]
     assert offenders == [], f"a cron must not invoke build: {offenders}"
 
@@ -159,8 +152,7 @@ def test_gate_steps_run_only_inside_the_gate(task: str, workflows: Workflows) ->
     offenders = [
         name
         for name, workflow in workflows.items()
-        if name != "ci.yml"
-        and any(_invokes(step, task) for step in _run_steps(workflow))
+        if name != "ci.yml" and any(_invokes(step, task) for step in _run_steps(workflow))
     ]
     assert offenders == [], f"{task} must run only in the gate, found in {offenders}"
 
@@ -172,9 +164,7 @@ def test_reference_application_keeps_its_three_os_matrix(workflows: Workflows) -
     containers run only on Linux runners.
     """
     jobs = workflows["ci.yml"]["jobs"]
-    matrices = [
-        job.get("strategy", {}).get("matrix", {}).get("os", []) for job in jobs.values()
-    ]
+    matrices = [job.get("strategy", {}).get("matrix", {}).get("os", []) for job in jobs.values()]
     assert any(THREE_OS_RUNNERS.issubset(set(os_list)) for os_list in matrices), (
         f"no job declares all of {sorted(THREE_OS_RUNNERS)}"
     )

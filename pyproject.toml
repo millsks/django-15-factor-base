@@ -39,6 +39,10 @@ js.indent_size = 2
 
 # ==== ruff ====
 [tool.ruff]
+# 120, not the ruff default of 88. E501 stays selected, so the limit is enforced
+# rather than advisory.
+line-length = 120
+
 # Exclude a variety of commonly ignored directories.
 extend-exclude = [
   "*/migrations/*.py",
@@ -49,6 +53,10 @@ extend-exclude = [
   ".claude",
   ".pixi",
   "_bmad",
+  # Planning artifacts. Prose, not source -- and their fenced python blocks
+  # quote upstream code verbatim, so formatting them would misrepresent what
+  # the quoted source actually looks like.
+  "_bmad-output",
 ]
 
 lint.select = [
