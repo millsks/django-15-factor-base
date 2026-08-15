@@ -7,8 +7,9 @@ version = "0.1.0"
 requires-pixi = ">=0.70.2"
 
 # ---------------------------------------------------------------------------
-# Runtime dependencies. conda-forge is the source for everything that exists
-# there; see [pypi-dependencies] for the exceptions.
+# Runtime dependencies. conda-forge is the single source for every third-party
+# package -- there are no exceptions. [pypi-dependencies] holds only this
+# project's own editable install.
 # ---------------------------------------------------------------------------
 [dependencies]
 python = "3.14.*"
@@ -18,9 +19,23 @@ crispy-bootstrap5 = ">=2026.3,<2027"
 django = ">=6.0,<7"
 django-allauth = ">=65.19,<66"
 django-anymail = ">=15.1,<16"
-# django-celery-beat itself is in [pypi-dependencies] -- see the note there --
-# but its dependencies all exist on conda-forge, so they are declared here and
-# uv treats them as already satisfied rather than pulling PyPI copies.
+# Resolved from conda-forge since build 2.9.0 pyhcf101f3_1. Earlier builds
+# transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"`
+# without the environment marker, applying the cap unconditionally, which
+# collided with opentelemetry-api's importlib-metadata>=6.0 and made the two
+# impossible to install together. The solver enforces this on its own: an
+# older build cannot satisfy both constraints, so it will not be selected.
+#
+# Known cost, accepted: the recipe still lists pytest under run requirements
+# rather than test, so pytest and its dependencies land in the runtime
+# environment. feedstock PR #19 moves it; until that builds, a deployed
+# component carries four pure-Python packages it never imports.
+# https://github.com/conda-forge/django-celery-beat-feedstock/pull/19
+#
+# Also watch: the recipe caps `django <6.1`, which will block a Django 6.1
+# upgrade until it is relaxed.
+django-celery-beat = ">=2.9,<3"
+# Its dependencies, declared explicitly so the solver resolves them here.
 django-timezone-field = ">=7.2,<8"
 python-crontab = ">=3.3,<4"
 cron-descriptor = ">=1.4,<2"   # django-celery-beat requires <2.0.0
@@ -77,17 +92,13 @@ uvicorn-worker = ">=0.4,<0.5"
 gunicorn = ">=26.0,<27"
 uvicorn-worker = ">=0.4,<0.5"
 
-# The application itself. Everything it needs is declared above as a conda
-# package, so this entry only puts the source tree on the path.
+# The application itself, and nothing else. Everything it needs is declared
+# above as a conda package, so this entry only puts the source tree on the
+# path. A third-party package appearing here is a supply-chain exception and
+# needs the reasoning and an exit condition recorded beside it --
+# tests/unit/test_dependency_policy.py fails until that happens.
 [pypi-dependencies]
 django-15-factor-base = { path = ".", editable = true }
-# From PyPI rather than conda-forge, which is otherwise the rule here.
-# Upstream declares `importlib-metadata<5.0; python_version < "3.8"`, but the
-# conda-forge recipe drops the environment marker and applies the cap
-# unconditionally. That collides head-on with opentelemetry-api, which needs
-# importlib-metadata>=6.0, and makes the two impossible to install together.
-# PyPI honours the marker, so on Python 3.14 there is no cap at all.
-django-celery-beat = ">=2.9,<3"
 
 # Build with the conda-forge hatchling/hatch-vcs from the dev feature instead
 # of letting the build frontend fetch its own copies from PyPI.
