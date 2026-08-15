@@ -62,8 +62,34 @@ sets the local floor, and every workflow passes `pixi-version: v0.70.2` to
 `setup-pixi`. `pixi.lock` is lock-file format v7, which pixi 0.67.x cannot
 read at all, so the floor is a hard requirement rather than a preference.
 
-Every dependency resolves from conda-forge. The only PyPI entry in
-`pixi.lock` is the editable install of this project itself.
+Every dependency resolves from conda-forge with one exception. `pixi.lock`
+holds exactly two PyPI entries: the editable install of this project itself,
+and `django-celery-beat` — see [Observability](observability.md#note-on-dependencies)
+for why, and for the pull requests that should retire it.
+
+## Running with no external services
+
+Nothing has to be running alongside the application to develop against it — no
+database server, no cache, no broker, no collector. Every deployed dependency
+has a local stand-in, and each one is a deliberate choice rather than a default
+that happens to work:
+
+| Deployed | Local | Set by |
+| --- | --- | --- |
+| PostgreSQL | sqlite at `db.sqlite3` | `config/settings/base.py`, when no `DATABASE_URL` or `POSTGRES_DB` is set |
+| Redis cache | `LocMemCache` | `config/settings/local.py` |
+| Celery and its broker | eager, in-process execution | `CELERY_TASK_ALWAYS_EAGER` in `config/settings/local.py` |
+
+Observability is the exception: it is not substituted at all. The tracer
+provider, the instrumentors and the structlog pipeline run locally exactly as
+they run deployed — only the export step is absent, so spans are discarded when
+they end. See [Observability](observability.md).
+
+Each stand-in trades away something real. sqlite accepts schemas and queries
+PostgreSQL rejects; `LocMemCache` never evicts or shares state across
+processes; eager Celery never exercises delivery, retries, or argument
+serialization. Local success is not by itself evidence that a change works
+deployed.
 
 ## Database
 
@@ -74,9 +100,10 @@ Every dependency resolves from conda-forge. The only PyPI entry in
    `POSTGRES_HOST` / `POSTGRES_PORT`)
 3. sqlite at `db.sqlite3` in the repository root
 
-Step 3 is a local-development convenience. `config/settings/production.py`
-raises `ImproperlyConfigured` if it is reached in production, so a deployment
-can never silently come up on sqlite.
+`config/settings/production.py` raises `ImproperlyConfigured` if step 3 is
+reached in production, so a deployment can never silently come up on sqlite.
+Point `DATABASE_URL` at a real PostgreSQL instance whenever you need to check
+behaviour the sqlite backend cannot show you.
 
 ## Tasks
 

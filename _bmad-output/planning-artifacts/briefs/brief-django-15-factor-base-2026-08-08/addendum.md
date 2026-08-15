@@ -2,7 +2,7 @@
 title: "Addendum: django-15-factor-base Product Brief"
 status: draft
 created: 2026-08-09
-updated: 2026-08-09
+updated: 2026-08-14
 ---
 
 # Addendum
@@ -15,7 +15,9 @@ Depth captured during brief discovery that belongs to downstream documents — P
 
 ### 1.1 Credential paths that currently bypass the IdP
 
-Three defaults survived the fork from `cookiecutter-django` and each contradicts the IdP-only posture. All three are verified in the source, not inferred.
+Three defaults survived the fork from `cookiecutter-django`. All three are verified in the source, not inferred.
+
+The defect is not that these paths exist — §1.6 keeps every one of them available for local development. It is that they are **enabled by default and unguarded**, so a deployed component bypasses the IdP unless someone remembers to configure it not to. The remediation inverts that: available where they are configured on, refused at startup where they are not permitted.
 
 | # | Location | Current state | Effect |
 |---|---|---|---|
@@ -58,7 +60,37 @@ Channel check (resolved): both are on conda-forge — `pyjwt` 2.13.0 and `crypto
 
 ### 1.5 Consequences already applied
 
-`PASSWORD_HASHERS` and `argon2-cffi` were removed: with no locally issued or verified password, the component has no reason to prefer a hasher and Django's defaults stand. Note this removed the *dependency*, not local password authentication — that is the rewire described above, which remains outstanding. `AUTH_PASSWORD_VALIDATORS` was deliberately retained while any residual password path exists.
+`PASSWORD_HASHERS` and `argon2-cffi` were removed from `base.py`: no deployed component issues or verifies a password, so it has no reason to prefer a hasher and Django's defaults stand. Note this removed the *dependency*, not local password authentication — that is the rewire described above, which remains outstanding. `AUTH_PASSWORD_VALIDATORS` was deliberately retained, and §1.6 gives it a permanent reason to stay: local accounts have passwords.
+
+`src/config/settings/test.py:31` still overrides `PASSWORD_HASHERS` to `MD5PasswordHasher` for suite speed. That was a residual artifact when the target was IdP-only everywhere; under §1.6 it is correct and stays.
+
+### 1.6 Local development posture
+
+Deployed components authenticate exclusively against the IdP. Local development requires local users and local admins, because a developer must be able to work without a reachable IdP realm. This reverses the earlier position that no local authentication of any kind would exist; it does not soften the deployed posture.
+
+**Enforcement is a startup refusal, not a default.** `src/config/settings/production.py:26-28` already establishes the pattern for the database — it raises `ImproperlyConfigured` when the sqlite fallback is reached rather than quietly preferring PostgreSQL. Local authentication must be guarded the same way: production settings inspect the credential surface and refuse to start when any local path is live.
+
+The check must cover every path in the §1.1 table, since each is a separate mechanism:
+
+| Path | What production must refuse |
+|---|---|
+| Local login backend | `ModelBackend` present in `AUTHENTICATION_BACKENDS` |
+| allauth local login | a non-empty `ACCOUNT_LOGIN_METHODS` |
+| Admin bypass | `DJANGO_ADMIN_FORCE_ALLAUTH` not true |
+| Static API tokens | `rest_framework.authtoken` installed, or `TokenAuthentication` in the DRF defaults |
+
+Two failure modes escape the refusal on its own, and therefore need explicit tests: a component deployed with `DJANGO_SETTINGS_MODULE` pointing at the local settings module never reaches the production checks at all; and a credential path added later is unguarded until someone extends the check. Tests must assert that production settings *refuse*, not merely that they start.
+
+**Simulating claims locally.** Local sign-in constructs a synthetic claims payload — the developer's groups, email, and whatever else the mapper consumes — and passes it to the same claims-to-groups mapper the OIDC path uses. Nothing about the mapper is aware of which path produced the claims. This makes open item 2 (where the shared mapper lives) load-bearing rather than a tidiness concern: the local path is a third consumer of it.
+
+What that exercises: the mapping itself, `is_staff` promotion by designated group, and re-sync on every login, including revocation when a developer's synthetic groups change. What it does not exercise: JWKS retrieval, signature verification, and issuer, audience, and expiry validation.
+
+**The programmatic flow locally.** A development-only task mints a JWT signed by a local keypair, and local settings point the JWKS location at that key. The component then validates the token through the real `BaseAuthentication` subclass described in §1.3 — signature, `iss`, `aud`, and `exp` all genuinely checked. Only the identity of the signer is local; no verification step is stubbed or skipped. The local keypair is a development artifact and must never be present in, or reachable from, a deployed component.
+
+Rejected for the programmatic flow:
+
+- **`SessionAuthentication` locally** — trivial to add, but it leaves the Bearer authentication class unexercised until CI, on a component whose immovable core is API-first.
+- **A local IdP container (Keycloak, dex)** — the highest fidelity available, and rejected for consistency: it reintroduces exactly the per-machine service dependency that the sqlite and in-memory-cache substitutions exist to remove. It remains the right answer for deliberate work on the authentication layer itself, as an optional path rather than a requirement.
 
 ## 2. Feature-to-surface matrix
 
@@ -136,7 +168,20 @@ Four toggles suggest 16 combinations. The broker constraint eliminates one of fo
 
 3 valid pairings × UI (2) × Object storage (2) = **12 valid combinations.**
 
-### 4.3 Policy
+### 4.3 What each combination is verified against
+
+Local development and deployment do not use the same backing services (§6), so a combination that passes on the local substitutes has not been shown to work deployed. Each combination therefore carries two checks, which are not the same check run twice:
+
+| Check | Backing services | Establishes |
+|---|---|---|
+| Full gate | PostgreSQL | tests, ≥90% coverage, strict typing, lint, build against the real backend |
+| Local runnability | none | the component starts, serves, and authenticates a developer with nothing installed |
+
+Neither the database backend nor the authentication mode is a feature toggle. They are properties of the environment a combination runs in, so they do not multiply the combination space — 12 remains 12.
+
+**Current state, and the reason this is stated explicitly.** No workflow in `.github/workflows/` declares a `services:` block or sets `DATABASE_URL`, so the suite has only ever run against the sqlite fallback. PostgreSQL is immovable core and nothing has verified it. The gate must gain a PostgreSQL service before criterion 1 means what it says.
+
+### 4.4 Policy
 
 Exhaustive verification of all 12 while the space stays small. Past roughly 32 valid combinations, replace with all-pairs coverage plus unconditional verification of every preset. All-pairs holds six to eight features at roughly six to ten builds rather than 64 to 256.
 
@@ -150,15 +195,61 @@ Deployment configuration lives in a separate repository outside the control of t
 - No reliance on a fixed UID or writable arbitrary paths — the target platform assigns arbitrary non-root UIDs
 - A health signal the platform can probe
 - OTLP export controlled by environment; traces are dropped rather than retried when no collector is configured
-- PostgreSQL required in every deployed environment; the sqlite fallback is a local-development convenience and production settings already raise if it is reached
+- PostgreSQL required in every deployed environment; production settings already raise if the sqlite path is reached
 
-Open item: whether the sqlite fallback survives into generated components or is confined to the reference application.
+## 6. Local development interface
 
-## 6. Open items carried forward
+The counterpart to §5. Where the deployment interface states what a component must present to the platform, this states what it must not demand of a developer: **nothing running alongside it.**
+
+### 6.1 The substitutions
+
+| Deployed | Local | Mechanism | Preserved | Not exercised |
+|---|---|---|---|---|
+| PostgreSQL | sqlite | `base.py:57-78` selects sqlite when neither `DATABASE_URL` nor `POSTGRES_DB` is set | ORM, migrations, full suite | PostgreSQL-specific DDL and constraint behavior, transaction and isolation semantics, native JSON and array types |
+| Redis cache | in-memory cache | `local.py:22-28` sets `LocMemCache` | The cache API at every call site | Eviction, shared state across processes, serialization |
+| Celery and broker | eager execution | `local.py` sets `CELERY_TASK_ALWAYS_EAGER` and `CELERY_TASK_EAGER_PROPAGATES` | Task bodies, invoked synchronously in-process | Delivery, retries, scheduling, argument serialization, worker concurrency |
+| Corporate IdP | local users and admins | §1.6 — local credential paths, synthetic claims through the shared mapper | Claims-to-groups mapping, `is_staff` promotion, per-login re-sync | JWKS retrieval, signature and issuer validation, key rotation, IdP-side revocation |
+
+### 6.1.1 Observability is not substituted
+
+The four rows above swap an implementation. Observability does not: locally it runs the same code the deployed component runs, and only the terminal export step is absent.
+
+`src/config/observability/telemetry.py` makes **export** conditional and nothing else. `resolve_traces_exporter()` returns `otlp` only when `OTEL_EXPORTER_OTLP_ENDPOINT` or its traces-specific variant is set; with neither present it returns `none` and no span processor is attached. The tracer provider is still installed, all four instrumentors still instrument, spans are still created and ended, and `trace_id` and `span_id` still reach every log line. Spans are discarded at the end of their life rather than never existing.
+
+| Local condition | SDK and instrumentation | Span export | `trace_id` in logs |
+|---|---|---|---|
+| No endpoint set (default) | on | discarded | yes |
+| `OTEL_TRACES_EXPORTER=console` | on | stdout | yes |
+| `OTEL_SDK_DISABLED=true` | off | none | **no** |
+
+The rejected implementation is worth recording, because it is the obvious one: attaching a `BatchSpanProcessor` to an OTLP exporter pointed at an unreachable endpoint. That retries on every export cycle and floods stderr through every test run and every `runserver`. Discarding at the processor is correct; failing at the socket is not.
+
+**Decision: the local default stays discard-at-the-processor, with the console exporter available on demand** (`OTEL_TRACES_EXPORTER=console pixi run runserver`). Making console the dev-environment default was considered and rejected as noise; a file-writing exporter and an opt-in local collector were rejected as new surface for a capability that already works.
+
+**What local development does not exercise:** the OTLP path itself — protobuf serialization, HTTP transport, batch behavior, retry and timeout — since that branch runs only when an endpoint is configured. `tests/unit/test_telemetry.py` covers exporter *selection* comprehensively, but no test drives `BatchSpanProcessor(OTLPSpanExporter())` end to end. Per §4.3 this belongs to the gate. `OTEL_SDK_DISABLED` is the one setting that genuinely turns the capability off, and a deployed component that sets it has silently opted out of an immovable guarantee — a candidate for the §6.3 refusal list.
+
+### 6.1.2 Provenance of the substitutions
+
+Three of the four substitutions already held before this was written, inherited from `cookiecutter-django` and undocumented. Stating them as a contract changes their status: they become properties every generated combination is verified to have (§4.3), rather than defaults that happen to survive feature extraction.
+
+### 6.2 The consequence for the feature constraint
+
+The brief's constraint — background task processing requires a broker, so the generator refuses it without Redis — is a statement about deployed environments. Locally, all 12 combinations run with no broker, because eager execution needs none. Left unstated, the constraint reads as absolute and local development appears to violate it.
+
+### 6.3 What this does not license
+
+The substitutions are for local development only. `production.py` already refuses sqlite; §1.6 extends the same refusal to local credential paths. The in-memory cache and eager Celery are not currently guarded, and a deployed component that silently falls back to either would be a defect of the same class. Whether those two warrant equivalent startup refusals is open.
+
+## 7. Open items carried forward
 
 1. The phase-2 verification harness — how generated output is built and gated once the repository becomes a FreeMarker template
-2. Whether the sqlite development fallback survives generation
-3. Where the shared claims-to-groups mapper lives so both authentication flows consume one implementation
-4. The health-signal contract expected by the deployment repository
+2. Where the shared claims-to-groups mapper lives so all three authentication paths — interactive, programmatic, and local synthetic (§1.6) — consume one implementation
+3. The health-signal contract expected by the deployment repository
+4. How local personas are defined and seeded: where the synthetic claims live, and whether the first local admin arrives via `createsuperuser` or a seeding task that can express several developers with different group memberships
+5. Where the development signing keypair lives, how it is generated, and what keeps it out of a deployed component
+6. Whether the in-memory cache, eager Celery, and `OTEL_SDK_DISABLED` warrant startup refusals in production settings, as sqlite and local credentials do (§6.3)
+7. Whether local runnability is verified by a smoke check per combination or by the suite itself running twice
+8. How the component's own name is parameterized. The tree is `src/django_service/`, and every generated component needs its own package name, module paths, and `service.name` on the telemetry resource. The generator engine is out of scope, but making the name a template parameter is the template's job, not the engine's
+9. The single supply-chain exception is pending upstream, not permanent. `django-celery-beat` resolves from PyPI because the conda-forge recipe transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"` without the environment marker, making the cap unconditional and irreconcilable with `opentelemetry-api`'s `>=6.0,<8.8.0`. [conda-forge/django-celery-beat-feedstock#18](https://github.com/conda-forge/django-celery-beat-feedstock/pull/18) removes the cap, and [celery/django-celery-beat#1080](https://github.com/celery/django-celery-beat/pull/1080) removes it upstream — executing a `TODO` upstream had already written against its own requirement. On merge and build, the dependency moves to conda-forge and the exception in the brief disappears
 
-Resolved during discovery: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present.
+Resolved: conda-forge availability for `django-storages`, `boto3`, `pyjwt`, and `cryptography` — all four confirmed present. Whether the sqlite fallback survives generation — it does, promoted from a convenience to the declared local contract in §6.
