@@ -36,15 +36,24 @@ assert NAME_MAX_LENGTH is not None, "users.User.name must declare a max_length f
 # whichever it finds to `env.db()`.
 POSTGRES_URL_SCHEMES = ("postgres://", "postgresql://")
 
+# Sentinel distinguishing "the column reports no width" from "there is no such
+# column" -- a bare `next()` default of None would conflate the two.
+_MISSING = object()
+
 
 @pytest.mark.django_db
 def test_the_connection_is_the_backend_database_url_names() -> None:
-    """The gate's `DATABASE_URL` actually reached the live connection.
+    """The declared environment actually reached the live connection.
 
     Everything else in this file passes on either backend, so without this the
     suite cannot tell a PostgreSQL gate from a sqlite one and FR-32 could be
     reverted -- by emptying the URL, or by anything overriding `DATABASES`
     downstream of it -- with every test still green.
+
+    Both PostgreSQL-selecting branches of `config/settings/base.py:57-69` are
+    read, not just the URL: a developer configured through `POSTGRES_DB` is on
+    PostgreSQL too, and deriving the expectation from `DATABASE_URL` alone
+    would fail their run for being correctly configured.
 
     This is not the engine conditional AC #2 forbids. That prohibition is
     against suppressing a PostgreSQL failure; nothing here skips or tolerates
@@ -52,7 +61,8 @@ def test_the_connection_is_the_backend_database_url_names() -> None:
     asserted unconditionally, so both legs assert and either can fail.
     """
     url = os.environ.get("DATABASE_URL", "")
-    expected_vendor = "postgresql" if url.startswith(POSTGRES_URL_SCHEMES) else "sqlite"
+    selects_postgres = url.startswith(POSTGRES_URL_SCHEMES) or (not url and bool(os.environ.get("POSTGRES_DB")))
+    expected_vendor = "postgresql" if selects_postgres else "sqlite"
     assert connection.vendor == expected_vendor, (
         f"DATABASE_URL={url!r} implies a {expected_vendor} connection, got {connection.vendor}"
     )
@@ -84,20 +94,25 @@ def test_a_value_at_the_declared_max_length_round_trips_intact() -> None:
 def test_the_column_is_declared_at_the_max_length_the_model_states() -> None:
     """The width lives in the schema, not only in the Python declaration.
 
-    `internal_size` is what the backend itself reports for the column, so this
-    is the one assertion here that reads the database rather than the model.
-    PostgreSQL reports the `varchar(n)` width as an integer, which pins it
-    exactly; sqlite reports `None` because it does not enforce a width at all.
-    Admitting `None` keeps the test skip-free and engine-blind while leaving it
-    strictly stronger on the gate -- that asymmetry is R-5, stated as an
-    assertion instead of a comment.
+    `display_size` is the declared `varchar(n)` width as the backend itself
+    reports it, so this is the one assertion here that reads the database
+    rather than the model. Both backends report it as an integer -- PostgreSQL
+    derives it from the column's type modifier, sqlite parses it out of the
+    stored `varchar(255)` DDL -- so the assertion is exact and unconditional on
+    either.
+
+    Not `internal_size`: that is the fixed-width byte size, which is `None` for
+    every variable-length type on *both* backends, so a check against it can
+    never fail and would pin nothing. What sqlite does not give is enforcement
+    -- it stores an over-length value happily -- which is why the sibling
+    boundary tests below exist and why the gate runs on PostgreSQL. That is the
+    parity gap R-5 names; it is not a reason to weaken this assertion.
     """
     with connection.cursor() as cursor:
         columns = connection.introspection.get_table_description(cursor, "users_user")
-    reported = next(column.internal_size for column in columns if column.name == "name")
-    assert reported in (None, NAME_MAX_LENGTH), (
-        f"users_user.name is declared {reported} wide, model says {NAME_MAX_LENGTH}"
-    )
+    reported = next((column.display_size for column in columns if column.name == "name"), _MISSING)
+    assert reported is not _MISSING, "users_user has no column named 'name'"
+    assert reported == NAME_MAX_LENGTH, f"users_user.name is declared {reported} wide, model says {NAME_MAX_LENGTH}"
 
 
 @pytest.mark.django_db

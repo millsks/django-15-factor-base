@@ -141,6 +141,19 @@ def test_an_empty_database_url_falls_back_rather_than_selecting_nothing(monkeypa
     assert base.DATABASES["default"]["ENGINE"] == SQLITE_ENGINE
 
 
+def test_an_empty_postgres_db_falls_back_rather_than_half_selecting(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`POSTGRES_DB=""` is the sibling of the empty-URL case, and behaves alike.
+
+    `base.py:59` is a truthiness branch too, so an exported-but-empty
+    `POSTGRES_DB` skips branch 2 rather than entering it and raising for the
+    missing credentials. Pinned because the two branches are read the same way
+    and only one of them was covered.
+    """
+    monkeypatch.setenv("POSTGRES_DB", "")
+    base = _load_base()
+    assert base.DATABASES["default"]["ENGINE"] == SQLITE_ENGINE
+
+
 def test_no_database_environment_falls_back_to_sqlite() -> None:
     """Branch 3 (AC #4): a developer with nothing running still gets a database.
 
@@ -186,10 +199,14 @@ def test_every_branch_sets_atomic_requests(
     exactly the kind of configuration a sqlite-only suite never proves. The
     assertion iterates every configured alias rather than naming `default`,
     because AD-9 forecasts a second database and a check written against one
-    key would quietly stop covering the rest.
+    key would quietly stop covering the rest. It reads the key with `.get()`
+    for that same reason: when the second alias does arrive, this should report
+    which database is missing the setting, not raise a bare `KeyError` from
+    inside a generator expression.
     """
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
     base = _load_base()
     assert base.DATABASES["default"]["ENGINE"] == expected_engine
-    assert all(config["ATOMIC_REQUESTS"] is True for config in base.DATABASES.values())
+    without = [alias for alias, config in base.DATABASES.items() if config.get("ATOMIC_REQUESTS") is not True]
+    assert without == [], f"ATOMIC_REQUESTS is not set on {without}"

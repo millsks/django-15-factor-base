@@ -49,15 +49,23 @@ jobs:
           POSTGRES_PASSWORD: gatepass
           POSTGRES_DB: gatedb
         ports: ["5432:5432"]
+        # `-h localhost` is load-bearing, not decoration. The postgres image's
+        # entrypoint runs initdb against a temporary server started with
+        # `listen_addresses=''` (docker-entrypoint.sh), so a bare `pg_isready`
+        # -- which defaults to the local unix socket -- reports success during
+        # that window while TCP on 5432 is still closed. The runner connects
+        # over TCP, so the health gate has to test TCP or it can green-light a
+        # step that then fails connection-refused for reasons unrelated to it.
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -h localhost -U gateuser -d gatedb"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
-    # Job level, not step level, so every step of `pixi run ci` sees it.
-    # config/settings/base.py:57 reads DATABASE_URL first and hands it to
-    # env.db(), so this URL is the whole mechanism that selects PostgreSQL --
+    # Job level rather than step level: `pixi run ci` fans out into five steps
+    # and the database-touching ones must not depend on which step declares the
+    # variable. config/settings/base.py:57 reads DATABASE_URL first and hands it
+    # to env.db(), so this URL is the whole mechanism that selects PostgreSQL --
     # no settings change is involved.
     env:
       DATABASE_URL: postgres://gateuser:gatepass@localhost:5432/gatedb

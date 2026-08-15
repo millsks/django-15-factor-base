@@ -11,6 +11,7 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 import yaml
@@ -47,11 +48,18 @@ THREE_OS_RUNNERS = {"ubuntu-latest", "windows-latest", "macos-latest"}
 # that carries the reason.
 POSTGRES_IMAGE_PREFIX = "postgres:"
 
-# The scheme half of the gate's DATABASE_URL. `django-environ` accepts both
-# spellings for PostgreSQL, and `config/settings/base.py:57` branches on the
-# variable being truthy, so an empty or sqlite URL would revert the whole gate
-# to the substitution while every other assertion in this file still passed.
-POSTGRES_URL_SCHEMES = ("postgres://", "postgresql://")
+# URL schemes that select PostgreSQL, as `urlsplit().scheme` reports them.
+# `django-environ` accepts both spellings, and `config/settings/base.py:57`
+# branches on the variable being truthy, so an empty or sqlite URL would revert
+# the whole gate to the substitution while every other assertion here passed.
+POSTGRES_URL_SCHEMES = frozenset({"postgres", "postgresql"})
+
+# Image families that constitute "a database service" for the exclusivity checks
+# below. Broader than POSTGRES_IMAGE_PREFIX on purpose: the reason the matrix
+# may not have a database is that GitHub Actions `services:` containers are
+# Linux-only, and that reason does not care which database it is. Matched on the
+# repository segment so a registry-qualified or untagged image cannot slip past.
+DATABASE_IMAGE_NAMES = frozenset({"postgres", "postgis", "mysql", "mariadb"})
 
 
 @pytest.fixture(scope="module")
@@ -178,6 +186,16 @@ def test_gate_steps_run_only_inside_the_gate(task: str, workflows: Workflows) ->
     assert offenders == [], f"{task} must run only in the gate, found in {offenders}"
 
 
+def _is_database_image(image: str) -> bool:
+    """Report whether a service image is a database, registry prefix or not.
+
+    Matched on the repository segment rather than a string prefix so that
+    `ghcr.io/example/postgres:18` and an untagged `postgres` are both caught.
+    """
+    repository = image.split("@", 1)[0].rsplit(":", 1)[0]
+    return repository.rsplit("/", 1)[-1].lower() in DATABASE_IMAGE_NAMES
+
+
 def _postgres_service(workflows: Workflows) -> dict[str, Any]:
     """Return the gate job's PostgreSQL service definition."""
     services = workflows["ci.yml"]["jobs"]["gate"].get("services", {})
@@ -196,6 +214,15 @@ def test_the_gate_declares_a_postgresql_service(workflows: Workflows) -> None:
     )
 
 
+def _published_host_port(service: dict[str, Any]) -> str:
+    """Return the host side of the service's `host:container` port mapping."""
+    for port in service.get("ports", []):
+        host, _, container = str(port).partition(":")
+        if container == "5432":
+            return host
+    return ""
+
+
 def test_the_postgresql_service_is_health_gated_and_reachable(workflows: Workflows) -> None:
     """The service must be ready before a step runs, and be published to the runner.
 
@@ -203,10 +230,17 @@ def test_the_postgresql_service_is_health_gated_and_reachable(workflows: Workflo
     still coming up, which fails as connection-refused on a change that has
     nothing to do with the database. Without the port mapping the URL below
     resolves to nothing on `localhost`. Both are silent-in-review, loud-at-3am.
+
+    The health command must reach the server over TCP, not the local socket.
+    The postgres image runs initdb against a temporary server with
+    `listen_addresses=''`, so a socket-scoped `pg_isready` reports ready while
+    the port the runner uses is still closed -- a health gate that opens early
+    is barely better than none.
     """
     service = _postgres_service(workflows)
     options = str(service.get("options", ""))
     assert "pg_isready" in options, f"the postgres service must health-check with pg_isready, got {options!r}"
+    assert "-h localhost" in options, f"the health check must probe TCP, not the unix socket, got {options!r}"
 
     ports = [str(port) for port in service.get("ports", [])]
     assert any(port.endswith(":5432") for port in ports), f"the postgres service must publish 5432, got {ports}"
@@ -215,8 +249,9 @@ def test_the_postgresql_service_is_health_gated_and_reachable(workflows: Workflo
 def test_the_gate_sets_the_database_url_for_the_whole_job(workflows: Workflows) -> None:
     """FR-32: the gate run is pointed at that service.
 
-    The variable must sit on the job's own `env`, not on a step's: `pixi run ci`
-    runs five steps and every one of them has to see the same database.
+    The variable must sit on the job's own `env`, not on a step's, so that no
+    step of `pixi run ci` can be reordered or added into a position where the
+    database-touching ones no longer see it.
     """
     gate = workflows["ci.yml"]["jobs"]["gate"]
     assert "DATABASE_URL" in gate.get("env", {}), "DATABASE_URL must be set at job level on the gate"
@@ -229,17 +264,41 @@ def test_the_database_url_names_the_declared_postgresql_service(workflows: Workf
     URL -- pass this file while reverting the gate to the substitution, because
     `config/settings/base.py:57` tests the variable for truthiness. That is the
     one edit that would make FR-32 false with a green suite, so it is pinned to
-    the credentials of the service declared a few lines above it in ci.yml.
+    the service declared a few lines above it in ci.yml.
+
+    The URL is parsed rather than substring-searched. Containment would accept
+    a credential that merely appears somewhere in the string (`POSTGRES_DB:
+    user` is "in" `gateuser`), would break on a legitimate `?sslmode=` query
+    parameter, and above all would not notice the host and port -- the halves
+    that decide whether the URL reaches the declared service at all. A
+    `ports: ["55432:5432"]` edit passed every previous assertion here and left
+    the gate connection-refused.
     """
     url = str(workflows["ci.yml"]["jobs"]["gate"]["env"]["DATABASE_URL"])
-    assert url.startswith(POSTGRES_URL_SCHEMES), f"the gate's DATABASE_URL must name PostgreSQL, got {url!r}"
+    parsed = urlsplit(url)
+    assert parsed.scheme in POSTGRES_URL_SCHEMES, f"the gate's DATABASE_URL must name PostgreSQL, got {url!r}"
 
-    service_env = _postgres_service(workflows).get("env", {})
-    for key in ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"):
-        value = str(service_env[key])
-        assert value in url, f"the gate's DATABASE_URL does not carry the service's {key}: {url!r}"
-    assert url.rstrip("/").endswith(f"/{service_env['POSTGRES_DB']}"), (
+    service = _postgres_service(workflows)
+    service_env = service.get("env", {})
+    missing = {"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"} - service_env.keys()
+    assert not missing, f"the postgres service must declare its own credentials, missing {sorted(missing)}"
+
+    assert parsed.username == str(service_env["POSTGRES_USER"]), (
+        f"the gate's DATABASE_URL user is not the service's POSTGRES_USER: {url!r}"
+    )
+    assert parsed.password == str(service_env["POSTGRES_PASSWORD"]), (
+        f"the gate's DATABASE_URL password is not the service's POSTGRES_PASSWORD: {url!r}"
+    )
+    assert parsed.path.rstrip("/") == f"/{service_env['POSTGRES_DB']}", (
         f"the gate's DATABASE_URL must select the service's database, got {url!r}"
+    )
+
+    # The runner reaches a service container through the port it publishes on
+    # the host, so the URL's host and port are as load-bearing as the password.
+    assert parsed.hostname == "localhost", f"a service container is reached on localhost, got {url!r}"
+    published = _published_host_port(service)
+    assert str(parsed.port) == published, (
+        f"the gate's DATABASE_URL port {parsed.port} is not the service's published port {published!r}"
     )
 
 
@@ -252,7 +311,10 @@ def test_no_other_job_declares_a_database_service(workflows: Workflows) -> None:
     Scoped to *database* services on purpose: a future non-database service --
     a Redis for Celery integration tests, say -- is legitimate work that this
     check has no business blocking, and the Linux-runner reasoning above does
-    not extend to it.
+    not extend to it. It is not scoped to `postgres:` though: the reason the
+    matrix may not have a database does not care which database it is, and a
+    `mysql:8` or a registry-qualified `ghcr.io/.../postgresql:18` would break
+    the same two legs for the same reason.
     """
     offenders = [
         f"{name}:{job_name}"
@@ -260,7 +322,7 @@ def test_no_other_job_declares_a_database_service(workflows: Workflows) -> None:
         for job_name, job in workflow.get("jobs", {}).items()
         if not (name == "ci.yml" and job_name == "gate")
         for service in job.get("services", {}).values()
-        if str(service.get("image", "")).startswith(POSTGRES_IMAGE_PREFIX)
+        if _is_database_image(str(service.get("image", "")))
     ]
     assert offenders == [], f"only the gate job may declare a database service: {offenders}"
 
@@ -272,14 +334,44 @@ def test_no_other_job_points_itself_at_a_database(workflows: Workflows) -> None:
     the same mistake. A matrix leg that set `DATABASE_URL` with no service to
     back it would fail on connection rather than run on the substitution, and
     the three-OS claim in ci.yml's comment would quietly stop being true.
+
+    Step-level `env:` is checked as well as job-level, because the two are
+    interchangeable for this purpose and only pinning one of them leaves the
+    obvious way in.
     """
     offenders = [
         f"{name}:{job_name}"
         for name, workflow in workflows.items()
         for job_name, job in workflow.get("jobs", {}).items()
-        if "DATABASE_URL" in job.get("env", {}) and not (name == "ci.yml" and job_name == "gate")
+        if not (name == "ci.yml" and job_name == "gate")
+        if "DATABASE_URL" in job.get("env", {})
+        or any("DATABASE_URL" in step.get("env", {}) for step in job.get("steps", []))
     ]
     assert offenders == [], f"only the gate job may set DATABASE_URL: {offenders}"
+
+
+def test_some_job_still_exercises_the_sqlite_substitution(workflows: Workflows) -> None:
+    """AC #4: sqlite is exercised in CI, not merely left configured.
+
+    Once the gate moved onto PostgreSQL this became a real hole rather than a
+    theoretical one: the unit tests open no database connection at all, so
+    without an integration run somewhere without a `DATABASE_URL`, nothing in
+    CI touches sqlite and PostgreSQL-only ORM code passes every job while
+    breaking `pixi run ci` for every developer with nothing running.
+
+    The step that closes it lives on the compatibility matrix and was the only
+    part of this change with nothing asserting it -- deleting it was silent,
+    while its sibling checks above guarded loudly against a database appearing
+    where it should not. This is the symmetric half.
+    """
+    offenders = [
+        f"{name}:{job_name}"
+        for name, workflow in workflows.items()
+        for job_name, job in workflow.get("jobs", {}).items()
+        if "DATABASE_URL" not in job.get("env", {})
+        if any(_invokes(step.get("run", ""), "test-integration") for step in job.get("steps", []) if step.get("run"))
+    ]
+    assert offenders != [], "no CI job runs pixi run test-integration without a DATABASE_URL; sqlite is untested"
 
 
 def test_reference_application_keeps_its_three_os_matrix(workflows: Workflows) -> None:

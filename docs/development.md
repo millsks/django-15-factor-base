@@ -128,14 +128,26 @@ host port is deliberately not 5432 — that one is often already taken by a loca
 PostgreSQL — and `--rm` means the container disposes of itself on stop:
 
 ```sh
+docker rm -f pg-local 2>/dev/null
 docker run -d --rm --name pg-local -e POSTGRES_USER=gateuser \
   -e POSTGRES_PASSWORD=gatepass -e POSTGRES_DB=gatedb -p 55432:5432 postgres:18
-until docker exec pg-local pg_isready -U gateuser -d gatedb; do sleep 1; done
+trap 'docker stop pg-local >/dev/null 2>&1' EXIT
+
+for _ in $(seq 30); do
+  docker exec pg-local pg_isready -h localhost -U gateuser -d gatedb && break
+  sleep 1
+done
 
 DATABASE_URL=postgres://gateuser:gatepass@localhost:55432/gatedb pixi run ci
-
-docker stop pg-local
 ```
+
+The readiness loop is bounded and the cleanup is a `trap`, because the case
+this recipe exists for is the one where `pixi run ci` **fails** — a trailing
+`docker stop` would not run, and would leave port 55432 held by the container
+you are about to start again on the next attempt. `pg_isready -h localhost`
+rather than the bare form for the same reason the gate uses it: the postgres
+image's init phase runs a socket-only server that answers the bare check while
+TCP is still closed.
 
 `--reuse-db` is set in `pyproject.toml`, which is right for a CI service
 container recreated on every run but hides schema drift across repeated local

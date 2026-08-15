@@ -268,6 +268,7 @@ migration directory.
 | 2026-08-15 | Added `tests/unit/test_database_selection.py` and `tests/integration/test_postgres_schema.py`, and extended `tests/unit/test_gate_contract.py` with the service, `DATABASE_URL` and no-service-on-the-matrix assertions. |
 | 2026-08-15 | Recorded the sqlite/PostgreSQL parity gap in `docs/development.md` as risk R-5, with the local reproduction recipe and the `--reuse-db` / `--create-db` caveat. |
 | 2026-08-15 | Applied 11 review patches, all in tests, comments and docs — no source or workflow behaviour changed beyond one added sqlite integration leg. The theme all three reviewers converged on: the story's mechanism could be silently reverted with a green suite, because nothing asserted the *value* of `DATABASE_URL` or that the live connection was the backend it names. |
+| 2026-08-15 | Follow-up review pass: 11 more patches. The one that mattered — `internal_size` is `None` for `varchar` on PostgreSQL too, so the story's only schema-reading assertion could not fail on any backend; switched to `display_size` and mutation-verified. Also pinned the URL's host and port (a `55432:5432` port edit had passed every check while breaking the gate), scoped the service health check to TCP, and asserted the sqlite integration leg that nothing was holding in place. No source file touched; one real CI behaviour change, the health command. |
 
 ## Review Triage Log
 
@@ -291,85 +292,130 @@ migration directory.
   - `[low]` `[patch]` The `postgres:`-family assertion and the `ci.yml` comment both claimed the `libpq` pin fixes the server major version. It does not — libpq is the *client* library and an 18 client connects to an older server without complaint. Both rationales corrected to say the tag and the pin are kept aligned by hand.
   - `[low]` `[patch]` The `docs/development.md` reproduction recipe could not be pasted (a literal `DATABASE_URL=...`), invoked `pytest` directly against the project's pixi-only rule, started a container with no `--rm` or removal step, and bound host port 5432 — the port the dev's own debug log records as already taken. Rewritten as a runnable sequence on port 55432 using `pixi run test-cov --create-db`, which was verified to accept the passthrough flag.
 
+### 2026-08-15 — Review pass (follow-up)
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 1, medium 5, low 5)
+- defer: 0
+- reject: 16
+- addressed_findings:
+  - `[high]` `[patch]` `test_the_column_is_declared_at_the_max_length_the_model_states` — the story's one assertion that reads the schema rather than the model — **could not fail on either backend.** It read `internal_size`, which is the *fixed-width* byte size and is `None` for every variable-length type on PostgreSQL as well as sqlite; `assert reported in (None, NAME_MAX_LENGTH)` was therefore unconditionally true, and the docstring's claim that "PostgreSQL reports the `varchar(n)` width as an integer, which pins it exactly" was false. Verified at source (`psycopg/_column.py:83-86` returns `None` when `PQfsize` is negative; `django/db/backends/postgresql/introspection.py:118` passes it straight through) and empirically on a real `postgres:18`. Switched to `display_size`, which both backends report as `255`, and the assertion is now exact and unconditional. Mutation-verified: expecting a wrong width now fails on PostgreSQL *and* on sqlite. A `next()` with no default was also replaced with a sentinel so a renamed column reports a readable failure instead of `StopIteration`.
+  - `[medium]` `[patch]` The gate contract pinned the `DATABASE_URL`'s credentials but not its **host or port**, so `ports: ["55432:5432"]` — which satisfies the `endswith(":5432")` check — passed every assertion while leaving the gate connection-refused. The URL is now parsed with `urlsplit` and its host and port are compared against the host side of the service's own port mapping. Parsing also removes two side defects of the previous substring containment: `POSTGRES_DB: user` would have "matched" `gateuser`, and a legitimate `?sslmode=` query parameter would have broken the `endswith` on the database name. Mutation-verified.
+  - `[medium]` `[patch]` The service's health check was a bare `pg_isready`, which probes the **local unix socket**. The postgres image's entrypoint runs initdb against a temporary server started with `listen_addresses=''` (confirmed at `docker-entrypoint.sh:297` inside the image), so the bare check reports ready during that window while TCP — the only thing the runner can reach — is still closed. The health gate could therefore green-light a step that then fails connection-refused for reasons unrelated to the change. Now `pg_isready -h localhost -U gateuser -d gatedb`, verified locally to reach `healthy` in ~3s, and asserted by the contract test. Mutation-verified.
+  - `[medium]` `[patch]` The `pixi run test-integration` leg added to the `compatibility` job by the previous pass — the only place in CI that opens a sqlite connection at all — had **nothing asserting it**, while its sibling checks guarded loudly against a database appearing where it should not. Deleting it silently reinstated exactly the hole it was added to close. Added `test_some_job_still_exercises_the_sqlite_substitution`. Mutation-verified.
+  - `[medium]` `[patch]` `test_the_connection_is_the_backend_database_url_names` derived its expected vendor from `DATABASE_URL` alone, so a developer configured through the `POSTGRES_DB` branch of `base.py:59` — genuinely on PostgreSQL — would have had the test fail them for being correctly configured. Both PostgreSQL-selecting branches are now read.
+  - `[medium]` `[patch]` `_postgres_service()` returns `{}` when no service matches, and the caller then indexed `service_env["POSTGRES_USER"]` — so removing the service, retagging the image, or relying on the image's default credentials produced a bare `KeyError` instead of the assertion messages written beside it. The missing keys are now reported by name.
+  - `[low]` `[patch]` `test_every_branch_sets_atomic_requests` indexed `config["ATOMIC_REQUESTS"]` while iterating every alias, but `base.py:80` sets it on `default` only — so AD-9's forecast second database would have raised `KeyError` from inside a generator expression rather than reporting which database was missing the setting. Reads with `.get()` and names the offenders.
+  - `[low]` `[patch]` Both the `ci.yml` comment and the contract test's docstring justified job-level `env:` with "every step of `pixi run ci` sees it" / "every one of them has to see the same database" — false, since `precommit`, `build`, `typecheck` and `lint` open no database. Job level is still right, for the reason now stated: no step can be reordered or added into a position where the database-touching ones stop seeing it.
+  - `[low]` `[patch]` `test_no_other_job_declares_a_database_service` matched only images literally beginning `postgres:`, so `mysql:8`, `mariadb`, an untagged `postgres`, or a registry-qualified `ghcr.io/.../postgres:18` all evaded a check whose Linux-runner rationale covers them identically. Now matched on the image's repository segment across four database families. Its sibling `test_no_other_job_points_itself_at_a_database` inspected only job-level `env`, leaving step-level `env:` as the obvious way in; both are now scanned.
+  - `[low]` `[patch]` `POSTGRES_DB=""` is the exact sibling of the empty-`DATABASE_URL` case already pinned — `base.py:59` is a truthiness branch too — and was uncovered. Added `test_an_empty_postgres_db_falls_back_rather_than_half_selecting`.
+  - `[low]` `[patch]` The `docs/development.md` reproduction recipe spun forever if the container failed to start (`until docker exec … pg_isready` retries a dead container indefinitely) and left port 55432 held whenever `pixi run ci` failed — which is the only case the recipe exists for, since a trailing `docker stop` does not run under `set -e`. Now a bounded loop with a `trap … EXIT` cleanup, a `docker rm -f` guard against a stale name, and the same TCP-scoped `pg_isready` the gate uses.
+
 ## Auto Run Result
 
 Status: done
 
 ### Summary of implemented change
 
-CI's `gate` job now declares a health-checked `postgres:18` service and sets
+CI's `gate` job declares a health-checked `postgres:18` service and sets
 `DATABASE_URL` at job level, so all five steps of `pixi run ci` execute against
 PostgreSQL rather than the sqlite substitution (FR-32, AD-18). No settings
-change was involved — `src/config/settings/base.py:57` already reads
-`DATABASE_URL` first, so the URL is the whole mechanism, and the file is
+change is involved — `src/config/settings/base.py:57` already reads
+`DATABASE_URL` first, so the URL is the whole mechanism, and that file remains
 byte-for-byte unchanged. The suite went green against real PostgreSQL 18.4 on
 the first run, so AC #2 is satisfied vacuously: no sqlite-permissive failure
-existed to fix, and nothing under `src/` is touched by this story.
+existed to fix, and nothing under `src/` is touched by this story. The sqlite
+substitution is preserved for local development and recorded as risk R-5.
 
-The sqlite substitution is preserved for local development and documented as
-risk R-5 — a knowingly traded parity gap, not a defect. Because the gate moved
-off sqlite, the three-OS `compatibility` job gained a `pixi run test-integration`
-leg; it is now the only place in CI that opens a sqlite connection at all.
+This follow-up review pass changed no behaviour except one: the service's health
+command now probes TCP rather than the local unix socket. Everything else went
+into the tests that hold the story's mechanism in place — the previous pass had
+established that the mechanism could be reverted with a green suite, and this
+pass found the same class of hole one level deeper, in an assertion that could
+not fail at all.
 
 ### Files changed
 
 | Path | One-line description |
 | --- | --- |
-| `.github/workflows/ci.yml` | PostgreSQL service and job-level `DATABASE_URL` on the gate; a sqlite integration leg on the three-OS matrix. |
-| `docs/development.md` | Records the R-5 parity gap and a runnable, pixi-only local PostgreSQL reproduction recipe. |
-| `tests/unit/test_gate_contract.py` | Six new tests pinning the service, its health check and port, and the `DATABASE_URL` value. |
-| `tests/unit/test_database_selection.py` | NEW — nine tests over the three-branch database selection in `base.py`. |
-| `tests/integration/test_postgres_schema.py` | NEW — seven skip-free schema-strictness tests, including the one that proves which backend actually ran. |
+| `.github/workflows/ci.yml` | PostgreSQL service and job-level `DATABASE_URL` on the gate; a sqlite integration leg on the three-OS matrix; health check scoped to TCP (`pg_isready -h localhost -U … -d …`) because the image's init phase answers the bare check over a socket while TCP is still closed. |
+| `docs/development.md` | Records the R-5 parity gap, the `--reuse-db`/`--create-db` caveat, and a reproduction recipe that is now bounded, `trap`-cleaned and safe to paste when the gate fails. |
+| `tests/unit/test_gate_contract.py` | Nine gate-contract assertions: the service exists, is TCP-health-gated and publishes 5432; the `DATABASE_URL` value is parsed and matched against the service's credentials, host and published port; no other job declares a database service or points itself at one; and some job still exercises sqlite. |
+| `tests/unit/test_database_selection.py` | Ten tests over the three-branch selection in `base.py`, including both truthiness edges (`DATABASE_URL=""` and `POSTGRES_DB=""`), the half-configured refusal, branch precedence, and `ATOMIC_REQUESTS` across every configured alias. |
+| `tests/integration/test_postgres_schema.py` | Seven skip-free, engine-blind tests: the live connection is the backend the environment names, the migrated schema is reachable, the column's declared width is read out of the schema, and boundary/over-length/duplicate/NULL writes behave as declared. |
+
+**Unchanged, verified only:** everything under `src/`, `pixi.toml`,
+`pyproject.toml`, and every migration directory.
 
 ### Review findings breakdown
 
-- **Patches applied: 11** (2 high, 7 medium, 2 low). All three reviewers
-  converged on the same defect: the story's mechanism could be silently
-  reverted with a fully green suite, because nothing asserted the *value* of
-  `DATABASE_URL` and nothing observed which backend the connection reached.
-  Both holes are now closed and mutation-verified. The remaining nine are test
-  precision, comment accuracy and documentation correctness.
-- **Items deferred: 2** — mypy does not type-check `tests/` at all, and
-  importing the settings module calls the process-global `configure_structlog()`
-  on every reload. Both are pre-existing and project-wide.
-- **Items rejected: 5** — a speculative runner port collision, `pytestmark`
-  redundancy with the integration conftest (explicit marking was specified),
-  unchanged coverage percentage (expected: the new tests assert configuration
-  and contract, and `base.py` was already at 100%), the vacuously-ticked Task 3
-  checkboxes (each carries an explicit "no fix required" annotation), and
-  deriving `max_length` from the field under test (standard practice; the only
-  real risk, a `None` value, is now guarded).
+Three reviewers (adversarial, edge-case, verification-gap) ran in parallel
+without prior context. After deduplication and severity assignment:
+
+- **11 patches applied** — 1 high, 5 medium, 5 low. Detailed in the Review
+  Triage Log above.
+- **0 deferred.** Two candidates were already in
+  `deferred-work.md` from the previous pass (mypy's `src/`-only scope; the
+  process-global `configure_structlog()` re-run on settings re-import), so
+  re-recording them would have been noise.
+- **16 rejected.** The substantive ones and why: *AC #3 has no permanent test*
+  — correct, but unfixable by construction, since a test that ships a schema
+  PostgreSQL rejects would fail the gate on every run; it was demonstrated by
+  the throwaway probe in the Debug Log instead. *The `postgres:18` tag should
+  be digest-pinned, and drift from `libpq` should be tested* — the previous
+  pass settled this deliberately, and re-litigating it would give two places
+  to update. *The sqlite integration leg is unrequested scope and creates a
+  CI-only step* — it is neither: the previous pass added it for AC #4, and
+  `pixi run test-integration` is a real task any developer can run. The
+  remainder were cosmetic (comment volume, hardcoded line numbers in comments,
+  a duplicated constant across the unit/integration boundary).
 
 ### Verification performed
 
-| Check | Result |
-| --- | --- |
-| `pixi run ci` against real PostgreSQL 18.4 (container, port 55433) | **exit 0** — 140 passed, 92.31% coverage |
-| `pixi run ci` with no `DATABASE_URL` (sqlite substitution) | **exit 0** — 140 passed, 92.31% coverage |
-| Backend genuinely PostgreSQL, not sqlite | `test_gatedb` present in the container; resolved engine `django.db.backends.postgresql` |
-| Guard bites: `DATABASE_URL: ""` in `ci.yml` | contract test **fails** as intended |
-| Guard bites: `--health-cmd` not `pg_isready` | contract test **fails** as intended |
-| Guard bites: service port mapping removed | contract test **fails** as intended |
-| `pixi run test-cov --create-db` passthrough (documented command) | runs as documented |
-| Container and volume cleanup | no `pg-*` containers or volumes left behind |
+A real PostgreSQL 18 was used throughout, on host port 55432 because 5432 is
+taken locally by an unrelated container.
 
-The 118 → 140 test count is +22 over the baseline: 15 from implementation,
-7 from the review pass.
+1. `pixi run test` — 91 passed.
+2. `pixi run test-integration` against PostgreSQL — 51 passed.
+3. **`pixi run ci` against PostgreSQL — exit 0**, 142 passed, 92.31% coverage.
+   (The first attempt tripped the pre-commit auto-fix trap: `ruff-format` and
+   `end-of-file-fixer` modified files, so the run was repeated after re-staging.)
+4. **Mutation checks, four of them, each reverted after measuring:**
+   - width assertion expecting a wrong value → fails on PostgreSQL **and** on
+     sqlite (the point: it previously failed on neither);
+   - `ports: ["55432:5432"]` → `test_the_database_url_names_…` fails;
+   - health command reverted to bare `pg_isready` → `test_…health_gated…` fails;
+   - the sqlite integration leg deleted → `test_some_job_still_exercises_…` fails.
+5. **Source-level confirmation of the high finding**, independent of the running
+   database: `psycopg/_column.py:83-86` returns `None` from `internal_size`
+   whenever `PQfsize` is negative, which it is for every varlena type;
+   `django/db/backends/postgresql/introspection.py:118` passes that value
+   through unchanged as `FieldInfo.internal_size`.
+6. The health-check fix was validated against a real container: `pg_isready -h
+   localhost -U gateuser -d gatedb` reaches `healthy` in ~3s, and the image's
+   `docker-entrypoint.sh:297` was read to confirm the init server runs with
+   `listen_addresses=''`.
+7. All probe containers removed; `docker ps -a` shows none remaining.
 
 ### Residual risks
 
-- **GitHub Actions itself cannot be exercised here.** The mechanism is proven
-  against real PostgreSQL; the platform is not. Unproven until the first CI
-  run: that the health check gates step start, that `ports: ["5432:5432"]` is
-  reachable at `localhost:5432` from the runner, and that job-level `env`
-  reaches every step of `pixi run ci`. All three are standard Actions
-  behaviour, and the new integration test would fail loudly rather than
-  silently if the URL did not take effect.
-- **Nothing pins the PostgreSQL server major version.** The `libpq` pin is a
-  client pin; a tag drift to an older server would not fail any check. The
-  workflow comment now says so explicitly rather than claiming otherwise.
-- **AC #2 was satisfied vacuously.** The reference application is small enough
-  that no sqlite-permissive behaviour existed to surface. As the application
-  grows, the first genuinely PostgreSQL-only failure will land on whoever is
-  holding the story at the time — which is the trade R-5 names, working as
-  intended.
+- **The platform is still unproven.** Everything above tests the *mechanism*
+  against a real PostgreSQL at a `DATABASE_URL`, not GitHub Actions itself.
+  Unconfirmed until the first real run: that the service container's health
+  check gates step start, that `ports: ["5432:5432"]` is reachable at
+  `localhost:5432` from the runner, and that job-level `env` reaches every
+  step. The health-command change is the one edit in this pass that alters CI
+  runtime behaviour and cannot be verified locally; it was chosen because the
+  bare form is measurably racy, and the replacement was confirmed to reach
+  `healthy` against the same image.
+- **AC #3 has no standing test and cannot have one.** The gate failing on a
+  PostgreSQL-rejected schema was demonstrated by a temporary probe migration
+  and recorded in the Debug Log; nothing permanent asserts it.
+- **The `postgres:18` tag and `libpq = ">=18.4,<19"` are kept aligned by hand.**
+  `libpq` is the client library and pins no server version, so no test can
+  catch drift between them.
+- **`ATOMIC_REQUESTS` is set on `default` only** (`base.py:80`). AD-9 forecasts
+  a second database; the test now reports which alias is missing the setting
+  rather than raising, but the source behaviour is unchanged and out of scope
+  for a database story.
