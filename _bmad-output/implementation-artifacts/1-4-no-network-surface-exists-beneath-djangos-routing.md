@@ -4,12 +4,12 @@ baseline_revision: ef5f99a26b6c37e26f11507211623b051afc06ed
 final_revision: 77019e9
 review_loop_iteration: 0
 followup_review_recommended: true
-status: done
+status: in-review
 ---
 
 # Story 1.4: No network surface exists beneath Django's routing
 
-Status: done
+Status: in-review
 
 ## Story
 
@@ -49,7 +49,7 @@ so that no credential or network surface exists where the route allowlist cannot
 - [x] Task 2 — Reduce `src/config/asgi.py` to Django's application (AC: #1, #3)
   - [x] Delete the scope dispatcher at `src/config/asgi.py:36-43` — the `async def application(scope, receive, send)` that branches on `scope["type"]` and raises `NotImplementedError` for anything that is neither `http` nor `websocket`.
   - [x] Delete the import at `:32-33` (`from config.websocket import websocket_application` and its "Import websocket application here" comment).
-  - [x] Rename `django_application` at `:30` to `application`, so the module-level ASGI callable is `application = get_asgi_application()`. **The name `application` must be preserved** — `pixi.toml:179` (`serve`) and `pixi.toml:186` (`serve-reload`) both invoke `uvicorn config.asgi:application`, and `config/settings/base.py` names the ASGI application through the same path. Do not rename it to `django_application`.
+  - [x] Rename `django_application` at `:30` to `application`, so the module-level ASGI callable is `application = get_asgi_application()`. **The name `application` must be preserved** — `pixi.toml:190` (`serve`) and `pixi.toml:197` (`serve-reload`) both invoke `uvicorn config.asgi:application`. Do not rename it to `django_application`. *(Corrected in the follow-up review pass: the original text also cited `config/settings/base.py` as naming the ASGI application. It does not — `base.py:89` declares `WSGI_APPLICATION` and there is no `ASGI_APPLICATION` setting anywhere in the tree. The two pixi tasks are the whole constraint, and they are now pinned by `TestTheServedApplicationIsThisModule`.)*
   - [x] Preserve the ordering that already exists: `os.environ.setdefault("DJANGO_SETTINGS_MODULE", ...)` (`:23`), then `configure_observability()` (`:25-27`), then `get_asgi_application()`. `configure_observability` must run before the application is constructed or the Django/ASGI instrumentors do not attach.
   - [x] Preserve the `# noqa: E402` markers on the post-setdefault imports; they are load-bearing, not cosmetic.
   - [x] Do **not** remove the `sys.path` insert at `:17-20` in this story — that is Story 1.6 (AD-7). If both stories land in the same branch, Story 1.6 owns that hunk.
@@ -129,8 +129,11 @@ claude-opus-5[1m]
 ### Debug Log References
 
 `pixi run ci` — exit 0. precommit, build, typecheck, lint, test-cov all pass;
-190 tests, coverage 92.31% (floor 90%). (183 at implementation; 190 after the
-review pass added the non-HTTP refusal, span-name and exclusion-residue tests.)
+198 tests, coverage 92.31% (floor 90%). (183 at implementation; 190 after the
+first review pass added the non-HTTP refusal, span-name and exclusion-residue
+tests; 194 after the second; 198 after the third added the pixi-target pin, the
+observability-ordering assertion, the forward-rule assertion and the prose
+coverage-carrier check.)
 
 ### Completion Notes List
 
@@ -157,10 +160,12 @@ review pass added the non-HTTP refusal, span-name and exclusion-residue tests.)
   directly beneath it. And `development.md` is where the stale `websocket.py`
   reference lived, so both halves of the documentation change stay in one file.
   The section is `## Protocols below the URL resolver`.
-- **Task 5.** `tests/unit/test_asgi_surface.py` (7 tests, no marker, no I/O
-  beyond reading `pyproject.toml`) and
-  `tests/integration/test_asgi_request_path.py` (5 tests, all marked
-  `integration`). The integration tests call
+- **Task 5.** `tests/unit/test_asgi_surface.py` (no marker; reads only
+  checked-in repository configuration) and
+  `tests/integration/test_asgi_request_path.py` (all marked `integration`).
+  Counts as of the second review pass: **18 unit and 9 integration, 27 in
+  total** — 7 and 5 at implementation, then 14 and 9 after the first pass. The
+  integration tests call
   `config.asgi.application(scope, receive, send)` directly with a raw `http`
   scope rather than going through Django's test client, so they exercise the
   object uvicorn actually invokes.
@@ -198,6 +203,11 @@ review pass added the non-HTTP refusal, span-name and exclusion-residue tests.)
 - `docs/development.md` — MODIFIED
 - `tests/unit/test_asgi_surface.py` — NEW
 - `tests/integration/test_asgi_request_path.py` — NEW
+- `_bmad-output/implementation-artifacts/6-2-asgi-requests-produce-spans.md` —
+  MODIFIED (second follow-up review pass). Not a file this story sets out to
+  touch, but this change made one of its Dev Notes false in a way that would
+  have steered FR-47's own story away from the deployed callable. Corrected
+  there rather than left for 6.2 to discover.
 
 ## Review Triage Log
 
@@ -392,6 +402,126 @@ integration run exporting spans to a live collector when
 `configure_observability`. `accelerator.toml` not existing yet — Task 4 states
 this explicitly and Epic 7 creates it.
 
+### 2026-08-15 — Review pass (follow-up, second)
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 14: (high 1, medium 8, low 5)
+- defer: 2: (high 0, medium 2, low 0)
+- reject: 1: (high 0, medium 0, low 1)
+- addressed_findings:
+  - `[high]` `[patch]` The `docs/development.md` exception list was short a
+    fourth entry and named the wrong re-check trigger.
+    `django.middleware.common.CommonMiddleware` (`base.py:170`) raises
+    `PermissionDenied` on a `DISALLOWED_USER_AGENTS` match and returns a
+    redirect when `PREPEND_WWW` is set, both from `process_request` — verified
+    against the installed source. Neither setting is set here, which is exactly
+    the footing `SecurityMiddleware` was already listed on. That exposed the
+    deeper error: the section said the list "has to be re-checked whenever
+    `MIDDLEWARE` changes", but for two of the four entries the arming change is
+    a *settings* change with `MIDDLEWARE` untouched, so the stated trigger could
+    not fire. The section now names four entries, states both triggers, notes
+    that `local.py` appends to the list it enumerates (debug_toolbar — checked,
+    does not short-circuit), and separates the after-resolution shape
+    (`AccountMiddleware` turning the resolver's 404 on `/accounts/` into a login
+    redirect) from the before-resolution criterion it uses.
+  - `[medium]` `[patch]` The `CorsMiddleware` bullet said the preflight answer
+    carries "the configured origin/method/header policy", which reads as
+    origin-gated and is not what happens. `check_preflight()` returns a bare
+    `HttpResponse` whenever `is_enabled()` and the method is `OPTIONS`;
+    `is_enabled()` is `CORS_URLS_REGEX` (`^/api/.*$`) or a signal, with no
+    origin involvement, and the origin policy is applied afterwards by *omitting*
+    a header from a response that ships either way. So every path under `/api/`
+    answers a preflight, route or not. Since this section is what Story 4.6 is
+    told to consult, the wrong reading made a policy-free surface look
+    policy-bearing. Restated accurately.
+  - `[medium]` `[patch]` Nothing pinned the module the servers actually load.
+    Every AD-16 assertion is anchored to `src/config/asgi.py` by path or import,
+    so retargeting `pixi.toml:190,197` at a sibling module holding a dispatcher
+    passed the entire suite. Added
+    `TestTheServedApplicationIsThisModule::test_every_server_task_serves_the_asgi_module`,
+    which walks every `tasks` table in `pixi.toml` and requires each
+    uvicorn/gunicorn command to name `config.asgi:application`. Verified by
+    mutation.
+  - `[medium]` `[patch]` `TestTheForwardRuleIsDocumented` pinned the heading, the
+    pointer from `asgi.py` and the middleware list — but never AC #4's actual
+    rule, which is that a sub-resolver protocol carries its own authentication
+    story and its own carrier entry. Deleting those three bullets left the class
+    green. Added `test_the_section_states_the_forward_rule`.
+  - `[medium]` `[patch]` The Coverage section of `docs/development.md` is a third
+    carrier of the exclusion list — the one the original `websocket.py` residue
+    was found in — and nothing read it: reverting the sentence to name the
+    deleted module left the whole suite green. Added
+    `test_the_documented_entrypoints_match_the_omit_list`, which parses the
+    sentence and compares it against `[tool.coverage.run] omit`.
+  - `[medium]` `[patch]` `_sonar_coverage_exclusions()` split on newlines, but
+    Sonar reads the file with Java `.properties` semantics, where a trailing
+    backslash continues a value. An exclusion written on a continuation line was
+    invisible to both the websocket check and the residue check — the exact
+    shape the residue check exists to catch. The reader now joins continuations
+    first (verified by mutation), and `sonar.exclusions` — a stronger exemption,
+    since a path dropped from analysis is dropped from coverage with it — is now
+    read alongside `sonar.coverage.exclusions`.
+  - `[medium]` `[patch]` `configure_observability()` in `asgi.py`, whose position
+    before `get_asgi_application()` Task 2 calls load-bearing for FR-47, was
+    observed by nothing: `config/__init__.py` imports `config.celery_app`, which
+    calls it at module scope, so deleting the call from `asgi.py` leaves every
+    span test green. Added
+    `test_observability_is_configured_before_the_application_is_built`, a static
+    assertion — the only kind that can see it. Verified by mutation.
+  - `[medium]` `[patch]` With `OTEL_TRACES_SAMPLER=always_off` the three span
+    tests failed accusing `config.asgi` of producing no span, when the
+    instrumentor was active and the sampler was dropping it. `configure_telemetry`
+    names no sampler, so the SDK default reads the environment. Same treatment as
+    the `OTEL_SDK_DISABLED` message in the first pass: the failure is correct
+    (FR-47, and `test_suite_policy.py` forbids skipping), so only the diagnostic
+    changed — it now names the sampler when one can suppress sampling. Confirmed
+    by running the module under that variable.
+  - `[medium]` `[patch]` This change made a Dev Note in
+    `6-2-asgi-requests-produce-spans.md:59` false and actively misleading: it
+    states in the present tense that `asgi.py:33-43` still wraps
+    `django_application`, and instructs Story 6.2 *not* to route its FR-47 span
+    test through `config.asgi.application` "because that wrapper is on its way
+    out". The deletion inverted that — `config.asgi.application` is now Django's
+    own handler and the object uvicorn loads, so it is the better target than
+    `AsyncClient`'s subclass. Corrected, along with the same file's
+    `asgi.py:33-43` source reference.
+  - `[low]` `[patch]` `src/config/urls.py:31` said the DEBUG block serves
+    "collected static files". `staticfiles_urlpatterns()` routes to
+    `staticfiles.views.serve`, which resolves through `finders.find()` — the
+    source directories, never `STATIC_ROOT` — so it contradicted the WhiteNoise
+    bullet added in the same change. Third rewrite of this comment; reworded to
+    say what the view actually does and why it is not WhiteNoise's surface.
+  - `[low]` `[patch]` `test_the_section_exists` was a plain substring check, so
+    `### Protocols below the URL resolver` passed while the section's level
+    changed and the `"\n## "` bound used to slice it silently ran past its end.
+    Now pinned at line start with its level.
+  - `[low]` `[patch]` `docs/development.md`'s "`tests/unit/` — no database,
+    network, or filesystem access" is contradicted by this story's own unit
+    module, which reads four repository files. Reconciled: the rule now permits
+    reading checked-in configuration, which several tests assert against.
+  - `[low]` `[patch]` Task 2 justified preserving the name `application` partly
+    on "`config/settings/base.py` names the ASGI application through the same
+    path". It does not — `base.py:89` declares `WSGI_APPLICATION` and no
+    `ASGI_APPLICATION` setting exists anywhere. The pixi line numbers were stale
+    too (179/186 → 190/197). Corrected in place, with the correction marked; the
+    genuine half of the constraint is now the pinned one.
+  - `[low]` `[patch]` Completion Notes still claimed 7 and 5 tests and the Debug
+    Log still said 190; the real figures are 18 and 9 (27 in the two modules) and
+    198 in the suite. Both updated, with the per-pass history kept.
+
+**Deferred (2).** `src/config/wsgi.py`'s inherited docstring recommends
+replacing Django's WSGI application with a delegating wrapper — AD-16's shape in
+the twin entrypoint, and the one `WSGI_APPLICATION` actually names — with no
+test pinning what that module binds. And the two entrypoints disagree on their
+default settings module, so `pixi run serve`, advertised as "production-like
+ASGI", falls back to `config.settings.local` and DEBUG. Both pre-existing, both
+recorded in `deferred-work.md`.
+
+**Rejected (1).** That the artifact under review differs from the one at HEAD
+(the `## Auto Run Result` section stripped, `status` back to `in-review`): that
+is this workflow's own mechanism for starting a follow-up pass, not a defect.
+
 ## Auto Run Result
 
 Status: done
@@ -405,9 +535,9 @@ is decided by Django's URL resolver. The deleted handler accepted every
 websocket connection with no authentication at all; because it was not a route,
 Epic 4's allowlist (FR-17, which inspects the resolved URLconf) could never have
 seen it. AD-16 requires the module, the wrapper and the coverage exemption to go
-together, and they do — in `[tool.coverage.run] omit` and in
-`sonar.coverage.exclusions`, a second carrier of the same exemption found in the
-first review pass.
+together, and they do — in `[tool.coverage.run] omit`, in
+`sonar.coverage.exclusions`, and in the Coverage prose of `docs/development.md`,
+the second and third carriers found in the review passes.
 
 The ordering `asgi.py` already had is preserved exactly: the settings
 `setdefault`, then `configure_observability()`, then `get_asgi_application()`.
@@ -415,17 +545,25 @@ That order is load-bearing — the instrumentors must attach before the handler 
 built, or ASGI requests silently produce no spans (FR-47). The `sys.path` insert
 belongs to Story 1.6 and was not touched.
 
-This follow-up review pass changed no runtime behaviour. It corrected two claims
-that were wrong rather than merely weak. `docs/development.md` said WhiteNoise was
-the *one* surface answering below the URL resolver; `SecurityMiddleware`'s SSL
-redirect and `CorsMiddleware`'s preflight response do it too, and that section is
-the artefact Story 4.6 was told to consult before claiming the URLconf describes
-the whole network surface. And the previous pass had rewritten the unit tests to
-parse rather than import `config.asgi`, to avoid a side effect that the `config`
-package's own `__init__` already causes before any test runs — so the stated
-reason was false and the weaker static assertions had been accepted for nothing.
-Those assertions are now genuinely stronger than what they replaced: they walk the
-whole AST, so a dispatcher hidden in a `settings.DEBUG` branch cannot pass.
+This pass changed no runtime behaviour either. Its through-line was that several
+of the story's own claims were being asserted somewhere weaker than where they
+could fail. Nothing pinned `pixi.toml` to the module every AD-16 assertion reads,
+so the deleted surface could return in a sibling module with the suite green.
+Nothing observed `configure_observability()` in `asgi.py`, because the `config`
+package already calls it. Nothing read the Coverage sentence that carried the
+original residue. And `TestTheForwardRuleIsDocumented` pinned the heading of AC
+#4's artifact but not the rule inside it. Each is now asserted where it fails,
+and each new guard was verified by mutating the source and watching the specific
+test go red.
+
+The one high-severity finding was again in the prose that Story 4.6 is told to
+quote: the below-resolver exception list was short a fourth middleware
+(`CommonMiddleware`), and the trigger it gave for re-checking itself — "whenever
+`MIDDLEWARE` changes" — could not fire for two of the four entries, which are
+armed by settings rather than by the list. The `CorsMiddleware` bullet was
+separately wrong in the direction that flatters: it described an origin-gated
+policy response where the code returns a bare 200 for any `/api/` path, route or
+not, before any origin is considered.
 
 ### Files changed
 
@@ -433,51 +571,65 @@ whole AST, so a dispatcher hidden in a `settings.DEBUG` branch cannot pass.
 | --- | --- |
 | `src/config/websocket.py` | DELETED. 13 lines; one coroutine that accepted every connection unauthenticated and answered `ping` with `pong!`. |
 | `src/config/asgi.py` | The scope dispatcher and the websocket import are gone; `django_application` is renamed to `application`, the name `pixi run serve` invokes. The `sys.path` insert (Story 1.6), the settings setdefault, `configure_observability()` and both `# noqa: E402` markers are untouched. |
-| `src/config/urls.py` | Comment on the DEBUG-gated static block: described as websocket development in the original, then as ASGI-server-specific by the first review pass; now says what the gate actually is. |
+| `src/config/urls.py` | Comment on the DEBUG-gated static block, rewritten a third time: it now says what `staticfiles.views.serve` actually does (finders, not `STATIC_ROOT`) rather than contradicting the WhiteNoise bullet added in the same change. |
 | `pyproject.toml` | `"src/config/websocket.py"` removed from `[tool.coverage.run] omit`; the two deployment-entrypoint entries and their comment kept for Story 1.5. |
-| `sonar-project.properties` | The same exemption removed from `sonar.coverage.exclusions`, the second carrier AD-16 covers. |
-| `docs/development.md` | New `## Protocols below the URL resolver` recording AD-16's forward rule, and the stale `websocket.py` mention removed from the Coverage section. This pass replaced the single-exception claim with the three middleware that can answer without reaching the resolver. |
-| `tests/unit/test_asgi_surface.py` | NEW. Walks `asgi.py`'s AST for the ASGI surface, asserts the module's absence and the closure of both coverage-exclusion carriers, and pins the documentation section AC #4 rests on. 14 tests. |
-| `tests/integration/test_asgi_request_path.py` | NEW. Drives raw ASGI scopes against the real callable: routing, non-HTTP refusal, SERVER-span production, and the exact-type check that `ASGIStaticFilesHandler` would otherwise slip past. 9 tests. |
+| `sonar-project.properties` | The same exemption removed from `sonar.coverage.exclusions`. |
+| `docs/development.md` | `## Protocols below the URL resolver` records AD-16's forward rule. This pass corrected the below-resolver middleware list to four entries with both of its re-check triggers, restated what a CORS preflight actually returns, separated the after-resolution shape from the criterion, and made the Coverage sentence say it is a third carrier that a test now checks. |
+| `tests/unit/test_asgi_surface.py` | Walks `asgi.py`'s AST for the ASGI surface and the observability ordering, pins `pixi.toml`'s serve targets to that module, asserts the closure of every coverage-exclusion carrier including continuation-line residue, and pins both the heading and the rule of AC #4's documentation. 18 tests. |
+| `tests/integration/test_asgi_request_path.py` | Drives raw ASGI scopes against the real callable: routing, non-HTTP refusal, SERVER-span production, and the exact-type check that `ASGIStaticFilesHandler` would otherwise slip past. Span failures now name a suppressing sampler when one is set. 9 tests. |
+| `_bmad-output/implementation-artifacts/6-2-asgi-requests-produce-spans.md` | A Dev Note this change made false — telling Story 6.2 not to test through `config.asgi.application` because the wrapper was on its way out — corrected to point at the now-unwrapped callable and the test shape this story wrote. |
 
 ### Review findings breakdown
 
 Three reviewers (adversarial, edge-case, verification-gap) ran in parallel
-without prior context. After deduplication and severity assignment: **9 patches
-applied** (2 high, 4 medium, 3 low), **1 deferred**, **7 rejected**. Detail is in
-the Review Triage Log above. No finding was an intent gap or a spec defect, so no
+without prior context, each told what the previous passes had already addressed
+or rejected. After deduplication and severity assignment: **14 patches applied**
+(1 high, 8 medium, 5 low), **2 deferred**, **1 rejected**. Detail is in the
+Review Triage Log above. No finding was an intent gap or a spec defect, so no
 loopback was triggered and `review_loop_iteration` stays 0.
 
 ### Verification performed
 
 - `pixi run ci` — exit code 0. pre-commit (ruff check, ruff format, mypy), build,
-  mypy over `src/`, ruff over the tree, and the full suite with coverage all pass.
-  **194 tests, coverage 92.31%** against the 90% floor. (183 at implementation,
-  190 after the first review pass, 194 now.)
-- The two "one known exception" counterexamples were confirmed against the
-  installed packages, not inferred: `CorsMiddleware.__call__` was read via
-  `inspect.getsource` and returns `check_preflight(request)` without calling
-  `get_response`; `SECURE_SSL_REDIRECT` is set in `config/settings/production.py`.
-- The false import-side-effect premise was confirmed by reading
-  `src/config/__init__.py` and `src/config/celery_app.py:12`.
-- One self-inflicted failure was caught and fixed by the gate rather than shipped:
-  the new module-level-binding assertion compared AST nodes across two separate
-  parses, so it failed on correct source. `_asgi_module()` is now called once.
+  mypy over `src/`, ruff over the tree, and the full suite with coverage all
+  pass. **198 tests, coverage 92.31%** against the 90% floor.
+- **Every new guard was mutation-tested**, not just run: adding `websocket.py`
+  back to the Coverage prose, retargeting `pixi run serve` at
+  `config.dispatcher:application`, hiding a websocket exclusion on a
+  backslash-continued Sonar line, deleting AC #4's rule bullets, deleting
+  `configure_observability()` from `asgi.py`, and dropping a middleware from the
+  documented list each made exactly the intended test fail, and each source file
+  was restored from a backup and re-verified clean afterwards.
+- The sampler diagnostic was confirmed by running the integration module under
+  `OTEL_TRACES_SAMPLER=always_off`: the three span tests fail, as they should,
+  and now say `OTEL_TRACES_SAMPLER=always_off may be dropping it`.
+- The middleware claims were read from the installed sources, not inferred:
+  `corsheaders.middleware.CorsMiddleware.check_preflight` /`is_enabled` and
+  `django.middleware.common.CommonMiddleware.process_request`. `base.py` was
+  grepped to confirm `DISALLOWED_USER_AGENTS`, `PREPEND_WWW` and
+  `ASGI_APPLICATION` are all unset.
 
 ### Residual risks
 
-- **The exception list is prose.** `TestTheForwardRuleIsDocumented` asserts the
-  section names all three short-circuiting middleware, but nothing pins
-  `MIDDLEWARE` itself, so a fourth one can be added without any test failing.
-  Deferred to Story 4.6 alongside the WhiteNoise entry.
-- **`test_the_section_names_the_middleware_that_answer_below_the_resolver` is a
-  substring check over Markdown.** It catches deletion and rename, not a
-  paragraph rewritten to say something false while keeping the names.
-- **FR-47 says "all six combinations"; one is verified.** The span tests run under
-  `config.settings.test` only. The fixture's hard failure on a disabled SDK is
-  correct, but its scope claim is broader than what executes.
+- **The exception list is still prose.** Four names are now asserted to appear in
+  the section, but nothing pins `MIDDLEWARE` itself, and nothing pins the
+  settings that arm two of the four. A fifth short-circuiting middleware, or
+  setting `PREPEND_WWW`, still fails no test. Deferred to Story 4.6 alongside the
+  WhiteNoise entry.
+- **The documentation assertions are substring checks over Markdown.** They catch
+  deletion and rename, not a paragraph rewritten to say something false while
+  keeping the required phrases — which is precisely the failure this pass and the
+  last one both had to fix by hand.
+- **FR-47 says "all six combinations"; one is verified.** The span tests run
+  under `config.settings.test` only. The fixture's hard failure on a disabled SDK
+  or a suppressing sampler is correct, but its scope claim is broader than what
+  executes.
 - **The `recorded_spans` fixture restores private OpenTelemetry state** by
   reassigning `_active_span_processor._span_processors`. It is guarded by an
   assertion that the attribute exists, so an SDK upgrade fails loudly rather than
   silently leaking a processor — but any processor another fixture added during
   the test would be discarded.
+- **`_server_task_commands()` reads `pixi.toml` only.** The production process is
+  gunicorn with the uvicorn worker class, and that command lives in deployment
+  configuration outside this repository; the new pin covers the two pixi tasks
+  and nothing beyond them.

@@ -50,6 +50,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.django_db]
 RESPONSE_START = "http.response.start"
 DRIVE_TIMEOUT_SECONDS = 10
 SDK_DISABLED_VALUES = {"true", "1", "yes"}
+SUPPRESSING_SAMPLERS = {"always_off", "parentbased_always_off", "traceidratio", "parentbased_traceidratio"}
 
 
 def _sdk_is_disabled() -> bool:
@@ -62,6 +63,39 @@ def _sdk_is_disabled() -> bool:
 
     """
     return os.environ.get("OTEL_SDK_DISABLED", "").strip().lower() in SDK_DISABLED_VALUES
+
+
+def _suppressing_sampler() -> str:
+    """Return `OTEL_TRACES_SAMPLER` when it can drop the spans these tests read.
+
+    `configure_telemetry` builds its `TracerProvider` without naming a sampler,
+    so the SDK's default applies and the environment decides. A sampler that
+    drops the request span makes these tests fail for a reason that has nothing
+    to do with the ASGI instrumentor -- so it is named in the failure rather than
+    left for the reader to rediscover. The failure itself is correct: FR-47 wants
+    the instrumentor producing spans, and `tests/unit/test_suite_policy.py`
+    forbids an integration test from skipping its way past that.
+
+    Returns:
+        The configured sampler when it may suppress sampling, otherwise "".
+
+    """
+    sampler = os.environ.get("OTEL_TRACES_SAMPLER", "").strip().lower()
+    return sampler if sampler in SUPPRESSING_SAMPLERS else ""
+
+
+def _span_absence_hint() -> str:
+    """Return a clause naming an environment cause for missing spans, if any.
+
+    Returns:
+        A trailing clause for an assertion message, or "" when the environment
+        does not explain the absence.
+
+    """
+    if _sdk_is_disabled():
+        return " -- OTEL_SDK_DISABLED is set"
+    sampler = _suppressing_sampler()
+    return f" -- OTEL_TRACES_SAMPLER={sampler} may be dropping it" if sampler else ""
 
 
 def _http_scope(path: str) -> dict[str, Any]:
@@ -263,7 +297,7 @@ class TestAsgiRequestsAreStillTraced:
         async_to_sync(_drive)(reverse("home"))
 
         kinds = [span.kind for span in recorded_spans.get_finished_spans()]
-        assert SpanKind.SERVER in kinds, f"the ASGI request produced no server span: {kinds}"
+        assert SpanKind.SERVER in kinds, f"the ASGI request produced no server span: {kinds}{_span_absence_hint()}"
 
     def test_the_span_is_named_for_the_resolved_route(
         self,
@@ -280,7 +314,7 @@ class TestAsgiRequestsAreStillTraced:
         async_to_sync(_drive)(reverse("home"))
 
         names = {span.name for span in recorded_spans.get_finished_spans()}
-        assert "GET home" in names, f"no span named for the resolved route: {names}"
+        assert "GET home" in names, f"no span named for the resolved route: {names}{_span_absence_hint()}"
 
     def test_an_unresolved_path_produces_a_span_without_a_route_name(
         self,
@@ -294,5 +328,5 @@ class TestAsgiRequestsAreStillTraced:
         async_to_sync(_drive)("/no-such-page/")
 
         names = {span.name for span in recorded_spans.get_finished_spans()}
-        assert "GET" in names, f"expected an unnamed-route span for the 404: {names}"
+        assert "GET" in names, f"expected an unnamed-route span for the 404: {names}{_span_absence_hint()}"
         assert "GET home" not in names

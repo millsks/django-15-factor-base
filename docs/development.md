@@ -268,7 +268,10 @@ export behaves without a collector.
 
 ## Tests
 
-- `tests/unit/` — no database, network, or filesystem access.
+- `tests/unit/` — no database or network access, and no filesystem access
+  beyond reading the repository's own checked-in configuration (`pyproject.toml`,
+  `pixi.toml`, `sonar-project.properties` and the like), which several tests
+  assert against directly.
 - `tests/integration/` — everything else. `tests/integration/conftest.py`
   applies the `integration` marker automatically, so
   `pytest -m "not integration"` selects the fast suite.
@@ -306,23 +309,43 @@ is exactly the surface this rule exists to prevent.
 **The middleware chain is the standing exception, and none of it is a protocol
 handler.** Any middleware may answer from `__call__` or `process_request` and
 return without calling the rest of the chain, and a response produced that way
-never reaches the URL resolver. Three entries in `MIDDLEWARE`
-(`config/settings/base.py`) can do it today:
+never reaches the URL resolver. Four entries in the `MIDDLEWARE` declared in
+`config/settings/base.py` can do it:
 
 - `django.middleware.security.SecurityMiddleware` returns an SSL redirect from
   `process_request` when `SECURE_SSL_REDIRECT` is on — it is on in
   `config/settings/production.py`;
-- `corsheaders.middleware.CorsMiddleware` answers CORS preflight `OPTIONS` from
-  `check_preflight()`, carrying the configured origin/method/header policy;
+- `corsheaders.middleware.CorsMiddleware` answers a CORS preflight `OPTIONS`
+  from `check_preflight()` with a bare 200. The short circuit is decided by
+  `CORS_URLS_REGEX` (`^/api/.*$`) and the request method alone — not by the
+  request's origin, and not by whether the path is a route. The configured
+  origin policy is applied *afterwards*, by omitting
+  `access-control-allow-origin` from a response that ships either way. So every
+  path under `/api/` answers a preflight, including paths the URLconf does not
+  define;
 - `whitenoise.middleware.WhiteNoiseMiddleware` serves collected static assets
-  from `STATIC_ROOT` under a single known prefix.
+  from `STATIC_ROOT` under a single known prefix;
+- `django.middleware.common.CommonMiddleware` raises `PermissionDenied` for a
+  `DISALLOWED_USER_AGENTS` match and returns a redirect when `PREPEND_WWW` is
+  set, both from `process_request`. Neither setting is set here, so it is inert
+  today — but it is armed by a settings change, not by a change to `MIDDLEWARE`.
 
-All three are accepted: they hold no credential or application state and serve
-no application data. But they are served surfaces the URLconf does not describe,
-so the list above is a claim that has to be re-checked whenever `MIDDLEWARE`
-changes, and any story that claims the URLconf is a *complete* description of
-the network surface has to address them explicitly rather than inherit the claim
-from this section.
+All four are accepted: they hold no credential or application state and serve no
+application data. But they are served surfaces the URLconf does not describe, so
+the list has **two** triggers for re-checking it, not one. `MIDDLEWARE` itself
+can grow — `config/settings/local.py` already appends
+`debug_toolbar.middleware.DebugToolbarMiddleware`, which was checked and does
+not short-circuit — and the settings that arm an entry already in the list can
+be set without the list changing at all. Any story that claims the URLconf is a
+*complete* description of the network surface has to address these explicitly
+rather than inherit the claim from this section.
+
+The criterion above is *answering before the resolver runs*. Middleware that
+replaces a response after resolution is a different shape and is deliberately
+not listed: `allauth.account.middleware.AccountMiddleware`, for one, turns the
+resolver's 404 on `/accounts/` into a redirect to the login route. It reaches
+the resolver first, so what it acted on is still something the allowlist can
+name.
 
 So if this accelerator ever needs a protocol handled below the URL resolver —
 WebSockets, raw TCP, a long-lived stream — it arrives as a **designed feature**,
@@ -351,8 +374,12 @@ both are configured:
 `template_extensions` is narrowed to `html`; the plugin's default also includes
 `txt`, which makes coverage treat stray text files as templates.
 
-Deployment entrypoints (`wsgi.py`, `asgi.py`) are excluded — they contain no
-logic.
+Deployment entrypoints (`wsgi.py`, `asgi.py`) are excluded — they carry no
+application logic, only the process wiring the WSGI/ASGI server runs before the
+first request. This sentence is a third carrier of the exclusion list, after
+`[tool.coverage.run] omit` in `pyproject.toml` and `sonar.coverage.exclusions`
+in `sonar-project.properties`; `tests/unit/test_asgi_surface.py` asserts that
+the three agree, so an entry deleted from one cannot survive here.
 
 Templates are covered by `tests/integration/test_template_rendering.py`, which
 drives the real test client. `RequestFactory`-based view tests never render a

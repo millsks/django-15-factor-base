@@ -28,7 +28,9 @@ urlpatterns = [
     *static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT),
 ]
 if settings.DEBUG:
-    # DEBUG only: serve collected static files as routes, so they resolve
+    # DEBUG only: route static files through the resolver. staticfiles.views.serve
+    # finds them via the staticfiles finders -- the source dirs, not STATIC_ROOT,
+    # which is WhiteNoise's surface and is not a route.
     urlpatterns += staticfiles_urlpatterns()
 
 # API URLS
