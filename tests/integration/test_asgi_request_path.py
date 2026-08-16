@@ -16,8 +16,10 @@ deletion (FR-47) -- `opentelemetry-instrumentation-asgi` is an optional import
 of the Django instrumentor, and without it ASGI requests silently produce no
 span at all.
 
-This module imports `config.asgi`, which runs `configure_observability()` for
-real. That is why it lives here and not in `tests/unit/`.
+This module drives real requests through the real handler and reads the spans the
+live tracer provider collects, so it lives here and not in `tests/unit/`. It also
+imports `config.asgi`, which builds Django's handler -- though the instrumentors
+themselves are already installed by then, at `config` package import.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
 
 import config.asgi
 
@@ -154,8 +157,10 @@ def _status_of(messages: list[dict[str, Any]]) -> int:
 def recorded_spans() -> Iterator[InMemorySpanExporter]:
     """Record spans from the process-wide tracer provider, then detach.
 
-    The provider is installed once, at `config.asgi` import, and cannot be
-    replaced -- `set_tracer_provider` refuses to override. So the exporter is
+    The provider is installed once, when the `config` package is first imported
+    (`config/__init__.py` -> `config.celery_app` -> `configure_observability()`,
+    which pytest-django triggers by loading `config.settings.test`), and cannot
+    be replaced -- `set_tracer_provider` refuses to override. So the exporter is
     attached to the live provider and the processor list is put back exactly as
     it was found, leaving no processor behind for later tests.
 
@@ -248,10 +253,17 @@ class TestAsgiRequestsAreStillTraced:
         self,
         recorded_spans: InMemorySpanExporter,
     ):
+        """A SERVER span, specifically.
+
+        `configure_observability()` installs the psycopg, redis and Celery
+        instrumentors process-wide, so "at least one span was recorded" is
+        satisfied by a database span while the request span -- the only one
+        FR-47 is about -- is missing entirely.
+        """
         async_to_sync(_drive)(reverse("home"))
 
-        spans = recorded_spans.get_finished_spans()
-        assert spans, "the ASGI request produced no span"
+        kinds = [span.kind for span in recorded_spans.get_finished_spans()]
+        assert SpanKind.SERVER in kinds, f"the ASGI request produced no server span: {kinds}"
 
     def test_the_span_is_named_for_the_resolved_route(
         self,
@@ -274,9 +286,13 @@ class TestAsgiRequestsAreStillTraced:
         self,
         recorded_spans: InMemorySpanExporter,
     ):
-        """The counterpart: no route resolved, so no route in the span name."""
+        """The counterpart: no route resolved, so the name is the method alone.
+
+        Asserting the positive value rather than `"GET home" not in names`,
+        which any span set that happens to lack that one name would satisfy.
+        """
         async_to_sync(_drive)("/no-such-page/")
 
         names = {span.name for span in recorded_spans.get_finished_spans()}
-        assert names, "the unresolved request produced no span"
+        assert "GET" in names, f"expected an unnamed-route span for the 404: {names}"
         assert "GET home" not in names

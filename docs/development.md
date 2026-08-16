@@ -303,15 +303,26 @@ view callable, and nothing below the resolver can be named that way. An
 inherited `websocket_application` that accepted every connection unauthenticated
 is exactly the surface this rule exists to prevent.
 
-**One known exception, and it is not a protocol handler.**
-`whitenoise.middleware.WhiteNoiseMiddleware` (`config/settings/base.py`) answers
-requests for collected static assets from inside `__call__` and returns without
-calling the rest of the chain, so those responses never reach the URL resolver
-either. It is accepted because it serves inert files from `STATIC_ROOT` under a
-single known prefix and holds no credential or application state — but it is a
-served surface the URLconf does not describe, and any story that claims the
-URLconf is a *complete* description of the network surface has to say so
-explicitly rather than inherit the claim from this section.
+**The middleware chain is the standing exception, and none of it is a protocol
+handler.** Any middleware may answer from `__call__` or `process_request` and
+return without calling the rest of the chain, and a response produced that way
+never reaches the URL resolver. Three entries in `MIDDLEWARE`
+(`config/settings/base.py`) can do it today:
+
+- `django.middleware.security.SecurityMiddleware` returns an SSL redirect from
+  `process_request` when `SECURE_SSL_REDIRECT` is on — it is on in
+  `config/settings/production.py`;
+- `corsheaders.middleware.CorsMiddleware` answers CORS preflight `OPTIONS` from
+  `check_preflight()`, carrying the configured origin/method/header policy;
+- `whitenoise.middleware.WhiteNoiseMiddleware` serves collected static assets
+  from `STATIC_ROOT` under a single known prefix.
+
+All three are accepted: they hold no credential or application state and serve
+no application data. But they are served surfaces the URLconf does not describe,
+so the list above is a claim that has to be re-checked whenever `MIDDLEWARE`
+changes, and any story that claims the URLconf is a *complete* description of
+the network surface has to address them explicitly rather than inherit the claim
+from this section.
 
 So if this accelerator ever needs a protocol handled below the URL resolver —
 WebSockets, raw TCP, a long-lived stream — it arrives as a **designed feature**,

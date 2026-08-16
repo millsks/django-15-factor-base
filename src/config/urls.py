@@ -28,7 +28,7 @@ urlpatterns = [
     *static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT),
 ]
 if settings.DEBUG:
-    # Static file serving as routes under the local ASGI server
+    # DEBUG only: serve collected static files as routes, so they resolve
     urlpatterns += staticfiles_urlpatterns()
 
 # API URLS
