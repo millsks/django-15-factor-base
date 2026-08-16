@@ -171,6 +171,48 @@ markers = [
 # ==== Coverage ====
 [tool.coverage.run]
 include = [ "src/**" ]
+# The closed, carrier-declared surface (AD-20). `include` above and `omit`
+# below are one surface, and it is closed: adding an entry is a deliberate act,
+# never an incidental one. Two tests hold that, and they hold different halves
+# of it: tests/unit/test_coverage_policy.py reconciles what is declared here
+# against the frozen list it carries, so an addition fails until it is recorded
+# there; tests/integration/test_coverage_measurement.py reconciles this
+# declaration against the configuration a measured run is actually using, which
+# is what catches a .coveragerc or a COVERAGE_RCFILE displacing this table
+# without touching it. Narrowing `include` fails the same way an omit addition
+# does, because narrowing what is measured blinds the only residue detector
+# this product has just as effectively as omitting a path (CG-1).
+#
+# A second exclusion surface exists and is deliberately not reconciled against
+# this one: sonar-project.properties declares sonar.coverage.exclusions for the
+# merge-blocking SonarCloud gate. It governs the published coverage view rather
+# than the pytest-cov floor, and it does not agree entry-for-entry with the
+# list below. tests/unit/test_coverage_policy.py freezes it as it stands, so
+# the divergence is recorded rather than drifting; closing it means editing an
+# external gate's input and is a later, deliberate act.
+#
+# One caveat, asserted rather than left implicit: `test-cov` passes --cov=src,
+# which sets coverage's *source*, and a source supersedes `include` -- coverage
+# says so on every run ("--include is ignored because --source is set"). So
+# `include` here is the declared bound while the task's --cov argument is the
+# bound in force. test_the_floor_task_measures_the_whole_suite_and_the_whole_
+# source_tree pins the latter, so narrowing either one fails the gate.
+#
+# Recorded here, not resolved: `include = [ "src/**" ]` leaves
+# tools/materializer/ and tools/harness/ -- both drawn by the Structural Seed,
+# neither existing yet -- outside measurement. Widening `include` when they
+# arrive is therefore a deliberate change to a declared surface rather than an
+# unnoticed one. This story pins the value; it does not take that decision.
+#
+# Epic 7 moves this declaration into accelerator.toml. tests/coverage_policy.py
+# is the single reader every assertion goes through, so the reads move in that
+# one module. What moves with it, elsewhere: the frozen expectations
+# (CLOSED_OMIT, CLOSED_INCLUDE, CLOSED_EXCLUDE, CLOSED_SONAR_EXCLUSIONS,
+# COVERAGE_SOURCE, COVERAGE_FLOOR) live in tests/unit/test_coverage_policy.py
+# and are repointed there. And two assertions have to be rewritten rather than
+# repointed -- test_no_line_exclusion_surface_is_declared and
+# test_no_per_directory_narrowing_is_declared assert that a table in *this
+# file* does not exist, which is a claim the carrier cannot inherit unchanged.
 omit = [
   "*/migrations/*",
   "*/tests/*",
