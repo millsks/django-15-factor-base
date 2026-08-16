@@ -36,9 +36,10 @@ django-anymail = ">=15.1,<16"
 # Also watch: the recipe caps `django <6.1`, which will block a Django 6.1
 # upgrade until it is relaxed.
 django-celery-beat = ">=2.9,<3"
-# Its dependencies, declared explicitly so the solver resolves them here.
+# django-celery-beat's own dependencies, declared explicitly so the solver
+# resolves them from this channel rather than leaving them to arrive behind it.
 django-timezone-field = ">=7.2,<8"
-python-crontab = ">=3.3,<4"
+python-crontab = ">=3.3,<4"    # django-celery-beat parses crontab schedules with it
 cron-descriptor = ">=1.4,<2"   # django-celery-beat requires <2.0.0
 django-cors-headers = ">=4.9,<5"
 django-crispy-forms = ">=2.6,<3"   # conda-forge tops out at 2.6 (PyPI has 2.7)
@@ -46,6 +47,11 @@ django-environ = ">=0.14,<0.15"
 django-redis = ">=7.0,<8"
 djangorestframework = ">=3.17,<4"
 drf-spectacular = ">=0.30,<0.31"
+# The C response parser redis-py selects automatically when it is importable and
+# falls back from silently when it is not -- a performance difference rather than
+# an error, so nothing would report its absence. Neither django-redis nor
+# redis-py depends on it (both declare it an optional extra), so undeclared it
+# would simply never be installed.
 hiredis = ">=3.4,<4"
 # Upper-pinned, unusually. conda-forge builds `psycopg-c` against exactly one
 # libpq major: 3.2.4-3.2.10 link libpq 17, and 3.2.11 onward link libpq 18.
@@ -122,6 +128,11 @@ django-upgrade = ">=1.31,<2"
 djangorestframework-stubs = ">=3.17,<4"
 djlint = ">=1.43,<2"
 factory_boy = ">=3.3,<4"
+# Generates CHANGELOG.md for the `changelog` task, which release.yml also runs.
+# Unpinned deliberately: it is a standalone Rust binary invoked as `git cliff`
+# with no Python API this project imports, so a new release cannot break an
+# import. Its configuration lives in [tool.git-cliff] in pyproject.toml, which
+# is the surface a breaking change would land on.
 git-cliff = "*"
 ipdb = ">=0.13,<0.14"
 mypy = ">=2.3,<3"

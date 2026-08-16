@@ -160,21 +160,15 @@ Both are additive and need no restructuring:
 
 ## Note on dependencies
 
-`django-celery-beat` comes from PyPI rather than conda-forge. Upstream declares
-`importlib-metadata<5.0; python_version < "3.8"`, but the conda-forge recipe
-drops the environment marker and applies the cap unconditionally, which
-collides with `opentelemetry-api`'s requirement of `importlib-metadata>=6.0`
-and makes the two impossible to install together. PyPI honours the marker, so
-on Python 3.14 there is no cap. Its own dependencies still come from
-conda-forge.
+Every dependency resolves from conda-forge, including `django-celery-beat`. It
+used to be the one exception: the recipe dropped the environment marker on
+upstream's `importlib-metadata<5.0; python_version < "3.8"` and applied the cap
+unconditionally, which collided with `opentelemetry-api`'s
+`importlib-metadata>=6.0` and made the two impossible to install together. Build
+`2.9.0 pyhcf101f3_1` removed the cap, so the dependency moved into
+`[dependencies]` in `pixi.toml` and the project now carries no supply-chain
+exceptions at all.
 
-This is expected to be temporary. Two pull requests remove the cap —
-[conda-forge/django-celery-beat-feedstock#18][cf-pr] on the recipe and
-[celery/django-celery-beat#1080][upstream-pr] upstream, which carries out a
-`TODO` upstream had already written against its own requirement. Once either
-lands and a build reaches conda-forge, move the dependency into
-`[dependencies]` in `pixi.toml` and delete this note along with the comment
-above the `[pypi-dependencies]` entry.
-
-[cf-pr]: https://github.com/conda-forge/django-celery-beat-feedstock/pull/18
-[upstream-pr]: https://github.com/celery/django-celery-beat/pull/1080
+The recipe's remaining constraint is a `django <6.1` cap, which will block a
+Django 6.1 upgrade until it is relaxed. See [Supply chain](development.md#supply-chain)
+for the policy the whole dependency set is held to.

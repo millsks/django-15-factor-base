@@ -55,7 +55,7 @@ development_status:
   1-4-no-network-surface-exists-beneath-djangos-routing: done
   1-5-the-coverage-floor-is-one-constant-and-its-measurement-is-closed: done
   1-6-import-roots-are-declared-in-exactly-one-place: done
-  1-7-no-third-party-package-resolves-from-the-package-index: ready-for-dev
+  1-7-no-third-party-package-resolves-from-the-package-index: done
   1-8-object-storage-fitness-is-proven-before-the-feature-is-committed-to: ready-for-dev
   epic-1-retrospective: optional
   epic-2: in-progress
