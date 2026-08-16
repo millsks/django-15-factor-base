@@ -62,10 +62,60 @@ sets the local floor, and every workflow passes `pixi-version: v0.70.2` to
 `setup-pixi`. `pixi.lock` is lock-file format v7, which pixi 0.67.x cannot
 read at all, so the floor is a hard requirement rather than a preference.
 
-Every dependency resolves from conda-forge with one exception. `pixi.lock`
-holds exactly two PyPI entries: the editable install of this project itself,
-and `django-celery-beat` — see [Observability](observability.md#note-on-dependencies)
-for why, and for the pull requests that should retire it.
+Every dependency resolves from conda-forge. `pixi.lock` holds exactly one
+package-index entry — the editable install of this project itself. See
+[Supply chain](#supply-chain) below.
+
+## Supply chain
+
+**conda-forge is the single channel.** `[workspace] channels` names it and
+nothing else, and every third-party package the environment installs comes from
+there. Adding a second channel changes what the project trusts, so it is a
+deliberate change rather than one more word in a list.
+
+**`[pypi-dependencies]` carries the editable self-install and nothing else.**
+The one entry, `django-15-factor-base = { path = ".", editable = true }`, is how
+the source tree reaches the environment — it is not a supply-chain exception. A
+third-party package appearing there *is* one, and it needs its reasoning and an
+exit condition recorded beside it in `pixi.toml`. The project carries **zero**
+exceptions today: the one it used to have, `django-celery-beat`, was fixed
+upstream and now resolves from conda-forge like everything else.
+
+**Transitive availability is not declaration.** A package the code imports
+directly is declared directly, even when something else already pulls it in.
+`django-timezone-field`, `python-crontab` and `cron-descriptor` are declared
+although `django-celery-beat` requires them; `pyyaml` is declared although it
+already reaches the environment behind pre-commit. Otherwise the dependency
+survives only for as long as the other package happens to want it.
+
+**Reasoning lives beside the configuration it constrains.** A declaration whose
+presence is not obvious from its name — anything pinned `"*"`, anything present
+because a *different* package needs it, anything that is a C library rather than
+a Python one — carries a `#` comment saying why, either directly above it or
+after the version specifier. Directly is meant literally: a comment heading a
+group covers only the line immediately beneath it, so a new declaration cannot
+inherit a reason written about its neighbour.
+
+**A reusable app must reach conda-forge before a component may depend on it.**
+The channel is a precondition, not a step to work around by reaching for the
+package index.
+
+**Channel presence alone is not fitness.** A package can be on conda-forge and
+still declare no support for the Django or Python this project pins, or be a
+build behind the fix you need. Presence answers *where it comes from*, not
+*whether it works here* — that is a separate check (FR-50).
+
+`tests/unit/test_dependency_policy.py` asserts all of this against `pixi.toml`
+and `pixi.lock`: the channel list, the single package-index entry, the rationale
+comments, the exit-condition rule, and that every declared dependency resolves
+in the lock to a concrete version *satisfying* what the manifest declares, for
+every environment and every platform `[workspace] platforms` names. `libpq` —
+the C library `psycopg` links against, and the one the application would
+otherwise assume the host provides — is asserted individually. The rest of the C
+surface is not enumerated; the general rule is the declaration policy above, not
+a test that knows every library by name.
+
+`pixi.lock` is generated. Re-solve it with `pixi install`; never hand-edit it.
 
 ## Running with no external services
 
