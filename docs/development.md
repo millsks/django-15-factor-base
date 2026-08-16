@@ -172,25 +172,32 @@ Hence the spike, run in Epic 1 rather than in Epic 7, on FR-50's own rule that
 fitness is proven before a feature is committed to.
 
 **Verdict: proven with a stated bound.** Recorded 2026-08-16.
-Tested against: django-storages 1.14.6, boto3 1.43.65, Django 6.0, Python 3.14 —
+Tested against: django-storages 1.14.6, boto3 1.43.65, Django 5.2, Python 3.14 —
 the versions the spike reads back from the installed distributions and asserts,
 so a bump to any of them invalidates this verdict rather than inheriting it.
 That listing is reconciled against the one in `pixi.toml`, so this copy cannot
 be left behind when the spike is re-run.
 
-**Out of scope: django 5.2** -- and that is not a footnote to the verdict, it is
-the verdict's current status. Story 1.9 moved the pin off the Django 6.0 feature
-release onto the 5.2 LTS series, and the spike was run against 6.0. So R-1 is
-open again: nothing recorded in this section has been re-earned against the
-Django this project now ships, and `pixi run spike-storage` has to be re-run and
-the verdict re-recorded before Epic 7 Story 7.5 acts on it. Everything else
-here — the verdict above and the evidence for it below — is left exactly as it
-was written, because it is a record of what ran on 2026-08-16 rather than a
-description of today's environment. What the LTS move does to R-1 is narrow the
-gap without closing it: `django-storages` 1.14.6 declares `Framework :: Django`
-for 3.2, 4.1, 4.2, 5.0 and 5.1, so 5.2 is one minor past its declared support
-where 6.0 was two majors, and its Django 5.2 support landed upstream on
-2025-06-17 and has never been released. The escalation ladder is unchanged.
+**Re-run against the LTS runtime.** Story 1.9 moved the pin off the Django 6.0
+feature release onto the 5.2 LTS series, which invalidated the verdict as first
+recorded — deliberately, since a verdict is a statement about specific versions.
+`pixi run spike-storage` was re-run on 2026-08-16 against Django 5.2.15 and all
+29 assertions passed unchanged, so the verdict holds on LTS and the
+"Out of scope" disclaimer that stood here has been deleted. That deletion is
+not tidying: `test_the_recorded_verdict_names_the_versions_the_lock_resolves`
+fails on a disclaimer that no longer contradicts the verdict, so the disclaimer
+could not have been left behind.
+
+**Upstream is moving again, but has not released.** As of 2026-08-16 the
+`django-storages` master branch declares `Framework :: Django` 4.2, 5.2 and 6.0
+and Python 3.10–3.14 (commit #1545, 2026-08-02) — covering the runtime this
+project ships. None of it is released: master still reports `__version__`
+1.14.6 and the newest tag is 1.14.6, so conda-forge has nothing newer to
+package. Treat a release as unscheduled rather than imminent — the Django 5.2
+support commit (#1520) landed 2025-06-17 and has sat unreleased since. The
+watch signal is a tag above 1.14.6; if one lands, the declared-support gap
+closes on a version bump and the feedstock-push rung of the ladder below is
+never needed.
 
 The spike itself runs in no automated path: `.github/workflows/ci.yml` pins
 `environments: dev`, and nothing in `pixi run ci` reaches the `spike-storage`
