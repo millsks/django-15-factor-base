@@ -47,3 +47,11 @@ status: open
 - source_spec: `1-4-no-network-surface-exists-beneath-djangos-routing.md`
   summary: The two deployment entrypoints disagree about their default settings module — `asgi.py` falls back to `config.settings.local` (DEBUG=True) while `wsgi.py` falls back to `config.settings.production` — so `pixi run serve`, described as "production-like ASGI", runs in DEBUG when the environment does not set `DJANGO_SETTINGS_MODULE`.
   evidence: `src/config/asgi.py:23` is `os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.local")`; `src/config/wsgi.py:27` sets the same variable to `config.settings.production`; `src/config/settings/local.py:9` is `DEBUG = True`. `pixi.toml:190` describes `serve` as "Serve with uvicorn (production-like ASGI)". Under that fallback `src/config/urls.py`'s `settings.DEBUG` block also adds `staticfiles_urlpatterns()`, so the served URLconf differs from production's. AD-16's own claim is unaffected — the DEBUG-only static patterns are routes, visible to the resolver and therefore to Epic 4's allowlist — which is why this is recorded rather than fixed. Pre-existing: the diff does not touch either line, and neither prior review pass recorded it. Deciding whether the ASGI entrypoint should default to production, or whether `serve`'s description should stop claiming production parity, is the process-model question Story 5.2 owns.
+
+### DW-2: Follow-up review still recommended for 1-4-no-network-surface-exists-beneath-djangos-routing after the damping cap was spent
+origin: review-budget-followup
+source_spec: `1-4-no-network-surface-exists-beneath-djangos-routing.md`
+location: n/a
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260815-185051-bd34; this entry preserves the lingering recommendation for a deliberate later review.
+status: open

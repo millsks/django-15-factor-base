@@ -1,15 +1,15 @@
 ---
 baseline_commit: ef5f99a26b6c37e26f11507211623b051afc06ed
 baseline_revision: ef5f99a26b6c37e26f11507211623b051afc06ed
-final_revision: 77019e9
+final_revision: 8e200e4
 review_loop_iteration: 0
 followup_review_recommended: true
-status: in-review
+status: done
 ---
 
 # Story 1.4: No network surface exists beneath Django's routing
 
-Status: in-review
+Status: done
 
 ## Story
 
