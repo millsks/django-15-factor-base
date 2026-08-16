@@ -19,8 +19,11 @@ pixi run runserver   # http://127.0.0.1:8000/
 
 ## Layout
 
-`src/` is the import root — it is on `sys.path` and is deliberately *not* a
-package, so `config` and `django_service` import as top-level packages.
+`src/` is the import root and is deliberately *not* a package, so `config` and
+`django_service` import as top-level packages. It is declared in exactly one
+place — `[tool.hatch.build.targets.wheel]` in `pyproject.toml`, which remaps
+`src/` onto the wheel root. The editable install is what puts it on `sys.path`
+at runtime; no entrypoint, pixi task or test setting declares it a second time.
 
 ```text
 src/config/          # settings, urls, wsgi/asgi, celery

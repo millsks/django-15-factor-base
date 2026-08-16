@@ -187,14 +187,16 @@ collectstatic = { cmd = "python manage.py collectstatic --noinput", default-envi
 createsuperuser = { cmd = "python manage.py createsuperuser", default-environment = "default", description = "Create an admin user" }
 # uvicorn runs on all three platforms, unlike the gunicorn+uvicorn-worker
 # pairing used in production, which is POSIX-only.
-serve = { cmd = "uvicorn config.asgi:application --app-dir src", default-environment = "default", description = "Serve with uvicorn (production-like ASGI)" }
+serve = { cmd = "uvicorn config.asgi:application", default-environment = "default", description = "Serve with uvicorn (production-like ASGI)" }
 
 # ---- Development-only Django commands ----
 # The dev server, autoreload and migration authoring. These run with
 # DJANGO_DEBUG_APPS on, so the debug toolbar is available.
 [feature.dev.tasks]
 runserver = { cmd = "python manage.py runserver", default-environment = "dev", description = "Django development server (with debug toolbar)" }
-serve-reload = { cmd = "uvicorn config.asgi:application --app-dir src --reload --reload-dir src", default-environment = "dev", description = "Serve with uvicorn and autoreload" }
+# --reload-dir is a file-watch target, not an import-root declaration, so it
+# stays; --app-dir would be a second declaration site and is gone (AD-7).
+serve-reload = { cmd = "uvicorn config.asgi:application --reload --reload-dir src", default-environment = "dev", description = "Serve with uvicorn and autoreload" }
 makemigrations = { cmd = "python manage.py makemigrations", default-environment = "dev", description = "Generate new migrations" }
 
 # ---- Standard harness ----

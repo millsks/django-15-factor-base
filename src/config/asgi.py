@@ -9,20 +9,19 @@ https://docs.djangoproject.com/en/dev/howto/deployment/asgi/
 """
 
 import os
-import sys
-from pathlib import Path
 
 from django.core.asgi import get_asgi_application
-
-# src/ is the import root: config, users and contrib are top-level packages.
-SRC_DIR = Path(__file__).resolve(strict=True).parent.parent
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
 
 # If DJANGO_SETTINGS_MODULE is unset, default to the local settings
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.local")
 
-from config.observability import configure_observability  # noqa: E402
+# Deliberately below the settings default above: importing this module reads
+# DJANGO_SETTINGS_MODULE. The `# noqa: E402` that used to sit here went with the
+# `sys.path` insert, whose `SRC_DIR = ...` assignment was what tripped the rule --
+# ruff tolerates several things before an import (a docstring, `__future__`,
+# conditional blocks, and mutations of `os.environ` *and* `sys.path`), so lint is
+# not what would catch a re-added insert. tests/unit/test_import_roots.py is.
+from config.observability import configure_observability
 
 configure_observability()
 
