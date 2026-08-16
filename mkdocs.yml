@@ -34,3 +34,4 @@ nav:
   - Home: index.md
   - Development: development.md
   - Observability: observability.md
+  - Authentication: authentication.md

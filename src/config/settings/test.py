@@ -2,6 +2,7 @@
 With these settings, tests run faster.
 """
 
+from config.authorization.claims import ClaimsContract
 from config.observability.logging import build_logging_config
 
 from .base import *  # noqa: F403
@@ -33,6 +34,19 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#email-backend
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+
+# AUTHENTICATION
+# ------------------------------------------------------------------------------
+# Test fixtures, not defaults. The suite runs against a *configured* contract so
+# that it exercises the mapping rather than the unconfigured case, and it does so
+# independently of whatever COMPONENT_ variables a developer's shell happens to
+# hold. base.py defaults none of these -- see config/authorization/claims.py.
+CLAIMS_CONTRACT = ClaimsContract(
+    identity_key_claim="sub",
+    group_claim="groups",
+    staff_group="platform-staff",
+    superuser_group="platform-superuser",
+)
 
 # DEBUGGING FOR TEMPLATES
 # ------------------------------------------------------------------------------
