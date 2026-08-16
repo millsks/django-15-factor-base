@@ -204,6 +204,13 @@ lint = { cmd = "ruff check .", default-environment = "dev", description = "Lint 
 typecheck = { cmd = "mypy src/", default-environment = "dev", description = "Type-check with mypy" }
 test = { cmd = "pytest tests/unit/", default-environment = "dev", description = "Unit tests only (fast, no I/O)" }
 test-integration = { cmd = "pytest tests/integration/", default-environment = "dev", description = "Integration tests only" }
+# The floor, declared once (AD-20): ninety percent, including templates,
+# everywhere. Never lowered, never made per-directory, and never cleared by a
+# pragma on unreached code -- a pragma raises the percentage by shrinking the
+# denominator, which is the same blinding by a quieter route.
+# tests/unit/test_coverage_policy.py asserts that this manifest declares the
+# floor exactly once, that the value is 90, and that no competing declaration
+# exists in pyproject.toml's coverage or pytest tables.
 test-cov = { cmd = "pytest tests/ --cov=src --cov-report=term-missing --cov-report=xml --cov-fail-under=90", default-environment = "dev", description = "Full suite with coverage, fails under 90%" }
 # --exit-zero so the report is always produced; `lint` is what gates on findings.
 ruff-report = { cmd = "ruff check . --output-format json --output-file ruff-report.json --exit-zero", default-environment = "dev", description = "Write ruff findings as JSON for SonarCloud" }
