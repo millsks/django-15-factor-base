@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 from celery import Celery
 from celery.signals import setup_logging
@@ -24,8 +25,22 @@ app.steps["worker"].add(DjangoStructLogInitStep)
 app.config_from_object("django.conf:settings", namespace="CELERY")
 
 
-@setup_logging.connect
-def config_loggers(*args, **kwargs):
+# celery ships no `py.typed` marker and conda-forge carries no stub package for
+# it, so `ignore_missing_imports` resolves `setup_logging` to `Any` and strict
+# mode reports that the decorator erases the annotated signature below.
+# `warn_unused_ignores` removes the marker when celery starts publishing types.
+@setup_logging.connect  # type: ignore[untyped-decorator]
+def config_loggers(*args: Any, **kwargs: Any) -> None:
+    """Install Django's LOGGING dict as the worker's logging configuration.
+
+    Celery otherwise replaces it with its own, which would drop the structlog
+    processor chain the rest of the application logs through.
+
+    Args:
+        *args: Signal arguments, unused.
+        **kwargs: Signal keyword arguments, unused.
+
+    """
     from logging.config import dictConfig  # noqa: PLC0415
 
     from django.conf import settings  # noqa: PLC0415

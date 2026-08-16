@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from allauth.account.decorators import secure_admin_login
 from django.conf import settings
 from django.contrib import admin
@@ -8,6 +10,14 @@ from .forms import UserAdminChangeForm
 from .forms import UserAdminCreationForm
 from .models import User
 
+if TYPE_CHECKING:
+    # django-stubs makes ModelAdmin generic in the model it administers, but
+    # the runtime class is not subscriptable and django-stubs is dev-only. See
+    # the same pattern and its reasoning in django_service/users/views.py.
+    _UserAdminBase = auth_admin.UserAdmin[User]
+else:
+    _UserAdminBase = auth_admin.UserAdmin
+
 if settings.DJANGO_ADMIN_FORCE_ALLAUTH:
     # Force the `admin` sign in process to go through the `django-allauth` workflow:
     # https://docs.allauth.org/en/latest/common/admin.html#admin
@@ -16,7 +26,7 @@ if settings.DJANGO_ADMIN_FORCE_ALLAUTH:
 
 
 @admin.register(User)
-class UserAdmin(auth_admin.UserAdmin):
+class UserAdmin(_UserAdminBase):
     form = UserAdminChangeForm
     add_form = UserAdminCreationForm
     fieldsets = (

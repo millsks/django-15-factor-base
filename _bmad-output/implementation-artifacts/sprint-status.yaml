@@ -51,7 +51,7 @@ development_status:
   epic-1: in-progress
   1-1-the-full-gate-runs-in-ci-through-one-invocation: done
   1-2-the-gate-runs-against-postgresql: done
-  1-3-strict-type-checking-is-a-gate-condition: ready-for-dev
+  1-3-strict-type-checking-is-a-gate-condition: done
   1-4-no-network-surface-exists-beneath-djangos-routing: done
   1-5-the-coverage-floor-is-one-constant-and-its-measurement-is-closed: ready-for-dev
   1-6-import-roots-are-declared-in-exactly-one-place: ready-for-dev

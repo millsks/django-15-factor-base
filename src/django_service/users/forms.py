@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from allauth.account.forms import SignupForm
 from allauth.socialaccount.forms import SignupForm as SocialSignupForm
 from django.contrib.auth import forms as admin_forms
@@ -5,8 +7,16 @@ from django.utils.translation import gettext_lazy as _
 
 from .models import User
 
+if TYPE_CHECKING:
+    # django-stubs makes UserChangeForm generic in the user model, but the
+    # runtime class is not subscriptable and django-stubs is dev-only. See the
+    # same pattern and its reasoning in django_service/users/views.py.
+    _UserChangeFormBase = admin_forms.UserChangeForm[User]
+else:
+    _UserChangeFormBase = admin_forms.UserChangeForm
 
-class UserAdminChangeForm(admin_forms.UserChangeForm):
+
+class UserAdminChangeForm(_UserChangeFormBase):
     class Meta(admin_forms.UserChangeForm.Meta):
         model = User
 
@@ -24,7 +34,12 @@ class UserAdminCreationForm(admin_forms.AdminUserCreationForm):
         }
 
 
-class UserSignupForm(SignupForm):
+# django-allauth ships no `py.typed` marker and no stub package exists for it on
+# conda-forge, so `ignore_missing_imports` resolves every allauth name to `Any`
+# and strict mode refuses the subclass. The base class is real; only its type is
+# missing upstream. `warn_unused_ignores` removes these the moment allauth
+# starts publishing types.
+class UserSignupForm(SignupForm):  # type: ignore[misc]
     """
     Form that will be rendered on a user sign up section/screen.
     Default fields will be added automatically.
@@ -32,7 +47,7 @@ class UserSignupForm(SignupForm):
     """
 
 
-class UserSocialSignupForm(SocialSignupForm):
+class UserSocialSignupForm(SocialSignupForm):  # type: ignore[misc]
     """
     Renders the form when user has signed up using social accounts.
     Default fields will be added automatically.
