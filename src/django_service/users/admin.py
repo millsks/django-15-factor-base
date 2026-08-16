@@ -30,7 +30,7 @@ class UserAdmin(_UserAdminBase):
     form = UserAdminChangeForm
     add_form = UserAdminCreationForm
     fieldsets = (
-        (None, {"fields": ("username", "password")}),
+        (None, {"fields": ("username", "password", "idp_subject")}),
         (_("Personal info"), {"fields": ("name", "email")}),
         (
             _("Permissions"),
@@ -46,5 +46,8 @@ class UserAdmin(_UserAdminBase):
         ),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
     )
+    # The identity key is displayed but never editable: an operator changing it
+    # is account takeover (AD-11).
+    readonly_fields = ["idp_subject"]
     list_display = ["username", "name", "is_superuser"]
     search_fields = ["name"]
