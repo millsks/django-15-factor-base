@@ -130,8 +130,15 @@ def configure_telemetry(service_version: str | None = None) -> bool:
 
     # Instrumentation is installed even when nothing is exported, so spans are
     # still created and their ids still reach the logs.
+    #
+    # `CeleryInstrumentor` alone carries a `# type: ignore[no-untyped-call]`:
+    # opentelemetry-instrumentation ships `py.typed`, but CeleryInstrumentor
+    # overrides `__init__` without annotating it, so the constructor is an
+    # untyped def inside a package that claims to be typed. The other three
+    # instrumentors inherit `BaseInstrumentor.__new__` and are unaffected.
+    # `warn_unused_ignores` removes the marker when upstream annotates it.
     DjangoInstrumentor().instrument()
-    CeleryInstrumentor().instrument()
+    CeleryInstrumentor().instrument()  # type: ignore[no-untyped-call]
     PsycopgInstrumentor().instrument()
     RedisInstrumentor().instrument()
 
