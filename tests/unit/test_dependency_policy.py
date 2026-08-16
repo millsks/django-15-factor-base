@@ -117,10 +117,88 @@ DOCS_VERDICT_HEADING = "### Object storage fitness (R-1)"
 TESTED_AGAINST_PREFIX = "tested against:"
 VERDICT_VERSION_PACKAGES = frozenset({"django-storages", "django", "python", "boto3"})
 
+# The other half of that reconciliation, added by Story 1.9. A verdict is a
+# statement about specific versions, and the versions moved: the Django pin left
+# the 6.0 feature release for the 5.2 LTS series, which the spike never ran
+# against. Two answers were available and only one is honest -- re-run the spike
+# (this story does not, deliberately), or record that the verdict no longer
+# covers what the lock resolves. So the rule is no longer "the lock still holds
+# the verdict's runtime"; it is "the lock still holds it, or the block says
+# plainly that it does not, naming what it does not cover".
+#
+# That keeps the guard closed from both directions. An unacknowledged bump still
+# fails, exactly as before. An acknowledgement that has gone stale -- the spike
+# re-run, "Tested against:" caught up, this line left behind -- fails too, which
+# is what stops "out of scope" becoming a permanent way to silence the check.
+OUT_OF_SCOPE_PREFIX = "out of scope:"
+
+# What a verdict may be disclaimed *against*, and deliberately not what it is
+# *about*. R-1's verdict is a statement about `django-storages` and the `boto3`
+# underneath it, earned on a particular Django and Python. Recording that it no
+# longer covers the runtime is the honest half -- that is exactly what Story 1.9
+# did when the pin moved to the LTS series, and the spike is what takes it back.
+# Recording that it no longer covers `django-storages` itself would leave a
+# verdict about nothing, still recorded as "proven", with the gate green: the
+# subject of a verdict cannot be excused from it. So the disclaimable set is the
+# runtime the verdict was earned on and nothing else.
+DISCLAIMABLE_PACKAGES = frozenset({"django", "python"})
+
+# The Django release series this project pins, restated here rather than read
+# from the manifest: a test that reads the value it is checking asserts nothing.
+#
+# The policy is the LTS series, not "some Django" and not "the newest Django".
+# Components generated from this accelerator inherit whatever it pins, so a
+# feature release propagates a support window measured in months into every one
+# of them; 5.2 is supported to April 2028. The cap is therefore the next
+# *minor*: 5.3 is a feature release exactly as 6.0 was, so `>=5.2,<6` would
+# re-admit the thing the pin exists to keep out.
+RUNTIME_PACKAGE = "django"
+# Both halves of the stub distribution, because "the stubs track the runtime
+# series" is false if only one of them does. `django-stubs` is the stub tree
+# mypy reads; `django-stubs-ext` is the runtime module it imports and depends on
+# as `>=5.2.9` with no cap, which is loose enough that the solver put
+# `django-stubs-ext 6.0.8` beside the 5.2 stubs until it was pinned.
+STUB_PACKAGE = "django-stubs"
+STUB_PACKAGES = (STUB_PACKAGE, "django-stubs-ext")
+DJANGO_LTS_SERIES = "5.2"
+
+# Derived, never written out, so that moving to the next LTS really is the
+# single-constant edit the rules below promise it is: `DJANGO_LTS_SERIES =
+# "6.2"` has to yield `>=6.2,<6.3`, where a hardcoded cap would have yielded the
+# contradictory `>=6.2,<5.3` and a cap built from the first character would
+# yield `1.3` for a Django `10.2`.
+_LTS_SERIES_PARTS = [int(part) for part in DJANGO_LTS_SERIES.split(".")]
+DJANGO_LTS_CAP = f"{_LTS_SERIES_PARTS[0]}.{_LTS_SERIES_PARTS[1] + 1}"
+# The cap this pin deliberately does *not* use -- the next major, which would
+# re-admit every feature release left in the current one.
+DJANGO_LTS_MAJOR_CAP = str(_LTS_SERIES_PARTS[0] + 1)
+DJANGO_LTS_CLAUSES = [f">={DJANGO_LTS_SERIES}", f"<{DJANGO_LTS_CAP}"]
+
+# Written down so the exit from this pin is a decision rather than a rediscovery.
+NEXT_LTS_SERIES = "6.2"
+
 # `name version` pairs inside the "Tested against:" listing. Names are matched
 # lowercase, so `Django 6.0` and `Python 3.14` are found as readily as
 # `django-storages 1.14.6`.
 TESTED_AGAINST_ENTRY = re.compile(r"([a-z0-9][a-z0-9._-]*)\s+(\d[\w.]*)")
+
+# What ends a listing and starts the prose explaining it. Both dash spellings
+# count: `pixi.toml`'s comment block is plain text and writes `--`, while
+# `docs/development.md` is prose and writes both -- a real em dash after the
+# "Tested against:" listing, `--` after the disclaimer. So does the end of the
+# sentence, which is what keeps the reader off a *quoted* mention of a label:
+# the out-of-scope note in `pixi.toml` says in prose when "Tested against:"
+# catches up, and every occurrence of a label is scanned, not merely the first.
+# A version number cannot end a sentence here -- the boundary requires a letter
+# before the full stop.
+LISTING_END = re.compile(r"--|—|(?<=[a-z])\.\s")
+
+# A version, with whatever comparison operator, whitespace or `.*` suffix a
+# legal pin may spell it with: `>=5.2`, `~=5.2`, `>= 5.2`, `5.2.*` and `5.2.15`
+# all name the 5.2 series. Parsed rather than stripped character by character,
+# because a stripper that does not know `~` turns a legal pin into nonsense and
+# then fails the comparison with a message about the wrong thing.
+SERIES_BOUND = re.compile(r"^[~^!<>=\s]*v?(\d+(?:\.\d+)?)")
 
 # `[dependencies]`, `[pypi-dependencies]`, and their per-feature and per-target
 # variants. Anything else in pixi.toml -- tasks, environments, activation -- is
@@ -357,6 +435,46 @@ def _satisfies(version: str, specifier: Any) -> bool:
         if not satisfied:
             return False
     return True
+
+
+def _clauses(specifier: Any) -> list[str]:
+    """Return a declared version range as its individual constraint clauses.
+
+    Whitespace is stripped so ``">=5.2, <5.3"`` and ``">=5.2,<5.3"`` compare
+    equal, and the table form is read through `_version_spec` like everything
+    else in this module.
+
+    Args:
+        specifier: The right-hand side of a dependency declaration.
+
+    Returns:
+        One entry per comma-separated clause, empty when nothing is constrained.
+    """
+    constraint = _version_spec(specifier).strip()
+    if constraint in ("", "*"):
+        return []
+    return [clause.strip() for clause in constraint.split(",")]
+
+
+def _series(version: str) -> str:
+    """Return the ``major.minor`` release series a version or a constraint bound belongs to.
+
+    The argument may carry a comparison operator, surrounding whitespace or a
+    ``.*`` suffix, because all of those are legal ways to spell a pin: ``~=5.2``,
+    ``>= 5.2`` and ``5.2.*`` all name the 5.2 series and all three would survive
+    a character-strip mangled into something that compares unequal to it -- the
+    rule would then fail, but for the wrong reason and with a message about the
+    wrong thing.
+
+    Args:
+        version: A concrete version (``5.2.15``) or a constraint clause (``>=5.2``).
+
+    Returns:
+        The first two components, one component when that is all it names, or the
+        input stripped when it names no version at all.
+    """
+    match = SERIES_BOUND.match(version.strip())
+    return match.group(1) if match else version.strip()
 
 
 def _feature_dependencies(manifest: dict[str, Any]) -> dict[str, dict[str | None, dict[str, Any]]]:
@@ -842,6 +960,121 @@ def test_libpq_is_declared_rather_than_assumed(manifest: dict[str, Any], lock: d
     assert not missing, f"libpq is not resolved in pixi.lock for: {missing}."
 
 
+def test_django_is_declared_as_the_lts_series(manifest: dict[str, Any]) -> None:
+    """The Django pin is the LTS series, floor and cap both (Story 1.9, AC #5).
+
+    Two ways to leave it, and the cap is the one that would go unnoticed:
+
+    * **The floor moves off 5.2.** Below it the tree does not resolve at all --
+      `django-redis` 7.0.0 (`django >=5.2,<7.0`), `djangorestframework` 3.18.0
+      and `django-debug-toolbar` 7.0.0 each require `django >=5.2` -- so this half
+      fails loudly either way. It is asserted anyway, because "it would not
+      solve" is a property of today's dependency set rather than of the policy.
+    * **The cap widens.** `>=5.2,<6` reads like a tightening next to the
+      `>=6.0,<7` it replaced and is not one: 5.3 is a feature release exactly as
+      6.0 was, and a re-solve would take it. The LTS is a *minor* series, so the
+      cap is the next minor and nothing else.
+
+    What makes this a policy rather than a preference: components generated from
+    this accelerator inherit whatever is pinned here. A feature release
+    propagates a support window measured in months into every one of them; 5.2
+    is supported to April 2028. The successor is Django 6.2 LTS (April 2027),
+    and moving to it means editing this constant, the manifest, the stub pin and
+    R-1's verdict together.
+    """
+    clauses = _clauses(manifest["dependencies"][RUNTIME_PACKAGE])
+    assert clauses == DJANGO_LTS_CLAUSES, (
+        f"pixi.toml declares django = {_version_spec(manifest['dependencies'][RUNTIME_PACKAGE])!r}; this "
+        f"project pins the LTS series, which is {','.join(DJANGO_LTS_CLAUSES)}. Django "
+        f"{DJANGO_LTS_SERIES} LTS is supported to April 2028, and every component generated from this "
+        "accelerator inherits the pin -- a feature release would propagate a support window measured in "
+        f"months into all of them. The cap is the next *minor* on purpose: '<{DJANGO_LTS_MAJOR_CAP}' would "
+        f"re-admit {DJANGO_LTS_CAP} and every feature release after it. The intended successor is Django "
+        f"{NEXT_LTS_SERIES} LTS (April 2027); moving to it means changing this test, the pin, the "
+        "django-stubs pin and R-1's recorded verdict in one change."
+    )
+
+
+def test_the_type_stubs_track_the_declared_django_series(manifest: dict[str, Any]) -> None:
+    """`django-stubs` stays on Django's minor series, because mismatched stubs pass (AC #5).
+
+    This is the invariant with no natural failure. A wrong runtime version
+    breaks at import; wrong *stubs* type-check a 5.2 runtime against another
+    release's API and exit 0, so `pixi run ci` stays green while `typecheck` --
+    a gate condition under `strict` since Story 1.3 (AD-18) -- is checking
+    something the application does not run.
+
+    Asserted as series equality rather than as a literal, so it keeps holding
+    through the move to the next LTS: whatever `django` declares, both stub
+    packages declare the same minor. `django-stubs-ext` is in scope because it is
+    the runtime half of the same distribution and `django-stubs` requires it only
+    as `>=5.2.9` -- loose enough that the solver had taken `6.0.8` beside the 5.2
+    stubs before this pin existed.
+    """
+    runtime = manifest["dependencies"][RUNTIME_PACKAGE]
+    dev_dependencies = manifest.get("feature", {}).get("dev", {}).get("dependencies", {})
+    undeclared = sorted(name for name in STUB_PACKAGES if name not in dev_dependencies)
+    assert not undeclared, (
+        f"{undeclared} are not declared in [feature.dev.dependencies]. Both halves of the stub distribution "
+        "are pinned there so that the series equality below has something to compare; a stub package that "
+        "moved to another table did not stop mattering, so move this lookup rather than dropping the pin."
+    )
+
+    declared = [(RUNTIME_PACKAGE, runtime), *((name, dev_dependencies[name]) for name in STUB_PACKAGES)]
+    spelled = {name: _version_spec(specifier) for name, specifier in declared}
+    unranged = sorted(name for name, specifier in declared if not _clauses(specifier))
+    assert not unranged, (
+        f"these carry no version range at all: {unranged}. Declared: {spelled}. Without a range on every one "
+        "of them the stub series is whatever the solver felt like, and the equality below would compare two "
+        "empty sets."
+    )
+
+    series = {name: sorted({_series(clause) for clause in _clauses(specifier)}) for name, specifier in declared}
+    divergent = sorted(name for name in STUB_PACKAGES if series[name] != series[RUNTIME_PACKAGE])
+    assert not divergent, (
+        f"{divergent} do not declare Django's series. Declared: {spelled}. The stub line is built "
+        "against one Django minor series -- the 5.2 stubs against Django 5.2 -- so these pins move in the "
+        "same change as the runtime. Leaving them apart type-checks the runtime against another release's "
+        "API and still exits 0, which is wrong checking rather than no checking."
+    )
+
+
+def test_the_lock_resolves_the_lts_django_and_its_matching_stubs(lock: dict[str, Any]) -> None:
+    """AC #1 and AC #5 against what was solved, because a right manifest can sit on a stale lock.
+
+    `pixi.lock` is what an environment is actually built from. The manifest
+    assertions above would both pass with a lock still holding Django 6.0.8, so
+    the resolved versions are checked directly, in every environment and on
+    every platform. Both stub packages are in scope and each is checked only
+    where its environment carries it: the runtime-only `default` environment has
+    no toolchain, and an environment carrying no Django at all -- Epic 8 adds
+    six more -- is not this rule's business either, which is why it is skipped
+    rather than reported.
+    """
+    resolved = _resolved_packages(lock)
+    assert resolved, "pixi.lock declares no environments; it has not been solved."
+
+    offenders: list[str] = []
+    for environment, platforms in sorted(resolved.items()):
+        for platform, packages in sorted(platforms.items()):
+            where = f"(environment {environment}, platform {platform})"
+            runtime = packages.get(RUNTIME_PACKAGE)
+            if runtime is None:
+                continue
+            if _series(runtime) != DJANGO_LTS_SERIES:
+                offenders.append(f"django resolves {runtime} {where}")
+            for name in STUB_PACKAGES:
+                stubs = packages.get(name)
+                if stubs is not None and _series(stubs) != _series(runtime):
+                    offenders.append(f"{name} resolves {stubs} against django {runtime} {where}")
+
+    assert not offenders, (
+        f"the lock does not hold the Django {DJANGO_LTS_SERIES} LTS series and stubs to match: {offenders}. "
+        "Re-solve with `pixi install` rather than editing pixi.lock; if the manifest is what moved, it is "
+        "the manifest that is wrong."
+    )
+
+
 def _recorded_verdict(rationale: str) -> str | None:
     """Return the R-1 verdict a rationale records, or None when it records none.
 
@@ -876,11 +1109,69 @@ def _tested_against(rationale: str) -> dict[str, str]:
         Lowercased package name to the version the verdict claims, empty when the
         rationale carries no such line.
     """
+    return _named_versions(rationale, TESTED_AGAINST_PREFIX)
+
+
+def _out_of_scope(rationale: str) -> dict[str, str]:
+    """Return the ``name -> version`` pairs the verdict records itself as *not* covering.
+
+    Same shape and same reader as "Tested against:", because it answers the same
+    question from the other side: which runtime is this verdict a statement
+    about, and which is it explicitly not.
+
+    Args:
+        rationale: The comment text recorded beside the declaration.
+
+    Returns:
+        Lowercased package name to the version the verdict disclaims, empty when
+        the rationale disclaims nothing.
+    """
+    return _named_versions(rationale, OUT_OF_SCOPE_PREFIX)
+
+
+def _named_versions(rationale: str, prefix: str) -> dict[str, str]:
+    """Return the ``name version`` pairs following every labelled line of the verdict block.
+
+    **Every** occurrence, not the first. A reader that partitioned once would be
+    blind to a second ``Out of scope:`` line, and a block that disclaims two
+    runtimes on two lines is the ordinary way this record grows -- so the second
+    one would be invisible to the reconciliation while sitting in the file
+    looking like it counted.
+
+    A listing runs from its label to the end of that record: the dash break both
+    files use to separate a listing from the prose about it -- `pixi.toml` writes
+    ``--``, `docs/development.md` writes a real em dash after "Tested against:"
+    and ``--`` after the disclaimer -- or the end of the sentence, whichever
+    comes first. The sentence bound is what keeps a *quoted* label out of the
+    result: `pixi.toml`'s out-of-scope note says in prose when "Tested against:"
+    catches up, and that mention is followed by prose rather than by a listing.
+
+    Args:
+        rationale: The comment text recorded beside the declaration.
+        prefix: The lowercase label the listing follows, e.g. ``tested against:``.
+
+    Returns:
+        Lowercased package name to version, merged across every occurrence of the
+        label, empty when the label is absent.
+    """
     collapsed = " ".join(rationale.lower().split())
-    _head, separator, tail = collapsed.partition(TESTED_AGAINST_PREFIX)
-    if not separator:
-        return {}
-    return dict(TESTED_AGAINST_ENTRY.findall(tail.split("--", 1)[0]))
+    found: dict[str, str] = {}
+    for match in re.finditer(re.escape(prefix), collapsed):
+        listing = LISTING_END.split(collapsed[match.end() :], maxsplit=1)[0]
+        found.update(TESTED_AGAINST_ENTRY.findall(listing))
+    return found
+
+
+def _precision(version: str) -> int:
+    """Return how many components a version names, which is how precisely it names a release line.
+
+    Args:
+        version: A version as a record names it -- ``5``, ``5.2`` or ``5.2.15``.
+
+    Returns:
+        The number of dot-separated components.
+    """
+    return len(version.split("."))
 
 
 def _is_same_release_line(locked: str, named: str) -> bool:
@@ -901,8 +1192,71 @@ def _is_same_release_line(locked: str, named: str) -> bool:
     return locked == named or locked.startswith(f"{named}.")
 
 
-def _verdict_drift(named: dict[str, str], platforms: dict[str, dict[str, str]]) -> list[str]:
-    """Return every place the lock has moved off a version the verdict names.
+def _disclaimer_failures(named: dict[str, str], disclaimed: dict[str, str]) -> list[str]:
+    """Return every way an "Out of scope:" record fails on its own terms, before the lock is read.
+
+    Three of them, and none is about what the lock resolved -- these are the
+    limits that stop the disclaimer from being an off switch rather than an
+    acknowledgement. See `_verdict_scope_failures`, which reads them alongside
+    the lock, for what each one is guarding.
+
+    Args:
+        named: Package name to the version the verdict claims it was tested against.
+        disclaimed: Package name to the version the verdict records as out of scope.
+
+    Returns:
+        One description per bad disclaimer, empty when every one is well formed.
+    """
+    failures: list[str] = []
+    for package, version in sorted(disclaimed.items()):
+        if package not in DISCLAIMABLE_PACKAGES:
+            failures.append(
+                f"{package} is recorded out of scope at {version}, and it may not be: the verdict is a "
+                f"statement *about* it, so excusing it leaves a verdict about nothing. Only "
+                f"{sorted(DISCLAIMABLE_PACKAGES)} -- the runtime the verdict was earned on -- may be "
+                "disclaimed; anything else has to be re-spiked instead"
+            )
+        elif package not in named:
+            failures.append(f"{package} is recorded out of scope at {version}, but the verdict does not name it at all")
+        elif _precision(version) < _precision(named[package]):
+            failures.append(
+                f"{package} is recorded out of scope at {version}, which names a coarser release line than "
+                f"the verdict's {named[package]}: a disclaimer has to be at least as precise as the claim it "
+                f"narrows, or it exempts everything under {version}"
+            )
+    return failures
+
+
+def _verdict_scope_failures(
+    named: dict[str, str],
+    disclaimed: dict[str, str],
+    platforms: dict[str, dict[str, str]],
+) -> list[str]:
+    """Return every place the verdict and the lock disagree about what was tested.
+
+    The rule has two halves, and both are failures:
+
+    * **Unacknowledged drift.** The lock resolves a version the verdict does not
+      name and the block says nothing about it. That is a verdict quietly
+      inherited across a bump, which is what Story 1.8 built this check for.
+    * **A stale disclaimer.** The block records a package as out of scope while
+      the lock resolves the very release line the verdict *does* name. That is
+      the opposite failure and it matters just as much: without it, "out of
+      scope" would be a line you write once and never take back, permanently
+      exempting a package from the reconciliation.
+
+    A disclaimer is only accepted when it names the release line the lock
+    actually resolves, so it cannot be written vaguely enough to cover whatever
+    the solver does next. Two further limits make that real rather than nominal:
+
+    * **It may not be coarser than the verdict.** A verdict naming `django 6.0`
+      is answered by a disclaimer naming `django 5.2`, not by one naming
+      `django 5` -- which would exempt the entire 5.x line, and `5.9` with it,
+      from a check whose whole subject is version identity.
+    * **It may not name the subject.** Only `DISCLAIMABLE_PACKAGES` -- the
+      runtime the verdict was earned *on* -- can be disclaimed. Disclaiming
+      `django-storages` or `boto3`, which the verdict is *about*, would leave a
+      recorded "proven" that is a statement about nothing at all.
 
     Split out from its test so that it can be exercised against a synthetic lock:
     `pixi run` re-solves and rewrites `pixi.lock` before a task starts, so a
@@ -910,22 +1264,34 @@ def _verdict_drift(named: dict[str, str], platforms: dict[str, dict[str, str]]) 
     rule would otherwise be unverifiable by mutation.
 
     Args:
-        named: Package name to the version the verdict claims.
+        named: Package name to the version the verdict claims it was tested against.
+        disclaimed: Package name to the version the verdict records as out of scope.
         platforms: platform -> {package: resolved version}, for one environment.
 
     Returns:
-        One description per drift, empty when the lock still holds the verdict's
-        runtime.
+        One description per disagreement, empty when the record and the lock agree.
     """
-    drifted: list[str] = []
+    failures: list[str] = _disclaimer_failures(named, disclaimed)
     for platform, packages in sorted(platforms.items()):
         for package, version in sorted(named.items()):
             locked = packages.get(package)
+            acknowledged = disclaimed.get(package)
             if locked is None:
-                drifted.append(f"{package} is named by the verdict but resolves nowhere on {platform}")
-            elif not _is_same_release_line(locked, version):
-                drifted.append(f"{package}: verdict says {version}, lock resolves {locked} on {platform}")
-    return drifted
+                failures.append(f"{package} is named by the verdict but resolves nowhere on {platform}")
+            elif _is_same_release_line(locked, version):
+                if acknowledged is not None:
+                    failures.append(
+                        f"{package}: recorded out of scope at {acknowledged}, but the lock resolves {locked} "
+                        f"on {platform}, which is the release line the verdict covers"
+                    )
+            elif acknowledged is None:
+                failures.append(f"{package}: verdict says {version}, lock resolves {locked} on {platform}")
+            elif not _is_same_release_line(locked, acknowledged):
+                failures.append(
+                    f"{package}: recorded out of scope at {acknowledged}, but the lock resolves {locked} "
+                    f"on {platform}, which is neither that nor the verdict's {version}"
+                )
+    return failures
 
 
 def _cross_environment_divergences(resolved: dict[str, dict[str, dict[str, str]]]) -> list[str]:
@@ -977,7 +1343,10 @@ def _docs_section(text: str, heading: str) -> str:
     return " ".join(body)
 
 
-def test_the_storage_spike_is_staged_rather_than_committed_to(manifest: dict[str, Any]) -> None:
+def test_the_storage_spike_is_staged_rather_than_committed_to(
+    manifest: dict[str, Any],
+    manifest_lines: list[str],
+) -> None:
     """R-1: `django-storages` is declared in the spike feature and nowhere else.
 
     This assertion encodes the recorded verdict, which is **proven with a stated
@@ -994,7 +1363,19 @@ def test_the_storage_spike_is_staged_rather_than_committed_to(manifest: dict[str
       without the feature existing, which is what FR-50 exists to prevent.
 
     If Story 7.5 moves it, this test moves with it -- it becomes an assertion
-    that the package sits in the `storage` feature. It does not get deleted.
+    that the package sits in the `storage` feature. It does not get deleted, and
+    it may not be moved while the verdict is disclaimed, which is the third
+    assertion below.
+
+    **A disclaimed verdict may not be built on.** While the verdict block
+    records an "Out of scope:" runtime -- as it has since Story 1.9 moved the pin
+    to the 5.2 LTS series without re-running the spike -- the verdict is the
+    manifest's own statement that it no longer describes what this project
+    ships. Acting on it then is acting on evidence the file next to the action
+    disowns. So the staging is *coupled* to the disclaimer rather than merely
+    coinciding with it: re-run `pixi run spike-storage`, re-record the verdict
+    and delete the disclaimer first; only then may `django-storages` reach a
+    runtime table.
 
     "Nowhere else" is checked against **every** dependency table, not the two at
     the top level. `[feature.dev.dependencies]` is a declaration site exactly as
@@ -1016,6 +1397,20 @@ def test_the_storage_spike_is_staged_rather_than_committed_to(manifest: dict[str
     assert SPIKE_PACKAGE not in manifest.get("pypi-dependencies", {}), (
         f"{SPIKE_PACKAGE} is in [pypi-dependencies]. R-1's escalation permits a time-boxed package-index "
         "exception only on a *failed* verdict, and the recorded verdict is not failed."
+    )
+
+    declarations = {declaration.name: declaration for declaration in _declarations(manifest_lines)}
+    rationale = _rationale(declarations[SPIKE_PACKAGE], manifest_lines) or ""
+    disclaimed = _out_of_scope(rationale)
+    tables = sorted(
+        declaration.table for declaration in _declarations(manifest_lines) if declaration.name == SPIKE_PACKAGE
+    )
+    assert not disclaimed or tables == [f"[feature.{SPIKE_FEATURE}.dependencies]"], (
+        f"the recorded verdict is disclaimed against {disclaimed} -- the manifest's own statement that it no "
+        f"longer covers the runtime this project locks -- and {SPIKE_PACKAGE} is nevertheless declared in "
+        f"{tables}. A disclaimed verdict is not evidence and may not be built on: re-run "
+        "`pixi run spike-storage` against the locked versions, re-record the verdict in pixi.toml and "
+        "docs/development.md, and delete the disclaimer. Only then does the declaration move."
     )
 
 
@@ -1136,6 +1531,14 @@ def test_the_recorded_verdict_names_the_versions_the_lock_resolves(
     resolved for the environment the spike runs in. Matching is at the verdict's
     own precision: "Django 6.0" is satisfied by a locked `6.0.8` and not by
     `6.1.0`.
+
+    Story 1.9 is the first time it fired for real -- the Django pin moved to the
+    5.2 LTS series and the spike had run against 6.0 -- so the rule now admits
+    the one other honest answer besides re-running the spike: the block may
+    record, in an "Out of scope:" line naming the runtime, that the verdict does
+    not cover what the lock resolves. It may not record that vaguely (the line
+    has to name the release line the lock actually holds) and it may not record
+    it permanently (a disclaimer that no longer contradicts the verdict fails).
     """
     declarations = {declaration.name: declaration for declaration in _declarations(manifest_lines)}
     rationale = _rationale(declarations[SPIKE_PACKAGE], manifest_lines)
@@ -1154,11 +1557,13 @@ def test_the_recorded_verdict_names_the_versions_the_lock_resolves(
         "reconciled against anything. Run `pixi install`."
     )
 
-    drifted = _verdict_drift(named, resolved[SPIKE_ENVIRONMENT])
-    assert not drifted, (
-        f"the lock has moved off the runtime the R-1 verdict is a statement about: {sorted(set(drifted))}. "
-        "Re-run `pixi run spike-storage` against the new versions and re-record the verdict in pixi.toml "
-        "and docs/development.md; a verdict is not inherited across a version bump."
+    failures = _verdict_scope_failures(named, _out_of_scope(rationale), resolved[SPIKE_ENVIRONMENT])
+    assert not failures, (
+        f"the R-1 verdict and pixi.lock disagree about the runtime it is a statement about: "
+        f"{sorted(set(failures))}. Either re-run `pixi run spike-storage` against the locked versions and "
+        f"re-record the verdict in pixi.toml and docs/development.md, or record what it no longer covers on "
+        f"an {OUT_OF_SCOPE_PREFIX!r} line beside the declaration. A verdict is not inherited across a version "
+        "bump, and a disclaimer is deleted when the spike catches up with it."
     )
 
 
@@ -1218,6 +1623,27 @@ def test_the_docs_copy_of_the_verdict_matches_the_manifest(manifest_lines: list[
     assert not missing, (
         f"the docs copy of the verdict is bounded but does not state the bound: {missing} appear nowhere "
         f"under {DOCS_VERDICT_HEADING!r}. The bound has to survive the second copy, not only the first."
+    )
+
+    # And so do the versions. Reconciling the verdict string and the disclaimer
+    # while leaving these alone is the half-measure that misleads worst: the docs
+    # copy could go on naming Django 6.0 after the spike is re-run against
+    # another release, with the gate green, because nothing compared the two
+    # listings. `_tested_against` is the same reader the manifest half uses, so
+    # the docs copy has to carry a "Tested against:" label of its own.
+    assert _tested_against(section) == _tested_against(rationale), (
+        f"{DEVELOPMENT_DOCS.name} records the verdict as tested against {_tested_against(section)} and "
+        f"pixi.toml records {_tested_against(rationale)}. A verdict is a statement about specific versions, "
+        f"so the second copy has to name the same ones; write them after {TESTED_AGAINST_PREFIX!r} in each."
+    )
+
+    # And so does the disclaimer. A reader who never opens `pixi.toml` is exactly
+    # the reader who would otherwise be told the verdict covers the Django this
+    # project ships, when the manifest says in as many words that it does not.
+    assert _out_of_scope(section) == _out_of_scope(rationale), (
+        f"{DEVELOPMENT_DOCS.name} records the verdict as out of scope for {_out_of_scope(section)} and "
+        f"pixi.toml records {_out_of_scope(rationale)}. The runtime a verdict does not cover has to be "
+        f"stated in both copies; write it after {OUT_OF_SCOPE_PREFIX!r} in each."
     )
 
 
@@ -1299,6 +1725,37 @@ def test_satisfies_compares_versions_rather_than_strings() -> None:
         _satisfies("1.2.3", "~=1.2")
 
 
+def test_the_pin_reader_splits_a_range_and_finds_its_series() -> None:
+    """The LTS rules compare clauses and series, so both readers are pinned.
+
+    A `_clauses` that returned the range as one string would make the equality
+    against `DJANGO_LTS_CLAUSES` sensitive to a space nobody meant to matter,
+    and a `_series` that returned the whole version would let `django-stubs
+    5.2.9` read as a different series from `django 5.2.15` -- the first
+    failing for the wrong reason, the second never failing at all.
+    """
+    assert _clauses(">=5.2,<5.3") == [">=5.2", "<5.3"]
+    assert _clauses(">=5.2, <5.3") == [">=5.2", "<5.3"]
+    assert _clauses({"version": ">=5.2,<5.3"}) == [">=5.2", "<5.3"]
+    assert _clauses("*") == []
+    assert _clauses("") == []
+
+    assert _series("5.2.15") == "5.2"
+    assert _series("5.2") == "5.2"
+    assert _series("6") == "6"
+    assert _series("3.14.6") == "3.14"
+
+    # Legal ways to spell the same pin, all of which a character-strip mangles:
+    # `~` is not in its strip set, a space survives it, and `.*` becomes a third
+    # component. Each would then fail the series comparison with a message about
+    # a mismatch that is not there.
+    assert _series(">=5.2") == "5.2"
+    assert _series("~=5.2") == "5.2"
+    assert _series(">= 5.2") == "5.2"
+    assert _series("5.2.*") == "5.2"
+    assert _series("  <5.3 ") == "5.3"
+
+
 def test_the_verdict_reader_does_not_read_a_bound_as_full_coverage() -> None:
     """A bounded verdict must not be readable as an unbounded one.
 
@@ -1367,13 +1824,172 @@ def test_a_lock_that_moved_off_the_verdicts_runtime_is_reported() -> None:
     """
     named = {"django": "6.0", "python": "3.14", "django-storages": "1.14.6"}
     agreeing = {"linux-64": {"django": "6.0.8", "python": "3.14.6", "django-storages": "1.14.6"}}
-    assert _verdict_drift(named, agreeing) == []
+    assert _verdict_scope_failures(named, {}, agreeing) == []
 
     bumped = {"linux-64": {"django": "6.1.0", "python": "3.14.6", "django-storages": "1.14.6"}}
-    assert _verdict_drift(named, bumped) == ["django: verdict says 6.0, lock resolves 6.1.0 on linux-64"]
+    assert _verdict_scope_failures(named, {}, bumped) == ["django: verdict says 6.0, lock resolves 6.1.0 on linux-64"]
 
     absent = {"linux-64": {"django": "6.0.8", "python": "3.14.6"}}
-    assert _verdict_drift(named, absent) == ["django-storages is named by the verdict but resolves nowhere on linux-64"]
+    assert _verdict_scope_failures(named, {}, absent) == [
+        "django-storages is named by the verdict but resolves nowhere on linux-64"
+    ]
+
+
+def test_a_disclaimed_verdict_is_accepted_only_while_it_is_still_true() -> None:
+    """ "Out of scope" is an acknowledgement, not an off switch.
+
+    Story 1.9 moved Django to the 5.2 LTS series without re-running R-1's spike,
+    which had been run against 6.0. Recording that plainly is honest; recording
+    it in a way that keeps passing after it stops being true is not, and the
+    difference is what this pins. Four cases:
+
+    * the disclaimer names the release line the lock resolves -- accepted;
+    * it names some other line -- the solver has moved again, and neither the
+      verdict nor the disclaimer describes what is installed;
+    * the lock has come back to the line the verdict *does* cover, so the
+      disclaimer is stale and has to be deleted rather than left as a permanent
+      exemption from the reconciliation;
+    * it names a package the verdict never tested, which is a disclaimer that
+      reconciles against nothing.
+    """
+    named = {"django": "6.0", "python": "3.14", "django-storages": "1.14.6"}
+    lts = {"linux-64": {"django": "5.2.15", "python": "3.14.6", "django-storages": "1.14.6"}}
+
+    assert _verdict_scope_failures(named, {"django": "5.2"}, lts) == []
+
+    mismatched = (
+        "django: recorded out of scope at 5.1, but the lock resolves 5.2.15 on linux-64, "
+        "which is neither that nor the verdict's 6.0"
+    )
+    assert _verdict_scope_failures(named, {"django": "5.1"}, lts) == [mismatched]
+
+    stale = (
+        "django: recorded out of scope at 5.2, but the lock resolves 6.0.8 on linux-64, "
+        "which is the release line the verdict covers"
+    )
+    back_on_6 = {"linux-64": {"django": "6.0.8", "python": "3.14.6", "django-storages": "1.14.6"}}
+    assert _verdict_scope_failures(named, {"django": "5.2"}, back_on_6) == [stale]
+
+    unnamed = {"django": "6.0", "django-storages": "1.14.6"}
+    assert _verdict_scope_failures(unnamed, {"python": "3.15"}, lts) == [
+        "python is recorded out of scope at 3.15, but the verdict does not name it at all",
+        "django: verdict says 6.0, lock resolves 5.2.15 on linux-64",
+    ]
+
+
+def test_a_disclaimer_may_not_be_coarser_than_the_claim_it_narrows() -> None:
+    """A disclaimer naming `django 5` would exempt the whole 5.x line, and 5.9 with it.
+
+    The reconciliation matches at the *named* precision, which is what lets a
+    verdict say "Django 6.0" and a lock say `6.0.8`. Turned on the disclaimer,
+    that same rule reads `django 5` as covering every 5.x release the solver
+    could ever pick -- a permanent exemption written in three characters, on a
+    check whose entire subject is version identity. So a disclaimer has to name
+    the release line at least as precisely as the verdict names it.
+    """
+    named = {"django": "6.0", "python": "3.14", "django-storages": "1.14.6"}
+    lts = {"linux-64": {"django": "5.2.15", "python": "3.14.6", "django-storages": "1.14.6"}}
+
+    coarse = (
+        "django is recorded out of scope at 5, which names a coarser release line than the verdict's 6.0: "
+        "a disclaimer has to be at least as precise as the claim it narrows, or it exempts everything under 5"
+    )
+    assert _verdict_scope_failures(named, {"django": "5"}, lts) == [coarse]
+
+    # At the verdict's own precision it is accepted, and a *more* precise
+    # disclaimer is accepted too -- naming more than was asked is not vagueness.
+    assert _verdict_scope_failures(named, {"django": "5.2"}, lts) == []
+    assert _verdict_scope_failures(named, {"django": "5.2.15"}, lts) == []
+
+
+def test_the_subject_of_the_verdict_may_not_be_disclaimed() -> None:
+    """Disclaiming `django-storages` would leave a recorded "proven" about nothing.
+
+    The disclaimer exists so a verdict can say honestly which *runtime* it no
+    longer covers. Applied to the package the verdict is about -- or to the
+    `boto3` underneath it -- it stops being an acknowledgement and becomes the
+    off switch: R-1's block would still read "proven with a stated bound", the
+    gate would still be green, and the claim would cover no package at all. The
+    only answer for the subject is to re-run the spike.
+    """
+    named = {"django": "6.0", "python": "3.14", "django-storages": "1.14.6"}
+    moved = {"linux-64": {"django": "6.0.8", "python": "3.14.6", "django-storages": "1.15.0"}}
+
+    # The disclaimer would otherwise have covered the drift exactly as one for
+    # `django` does -- the lock has left the verdict's 1.14.6 for the 1.15 the
+    # line names -- so this is the whole of what stands between a bumped
+    # `django-storages` and a green gate.
+    subject = (
+        "django-storages is recorded out of scope at 1.15, and it may not be: the verdict is a statement "
+        "*about* it, so excusing it leaves a verdict about nothing. Only ['django', 'python'] -- the runtime "
+        "the verdict was earned on -- may be disclaimed; anything else has to be re-spiked instead"
+    )
+    assert _verdict_scope_failures(named, {"django-storages": "1.15"}, moved) == [subject]
+
+    underneath = (
+        "boto3 is recorded out of scope at 1.44, and it may not be: the verdict is a statement *about* it, "
+        "so excusing it leaves a verdict about nothing. Only ['django', 'python'] -- the runtime the verdict "
+        "was earned on -- may be disclaimed; anything else has to be re-spiked instead"
+    )
+    # And the drift the disclaimer was meant to excuse is still reported beside
+    # it, because a rejected disclaimer excuses nothing.
+    assert _verdict_scope_failures(named, {"boto3": "1.44"}, moved) == [
+        underneath,
+        "django-storages: verdict says 1.14.6, lock resolves 1.15.0 on linux-64",
+    ]
+
+
+def test_the_out_of_scope_reader_finds_the_runtime_the_verdict_disclaims() -> None:
+    """The disclaimer is parsed by the same reader as "Tested against:", so it is pinned the same way.
+
+    A parser that returned nothing here would turn the acknowledgement into an
+    unacknowledged drift, and one that ran past the ``--`` would read the prose
+    explaining the disclaimer as more packages.
+    """
+    rationale = (
+        "Verdict: proven with a stated bound. Tested against: django-storages 1.14.6, Django 6.0, "
+        "Python 3.14, boto3 1.43.65 -- read back from the installed distribution. "
+        "Out of scope: django 5.2 -- Story 1.9 moved the pin to the LTS series and the spike was not re-run."
+    )
+    assert _out_of_scope(rationale) == {"django": "5.2"}
+    assert _tested_against(rationale) == {
+        "django-storages": "1.14.6",
+        "django": "6.0",
+        "python": "3.14",
+        "boto3": "1.43.65",
+    }
+    assert _out_of_scope("Verdict: proven. Tested against: django 6.0 -- nothing disclaimed.") == {}
+
+
+def test_a_second_listing_is_not_invisible_to_the_reader() -> None:
+    """Every occurrence of a label is read, and a label quoted in prose is not one.
+
+    A reader that partitioned on the first occurrence would leave a second
+    "Out of scope:" line sitting in the file, looking like a record and
+    reconciled against nothing -- the quietest way to disclaim a runtime without
+    the gate ever seeing it. Merging every occurrence is what closes that, and
+    the sentence bound is what keeps the merge honest: `pixi.toml`'s own
+    out-of-scope note *mentions* the other label in prose, and a mention is not a
+    listing. The em-dash spelling is here too, because `docs/development.md`
+    writes one where `pixi.toml` writes ``--``.
+    """
+    two_lines = (
+        "Verdict: proven. Tested against: django 6.0, python 3.14 -- read back from the installed "
+        "distribution. Out of scope: django 5.2 -- the pin moved to the LTS series. "
+        "Out of scope: python 3.15 -- and the interpreter moved after it."
+    )
+    assert _out_of_scope(two_lines) == {"django": "5.2", "python": "3.15"}
+
+    quoted = (
+        "Verdict: proven. Tested against: django 6.0 -- read back from the installed distribution. "
+        'Out of scope: django 5.2 -- it fails again when the spike is re-run and "Tested against:" '
+        "catches up. Class path: storages.backends.s3.S3Storage, a subclass kept in 1.14.6."
+    )
+    assert _tested_against(quoted) == {"django": "6.0"}
+    assert _out_of_scope(quoted) == {"django": "5.2"}
+
+    em_dash = "Verdict: proven. Tested against: django-storages 1.14.6, Django 6.0 — the versions the spike read."
+    assert _tested_against(em_dash) == {"django-storages": "1.14.6", "django": "6.0"}
 
 
 def test_one_environment_resolving_its_own_django_is_reported() -> None:

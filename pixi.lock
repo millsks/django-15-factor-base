@@ -76,7 +76,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/crispy-bootstrap5-2026.3-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cron-descriptor-1.4.5-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/deprecated-1.3.1-pyhd8ed1ab_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-6.0.8-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-5.2.15-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-allauth-65.19.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-anymail-15.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-celery-beat-2.9.0-pyhcf101f3_2.conda
@@ -182,7 +182,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/crispy-bootstrap5-2026.3-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cron-descriptor-1.4.5-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/deprecated-1.3.1-pyhd8ed1ab_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-6.0.8-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-5.2.15-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-allauth-65.19.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-anymail-15.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-celery-beat-2.9.0-pyhcf101f3_2.conda
@@ -327,7 +327,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/crispy-bootstrap5-2026.3-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cron-descriptor-1.4.5-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/deprecated-1.3.1-pyhd8ed1ab_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-6.0.8-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-5.2.15-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-allauth-65.19.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-anymail-15.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-celery-beat-2.9.0-pyhcf101f3_2.conda
@@ -542,7 +542,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/decorator-5.3.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/deprecated-1.3.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/distlib-0.4.3-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-6.0.8-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-5.2.15-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-allauth-65.19.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-anymail-15.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-celery-beat-2.9.0-pyhcf101f3_2.conda
@@ -554,13 +554,13 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-ipware-7.0.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-redis-7.0.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-structlog-10.1.0-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-6.0.7-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-6.0.8-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-5.2.9-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-5.2.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-timezone-field-7.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-upgrade-1.31.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django_coverage_plugin-3.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-3.18.0-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.17.1-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.16.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djlint-1.44.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/drf-spectacular-0.30.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/editables-0.6-pyhcf101f3_0.conda
@@ -721,7 +721,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/decorator-5.3.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/deprecated-1.3.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/distlib-0.4.3-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-6.0.8-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-5.2.15-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-allauth-65.19.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-anymail-15.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-celery-beat-2.9.0-pyhcf101f3_2.conda
@@ -733,13 +733,13 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-ipware-7.0.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-redis-7.0.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-structlog-10.1.0-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-6.0.7-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-6.0.8-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-5.2.9-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-5.2.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-timezone-field-7.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-upgrade-1.31.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django_coverage_plugin-3.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-3.18.0-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.17.1-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.16.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djlint-1.44.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/drf-spectacular-0.30.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/editables-0.6-pyhcf101f3_0.conda
@@ -955,7 +955,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/decorator-5.3.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/deprecated-1.3.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/distlib-0.4.3-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-6.0.8-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-5.2.15-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-allauth-65.19.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-anymail-15.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-celery-beat-2.9.0-pyhcf101f3_2.conda
@@ -967,13 +967,13 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-ipware-7.0.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-redis-7.0.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-structlog-10.1.0-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-6.0.7-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-6.0.8-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-5.2.9-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-5.2.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-timezone-field-7.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-upgrade-1.31.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django_coverage_plugin-3.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-3.18.0-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.17.1-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.16.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djlint-1.44.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/drf-spectacular-0.30.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/editables-0.6-pyhcf101f3_0.conda
@@ -1245,7 +1245,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/decorator-5.3.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/deprecated-1.3.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/distlib-0.4.3-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-6.0.8-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-5.2.15-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-allauth-65.19.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-anymail-15.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-celery-beat-2.9.0-pyhcf101f3_2.conda
@@ -1258,13 +1258,13 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-redis-7.0.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-storages-1.14.6-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-structlog-10.1.0-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-6.0.7-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-6.0.8-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-5.2.9-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-5.2.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-timezone-field-7.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-upgrade-1.31.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django_coverage_plugin-3.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-3.18.0-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.17.1-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.16.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djlint-1.44.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/drf-spectacular-0.30.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/editables-0.6-pyhcf101f3_0.conda
@@ -1425,7 +1425,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/decorator-5.3.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/deprecated-1.3.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/distlib-0.4.3-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-6.0.8-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-5.2.15-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-allauth-65.19.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-anymail-15.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-celery-beat-2.9.0-pyhcf101f3_2.conda
@@ -1438,13 +1438,13 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-redis-7.0.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-storages-1.14.6-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-structlog-10.1.0-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-6.0.7-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-6.0.8-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-5.2.9-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-5.2.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-timezone-field-7.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-upgrade-1.31.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django_coverage_plugin-3.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-3.18.0-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.17.1-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.16.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djlint-1.44.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/drf-spectacular-0.30.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/editables-0.6-pyhcf101f3_0.conda
@@ -1660,7 +1660,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/decorator-5.3.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/deprecated-1.3.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/distlib-0.4.3-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-6.0.8-pyhd8ed1ab_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-5.2.15-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-allauth-65.19.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-anymail-15.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-celery-beat-2.9.0-pyhcf101f3_2.conda
@@ -1673,13 +1673,13 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-redis-7.0.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-storages-1.14.6-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-structlog-10.1.0-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-6.0.7-pyhcf101f3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-6.0.8-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-5.2.9-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-5.2.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-timezone-field-7.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django-upgrade-1.31.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/django_coverage_plugin-3.2.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-3.18.0-pyhd8ed1ab_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.17.1-pyhcf101f3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.16.9-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/djlint-1.44.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/drf-spectacular-0.30.0-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/editables-0.6-pyhcf101f3_0.conda
@@ -3266,20 +3266,20 @@ packages:
   run_exports: {}
   size: 303705
   timestamp: 1781320269259
-- conda: https://conda.anaconda.org/conda-forge/noarch/django-6.0.8-pyhd8ed1ab_0.conda
-  sha256: c0d6ff3910795b0314baf56c59a719b90d4c0b6f4447c1f5a397964a732610d5
-  md5: 1e549b2712dfe75682ff87d53c7d562d
+- conda: https://conda.anaconda.org/conda-forge/noarch/django-5.2.15-pyhd8ed1ab_0.conda
+  sha256: 1c372fea238c18e15c796a22fddb7733bb841614fb54bb5a8001e8ba989c911c
+  md5: 64ab235cf3a70e5e6379c3a33de6f3f5
   depends:
-  - asgiref >=3.9.1
-  - python >=3.12
-  - sqlparse >=0.5.0
+  - asgiref >=3.8.1
+  - python >=3.10
+  - sqlparse >=0.3.1
   license: BSD-3-Clause
   license_family: BSD
   purls:
   - pkg:pypi/django?source=hash-mapping
   run_exports: {}
-  size: 3903668
-  timestamp: 1785882396704
+  size: 3876866
+  timestamp: 1780757220228
 - conda: https://conda.anaconda.org/conda-forge/noarch/django-allauth-65.19.0-pyhd8ed1ab_0.conda
   sha256: e51521cf53fac6c1584b5dfa6544518862d0dbb2362ab8f23e44f3f69ebc1234
   md5: 1d0be4e7ecdb79ed494a2909de77f719
@@ -3462,13 +3462,13 @@ packages:
   run_exports: {}
   size: 23189
   timestamp: 1780200765169
-- conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-6.0.7-pyhcf101f3_0.conda
-  sha256: 3b7a4b3b6931b47241102591868466f09368ce6efcd2345e83480f97b042d0f6
-  md5: 7335ef492d7390b9ef0fa1e96ddd50df
+- conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-5.2.9-pyhcf101f3_0.conda
+  sha256: f12d352915b32f752ba3eac642ded00f0ae7fbc23eca436c8d04645235fec6c6
+  md5: bb81e4af7da93d039d3cc43b9be01272
   depends:
   - python >=3.10
   - django
-  - django-stubs-ext >=6.0.7
+  - django-stubs-ext >=5.2.9
   - tomli
   - typing_extensions >=4.11.0
   - types-pyyaml
@@ -3478,11 +3478,11 @@ packages:
   purls:
   - pkg:pypi/django-stubs?source=hash-mapping
   run_exports: {}
-  size: 294565
-  timestamp: 1785189308534
-- conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-6.0.8-pyhcf101f3_0.conda
-  sha256: 003d840613e97b39e865dbf4f9e3f7360401e97945216ee70afca867c0eb7105
-  md5: 7035cbf20bdfb5ebf776790fe5459ecb
+  size: 276557
+  timestamp: 1769180786918
+- conda: https://conda.anaconda.org/conda-forge/noarch/django-stubs-ext-5.2.9-pyhcf101f3_0.conda
+  sha256: 55cc6c7bd4970a15ae77885bf401be7ba05fced27aa65571fdec81fbf9749595
+  md5: a6792548a8fc7dd461526ba6ae688d21
   depends:
   - django
   - python >=3.10
@@ -3493,8 +3493,8 @@ packages:
   purls:
   - pkg:pypi/django-stubs-ext?source=hash-mapping
   run_exports: {}
-  size: 15873
-  timestamp: 1786115742933
+  size: 15890
+  timestamp: 1769124410616
 - conda: https://conda.anaconda.org/conda-forge/noarch/django-timezone-field-7.2.2-pyhd8ed1ab_0.conda
   sha256: 2e5da744e0343122fd112a41db9f4f4a9a16fffb3edfcfa9bd5f2ab91a6227f4
   md5: 7e6a3079ae3bb1991b1e3fd9509c864e
@@ -3550,13 +3550,13 @@ packages:
   run_exports: {}
   size: 674618
   timestamp: 1786190369365
-- conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.17.1-pyhcf101f3_0.conda
-  sha256: 552fbe3085f3447d7e83fa064d9465f1dfb66aaac4780048589eeb14deafd12c
-  md5: 4ab40140f9e8c0dd9654aec7b4868cda
+- conda: https://conda.anaconda.org/conda-forge/noarch/djangorestframework-stubs-3.16.9-pyhcf101f3_0.conda
+  sha256: 70327f75e810b1a88cee17f3ac9aae575e73e9905edb095b93c97d925f9fd384
+  md5: eec0edc32ef04bed80353f784463a76e
   depends:
   - python >=3.10
-  - django-stubs >=6.0.7
-  - typing-extensions >=4.0
+  - django-stubs >=5.2.9
+  - typing_extensions >=4.0
   - types-pyyaml
   - python
   license: MIT
@@ -3564,8 +3564,8 @@ packages:
   purls:
   - pkg:pypi/djangorestframework-stubs?source=hash-mapping
   run_exports: {}
-  size: 42285
-  timestamp: 1785775469080
+  size: 42051
+  timestamp: 1775077188208
 - conda: https://conda.anaconda.org/conda-forge/noarch/djlint-1.44.1-pyhd8ed1ab_0.conda
   sha256: e0663cd7bd7ee714816177a065b9faf68fb467e6e7e737cb8aa72c6ba60a739d
   md5: ba409a3618871edf2a950f1ca384412d
