@@ -19,6 +19,14 @@ both contain -- is then not itself an offence, and `assert connection.vendor ==
 expected` (an assertion, the opposite of an evasion) is distinguished from
 `if connection.vendor == ...` (a branch), which a grep cannot do.
 
+The ban is absolute with one recorded exception, and the exception is counted
+rather than described: `RECORDED_EXEMPTIONS` below licenses a fixed *number* of
+a fixed form in a fixed file -- one `pytest.skip(...)` in
+`integration/test_import_resolution.py`, for a dependency that has no build on
+one of the three declared platforms. A second `pytest.skip` in that same file
+fails the gate exactly as it would anywhere else, which is the point: the
+exemption is a licence for one decision that was recorded, not for the file.
+
 This is a unit test: it reads repository files and parses them, and opens no
 network or database connection.
 """
@@ -26,6 +34,7 @@ network or database connection.
 from __future__ import annotations
 
 import ast
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -47,6 +56,30 @@ VENDOR_ATTRIBUTE = "vendor"
 # Narrowing `django_db` to a subset of configured databases is the same evasion
 # expressed as configuration; Task 3 names it alongside the others.
 DB_MARKER = "pytest.mark.django_db"
+
+# Recorded exemptions. The module docstring names the one shape that can
+# legitimately need a skip -- "a genuinely platform-specific test" -- and
+# requires the decision to be recorded in the story that takes it rather than
+# added quietly while a CI-only failure is in front of someone. This table is
+# that record. It is keyed by module, by the exact evasion *and* by how many
+# times that evasion may appear, because keying by form alone would licence the
+# form for the whole file: the next "skip if no Postgres" added to the same
+# module would be silently permitted, which is precisely the failure Story 1.2's
+# ban exists to make loud. The count is one. Both tests below enforce it -- one
+# fails on a second occurrence, the other on the first one's removal.
+#
+# integration/test_import_resolution.py -- Story 1.6, AC #4. The gunicorn leg of
+# the three-runtime proof. gunicorn is POSIX-only and has no conda-forge win-64
+# build, so pixi.toml declares it (with uvicorn-worker) under
+# [target.linux-64.dependencies] and [target.osx-arm64.dependencies] only. On
+# win-64 the package is genuinely absent: this is a dependency that cannot be
+# installed, not a backend-permissiveness failure being dodged, and AD-18 keeps
+# the six-combination harness Linux-only for the same reason. Story 1.6 Task 5
+# requires the runtime `pytest.skip` over `@pytest.mark.skip` exactly so the leg
+# still runs on every platform that can run it.
+RECORDED_EXEMPTIONS: dict[str, dict[str, int]] = {
+    "integration/test_import_resolution.py": {"pytest.skip(...)": 1},
+}
 
 
 def _dotted_name(node: ast.expr) -> str:
@@ -109,6 +142,48 @@ def test_no_test_dodges_the_postgresql_gate(path: Path) -> None:
     the story that makes it, not a line to add quietly while a CI-only failure
     is in front of you. The point of the check is that it is in the way at
     exactly that moment.
+
+    `RECORDED_EXEMPTIONS` above is where such a decision is written down, and it
+    is spent per occurrence rather than per form: a module that has used its one
+    recorded `pytest.skip` gets no second one for free.
     """
-    evasions = _evasions(path)
-    assert evasions == [], f"{path.relative_to(TESTS_ROOT)} dodges the gate rather than failing on it: {evasions}"
+    relative = path.relative_to(TESTS_ROOT).as_posix()
+    exempted = RECORDED_EXEMPTIONS.get(relative, {})
+    counted = Counter(evasion.split(": ", 1)[1] for evasion in _evasions(path))
+    over_quota = {form for form, count in counted.items() if count > exempted.get(form, 0)}
+    evasions = [evasion for evasion in _evasions(path) if evasion.split(": ", 1)[1] in over_quota]
+    assert evasions == [], f"{relative} dodges the gate rather than failing on it: {evasions}"
+
+
+def test_the_exemption_table_has_entries_to_check() -> None:
+    """The parametrize below means nothing if the table it reads is empty.
+
+    An emptied `RECORDED_EXEMPTIONS` would collect one skipped test and report
+    nothing at all -- the same silence the sibling
+    `test_the_suite_has_test_modules_to_check` exists to prevent for the scan.
+    """
+    assert RECORDED_EXEMPTIONS != {}
+
+
+@pytest.mark.parametrize("relative", sorted(RECORDED_EXEMPTIONS), ids=str)
+def test_every_recorded_exemption_still_describes_the_file(relative: str) -> None:
+    """An exemption that no longer applies is a licence nobody meant to leave open.
+
+    Checked in the same direction as the exemption is granted: the module has to
+    be one the scan above actually reaches -- a rename would otherwise leave the
+    entry green while the file it licenses goes unscanned -- and it has to still
+    contain the recorded evasion exactly as many times as the table records.
+    Delete the `pytest.skip` and this fails until the entry above goes with it;
+    add a second one and it fails from the other side.
+    """
+    module = TESTS_ROOT / relative
+    assert module in _test_modules(), f"{relative} is exempted but is not a module the scan collects"
+
+    counted = Counter(evasion.split(": ", 1)[1] for evasion in _evasions(module))
+    recorded = RECORDED_EXEMPTIONS[relative]
+    mismatched = {
+        form: (counted.get(form, 0), expected)
+        for form, expected in recorded.items()
+        if counted.get(form, 0) != expected
+    }
+    assert mismatched == {}, f"{relative}: recorded exemptions no longer match, found vs recorded {mismatched}"

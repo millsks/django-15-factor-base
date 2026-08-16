@@ -134,9 +134,45 @@ source = "vcs"
 # Used when no git tag is reachable (shallow CI clones, fresh repos).
 fallback-version = "0.0.0"
 
-# src/ is the import root; config and django_service are both top-level packages.
+# The one import-root declaration site in this repository (AD-7). Every other
+# site is gone: no `sys.path` insert in manage.py, asgi.py or wsgi.py, no
+# `--app-dir src` in any pixi task, no "src" in the pytest `pythonpath`. The
+# editable install (pixi.toml [pypi-dependencies]) is what puts this root on
+# sys.path at runtime -- hatchling's editable finder is generated from the
+# `sources` remapping below, which is why those fallbacks are removable.
+#
+# That finder is materialised as a generated .pth file in the environment's
+# site-packages (`_editable_impl_django_15_factor_base.pth`, containing
+# <repo>/src). It is not the "adding a .pth file" AD-7 forbids: a build-time
+# artifact regenerated from this table is an output of the one declaration,
+# whereas a hand-written .pth would be a second declaration nothing reconciles.
+#
+# `sources` remaps the directory, not the packages inside it: everything under
+# src/ lands at the wheel root, so config/ and django_service/ are top-level
+# and an app added later needs no edit here (AD-6's graduation promise). This
+# deliberately replaces `packages = [ "src/config", "src/django_service" ]`, a
+# per-package enumeration that would need one line per app.
+#
+# `only-include` is load-bearing, not decoration: hatchling's default wheel file
+# selection looks for a package named after the project (`django_15_factor_base`),
+# which does not exist here. Without it the build still succeeds and quietly
+# ships a different set of files. tests/unit/test_import_roots.py asserts both
+# keys, and tests/integration/test_import_resolution.py asserts the built wheel's
+# top-level entries.
+#
+# Epic 9 adds the second root, src/django_apps/, to the `sources` array below
+# -- one more string in this same table, never a second declaration site.
+# Caveat for whoever does it: hatchling normalises `sources` into a mapping,
+# sorts it alphabetically ascending and applies the *first* matching prefix (the
+# `sources` property and `get_distribution_path` on its wheel builder config --
+# behaviour, not a line range, because hatchling is pinned >=1.27,<2 and line
+# numbers move within that window). "src" sorts before "src/django_apps" and
+# would therefore shadow it, leaving apps importable as `django_apps.billing`
+# rather than `billing`. That addition has to be verified against the built
+# wheel, not assumed.
 [tool.hatch.build.targets.wheel]
-packages = [ "src/config", "src/django_service" ]
+only-include = [ "src" ]
+sources = [ "src" ]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -157,8 +193,15 @@ addopts = [
   "--import-mode=importlib",
 ]
 minversion = "9.0"
-# "src" makes config/ and django_service/ importable; "." makes tests.factories importable.
-pythonpath = [ "src", "." ]
+# An import-root declaration pytest-django would otherwise make on this
+# project's behalf (AD-7). It defaults to true, and when it is on pytest-django
+# walks up looking for manage.py and does `sys.path.insert(0, <its directory>)`
+# -- a live seventh declaration site, putting the repository root on sys.path on
+# every test run. Off, so the editable install generated from
+# [tool.hatch.build.targets.wheel] is the only thing that resolves `config` and
+# `django_service`, under pytest exactly as under gunicorn.
+# tests/unit/test_import_roots.py asserts this stays false.
+django_find_project = false
 testpaths = [ "tests" ]
 python_files = [
   "tests.py",
