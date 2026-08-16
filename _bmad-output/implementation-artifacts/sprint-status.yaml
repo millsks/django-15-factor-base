@@ -57,6 +57,7 @@ development_status:
   1-6-import-roots-are-declared-in-exactly-one-place: done
   1-7-no-third-party-package-resolves-from-the-package-index: done
   1-8-object-storage-fitness-is-proven-before-the-feature-is-committed-to: done
+  1-9-django-runs-on-the-lts-release: ready-for-dev
   epic-1-retrospective: optional
   epic-2: in-progress
   2-1-the-user-model-carries-the-identity-key: ready-for-dev
