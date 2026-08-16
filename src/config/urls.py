@@ -28,7 +28,7 @@ urlpatterns = [
     *static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT),
 ]
 if settings.DEBUG:
-    # Static file serving when using Gunicorn + Uvicorn for local web socket development
+    # Static file serving as routes under the local ASGI server
     urlpatterns += staticfiles_urlpatterns()
 
 # API URLS

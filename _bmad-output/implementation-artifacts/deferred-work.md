@@ -31,3 +31,7 @@ location: n/a
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260815-155824-9f6b; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+- source_spec: `1-4-no-network-surface-exists-beneath-djangos-routing.md`
+  summary: WhiteNoise answers requests for collected static assets from middleware, below the URL resolver, so Epic 4's route allowlist cannot see that surface even after this story removes the websocket handler.
+  evidence: `src/config/settings/base.py:167` installs `whitenoise.middleware.WhiteNoiseMiddleware`. Its `__call__` looks the request path up in its own manifest and returns `self.serve(...)` on a hit without ever calling `get_response`, so those responses never reach the URLconf and cannot be named by view callable — which is the mechanism AD-26 and FR-17 rely on. `epics.md:237` makes this story a precondition for Epic 4's allowlist being "complete rather than merely present"; the websocket half is now closed, the static half is not. Pre-existing (WhiteNoise predates this story) and not fixable here: deciding whether the allowlist must account for middleware-level file serving, or whether static assets are declared out of scope, is Epic 4 Story 4.6's call. This story's `docs/development.md` section now names the exception explicitly so 4.6 cannot inherit the unqualified claim.

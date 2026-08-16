@@ -291,6 +291,40 @@ only thing that differs locally is the process manager. If you ever need
 multi-worker parity on Windows, `hypercorn` and `granian` are both on
 conda-forge and cross-platform.
 
+## Protocols below the URL resolver
+
+`config/asgi.py` exposes Django's ASGI application directly. There is no
+scope-dispatching wrapper in front of it, and no protocol handler sits below
+Django's URL resolver. That is deliberate, not an omission.
+
+A handler reached beneath the resolver is invisible to any policy expressed
+over the URLconf — the allowlist resolves the URLconf and refuses routes by
+view callable, and nothing below the resolver can be named that way. An
+inherited `websocket_application` that accepted every connection unauthenticated
+is exactly the surface this rule exists to prevent.
+
+**One known exception, and it is not a protocol handler.**
+`whitenoise.middleware.WhiteNoiseMiddleware` (`config/settings/base.py`) answers
+requests for collected static assets from inside `__call__` and returns without
+calling the rest of the chain, so those responses never reach the URL resolver
+either. It is accepted because it serves inert files from `STATIC_ROOT` under a
+single known prefix and holds no credential or application state — but it is a
+served surface the URLconf does not describe, and any story that claims the
+URLconf is a *complete* description of the network surface has to say so
+explicitly rather than inherit the claim from this section.
+
+So if this accelerator ever needs a protocol handled below the URL resolver —
+WebSockets, raw TCP, a long-lived stream — it arrives as a **designed feature**,
+never as an inherited handler:
+
+- it carries its own authentication story, written down, not borrowed from
+  Django's session middleware by accident;
+- it carries its own entry in the carrier — `accelerator.toml`, the file that
+  declares every path's disposition — so the surface is declared where the rest
+  of the surface is declared;
+- until both exist, `asgi.py` binds exactly one ASGI callable, and it is
+  Django's own application, unwrapped.
+
 ## Coverage
 
 The gate measures Python **and Django templates** under `src/`, via
@@ -306,8 +340,8 @@ both are configured:
 `template_extensions` is narrowed to `html`; the plugin's default also includes
 `txt`, which makes coverage treat stray text files as templates.
 
-Deployment entrypoints (`wsgi.py`, `asgi.py`, `websocket.py`) are excluded —
-they contain no logic.
+Deployment entrypoints (`wsgi.py`, `asgi.py`) are excluded — they contain no
+logic.
 
 Templates are covered by `tests/integration/test_template_rendering.py`, which
 drives the real test client. `RequestFactory`-based view tests never render a
