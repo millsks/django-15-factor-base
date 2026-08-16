@@ -1,6 +1,14 @@
+---
+baseline_revision: 58e2890
+review_loop_iteration: 0
+followup_review_recommended: true
+status: done
+warnings: []
+---
+
 # Story 2.1: The user model carries the identity key
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -29,28 +37,28 @@ so that an identity resolves to the same user no matter which flow saw them firs
 
 ## Tasks / Subtasks
 
-- [ ] Task 1 — Add the field to `src/django_service/users/models.py` (AC: #1, #2)
-  - [ ] Add `idp_subject = CharField(_("IdP subject"), max_length=255, unique=True, null=True, blank=True, default=None)` to `class User(AbstractUser)`, immediately after the existing `name` field.
-  - [ ] Do **not** add `db_index=True`. `unique=True` already creates the index: Django's schema editor emits an explicit index only for `field.db_index and not field.unique`, so setting both produces one index and one redundant declaration. The "indexed" half of AC #1 is satisfied by `unique=True`.
-  - [ ] Do **not** set `USERNAME_FIELD`, do not touch `REQUIRED_FIELDS`, and do not add a `UserManager` override. `USERNAME_FIELD` is inherited from `AbstractUser` as `"username"` and must stay that way (AD-11).
-  - [ ] Leave `get_absolute_url()` resolving on `self.username` — `username` remains the URL attribute (AC #2).
+- [x] Task 1 — Add the field to `src/django_service/users/models.py` (AC: #1, #2)
+  - [x] Add `idp_subject = CharField(_("IdP subject"), max_length=255, unique=True, null=True, blank=True, default=None)` to `class User(AbstractUser)`, immediately after the existing `name` field.
+  - [x] Do **not** add `db_index=True`. `unique=True` already creates the index: Django's schema editor emits an explicit index only for `field.db_index and not field.unique`, so setting both produces one index and one redundant declaration. The "indexed" half of AC #1 is satisfied by `unique=True`.
+  - [x] Do **not** set `USERNAME_FIELD`, do not touch `REQUIRED_FIELDS`, and do not add a `UserManager` override. `USERNAME_FIELD` is inherited from `AbstractUser` as `"username"` and must stay that way (AD-11).
+  - [x] Leave `get_absolute_url()` resolving on `self.username` — `username` remains the URL attribute (AC #2).
 
-- [ ] Task 2 — Generate and hand-check the schema migration (AC: #3)
-  - [ ] Run `pixi run makemigrations users` and confirm the generated file is `src/django_service/users/migrations/0002_user_idp_subject.py` with a single `migrations.AddField`.
-  - [ ] Confirm the operation carries `null=True` and `default=None` and therefore needs no `RunPython` backfill and asks no interactive default question.
-  - [ ] Confirm no other operation was swept in — the file must contain exactly the one `AddField`. If `makemigrations` produced extra operations, revert and re-run; unrelated drift belongs in its own migration.
-  - [ ] Apply and roll back once locally: `pixi run migrate` then `pixi run manage migrate users 0001` to prove the migration is reversible.
+- [x] Task 2 — Generate and hand-check the schema migration (AC: #3)
+  - [x] Run `pixi run makemigrations users` and confirm the generated file is `src/django_service/users/migrations/0002_user_idp_subject.py` with a single `migrations.AddField`.
+  - [x] Confirm the operation carries `null=True` and `default=None` and therefore needs no `RunPython` backfill and asks no interactive default question.
+  - [x] Confirm no other operation was swept in — the file must contain exactly the one `AddField`. If `makemigrations` produced extra operations, revert and re-run; unrelated drift belongs in its own migration.
+  - [x] Apply and roll back once locally: `pixi run migrate` then `pixi run manage migrate users 0001` to prove the migration is reversible.
 
-- [ ] Task 3 — Surface the field where it is safe to surface it (AC: #1, #2)
-  - [ ] Add `idp_subject` to `UserAdmin.fieldsets` in `src/django_service/users/admin.py` under the `None` group, as a read-only entry via `readonly_fields = ["idp_subject"]`. It is an identity key, not an editable attribute; an operator editing it in the admin is account takeover.
-  - [ ] Do **not** add it to `list_display`, `search_fields`, `UserAdminChangeForm` or `UserAdminCreationForm` in `src/django_service/users/forms.py`.
-  - [ ] Do **not** add it to `UserSerializer` in `src/django_service/users/api/serializers.py`. The API exposes attributes; the identity key is not an attribute (AD-11).
+- [x] Task 3 — Surface the field where it is safe to surface it (AC: #1, #2)
+  - [x] Add `idp_subject` to `UserAdmin.fieldsets` in `src/django_service/users/admin.py` under the `None` group, as a read-only entry via `readonly_fields = ["idp_subject"]`. It is an identity key, not an editable attribute; an operator editing it in the admin is account takeover.
+  - [x] Do **not** add it to `list_display`, `search_fields`, `UserAdminChangeForm` or `UserAdminCreationForm` in `src/django_service/users/forms.py`.
+  - [x] Do **not** add it to `UserSerializer` in `src/django_service/users/api/serializers.py`. The API exposes attributes; the identity key is not an attribute (AD-11).
 
-- [ ] Task 4 — Tests (AC: #1, #2, #3)
-  - [ ] Add `tests/unit/users/test_models.py` (new) asserting `User._meta.get_field("idp_subject")` has `unique is True`, `null is True`, `max_length == 255`, and that `User.USERNAME_FIELD == "username"`. These are field-introspection assertions and need no database.
-  - [ ] Add cases to `tests/integration/users/test_models.py` (exists) asserting: a user created without `idp_subject` persists with `idp_subject is None`; two users may both hold `idp_subject=None` without violating the unique constraint; two users with the *same* non-null `idp_subject` raise `IntegrityError`.
-  - [ ] Update `tests/factories.py` only if a test needs it — `UserFactory` must continue to produce users with `idp_subject` unset by default, so existing tests keep exercising the null case.
-  - [ ] Run `pixi run test`, then `pixi run ci`.
+- [x] Task 4 — Tests (AC: #1, #2, #3)
+  - [x] Add `tests/unit/users/test_models.py` (new) asserting `User._meta.get_field("idp_subject")` has `unique is True`, `null is True`, `max_length == 255`, and that `User.USERNAME_FIELD == "username"`. These are field-introspection assertions and need no database.
+  - [x] Add cases to `tests/integration/users/test_models.py` (exists) asserting: a user created without `idp_subject` persists with `idp_subject is None`; two users may both hold `idp_subject=None` without violating the unique constraint; two users with the *same* non-null `idp_subject` raise `IntegrityError`.
+  - [x] Update `tests/factories.py` only if a test needs it — `UserFactory` must continue to produce users with `idp_subject` unset by default, so existing tests keep exercising the null case.
+  - [x] Run `pixi run test`, then `pixi run ci`.
 
 ## Dev Notes
 
@@ -113,8 +121,102 @@ Python 3.14 only. `[tool.mypy]` currently sets `check_untyped_defs`, not `strict
 
 ### Agent Model Used
 
+claude-opus-5[1m]
+
 ### Debug Log References
+
+- `pixi run makemigrations users` → `0002_user_idp_subject.py`, one `AddField`, no interactive default prompt.
+- `pixi run migrate` → applied; `pixi run manage migrate users 0001` → unapplied cleanly; re-applied. Migration is reversible.
+- `pixi run ci` → exit 0 (pre-commit, build, typecheck, lint, test-cov). 314 passed, coverage 92.50%.
 
 ### Completion Notes List
 
+- `idp_subject` added immediately after `name`; no `db_index=True` (the `unique=True` index is the index), `USERNAME_FIELD`,
+  `REQUIRED_FIELDS` and the `UserManager` untouched, `get_absolute_url()` unchanged.
+- Admin surfaces the field in the `None` fieldset and pins it in `readonly_fields`; `list_display`, `search_fields`, both
+  admin forms and `UserSerializer` were deliberately left alone.
+- `UserFactory` unchanged — it still produces users with no identity key, so every pre-existing test keeps exercising the
+  null case.
+- Two lint accommodations, no config relaxation: `# noqa: SLF001` on the `User._meta` introspection calls and one
+  `# noqa: PLR2004` on a count comparison (the repo's existing precedent, `tests/integration/test_request_logging.py:90`).
+- The uniqueness-collision test wraps the failing create in `transaction.atomic()` so the broken transaction stays
+  contained and the follow-up assertion still has a usable connection.
+
 ### File List
+
+- `src/django_service/users/models.py` (UPDATE)
+- `src/django_service/users/migrations/0002_user_idp_subject.py` (NEW, generated)
+- `src/django_service/users/admin.py` (UPDATE)
+- `tests/unit/users/test_models.py` (NEW)
+- `tests/unit/users/test_migrations.py` (NEW, review pass)
+- `tests/unit/users/test_api_serializers.py` (NEW, review pass)
+- `tests/integration/users/test_models.py` (UPDATE)
+- `tests/integration/users/test_admin.py` (UPDATE, review pass)
+
+## Review Triage Log
+
+### 2026-08-16 — Review pass
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10: (high 0, medium 4, low 6)
+- defer: 6: (high 0, medium 5, low 1)
+- reject: 14: (high 0, medium 1, low 13)
+- addressed_findings:
+  - `[medium]` `[patch]` The read-only guarantee on `idp_subject` had no test — deleting `readonly_fields` left all 314 tests green while the change form became editable and POST-writable. Added `test_the_change_form_carries_no_editable_identity_key` and `test_the_change_view_ignores_a_posted_identity_key` to `tests/integration/users/test_admin.py`; verified by mutation (both fail with the line removed, the POST leg proving a real write).
+  - `[medium]` `[patch]` AC #3's "applies without data loss" rested on a hand-run migrate recorded in prose. Added `tests/unit/users/test_migrations.py` pinning the operation shape — exactly one `AddField`, declared dependencies, `null=True`, `unique=True`, `max_length=255`, default `None` — so a later `RunPython` backfill cannot be added silently.
+  - `[medium]` `[patch]` AC #1's "indexed" half was argued in a code comment and never read out of a database. Added `test_the_identity_key_is_unique_in_the_schema_not_only_the_model`, which queries `connection.introspection.get_constraints` for a unique index over the column on whichever backend is configured.
+  - `[medium]` `[patch]` Task 3's "do not add it to `UserSerializer`" was satisfied by not typing anything. Added `tests/unit/users/test_api_serializers.py` asserting the API surface is exactly `{username, name, url}`, so a future `fields = "__all__"` cannot publish the identity key with a green suite.
+  - `[low]` `[patch]` `test_many_users_may_share_a_null_identity_key` asserted a table-wide `count() == 2`, which any seeded or fixture-created user would break as a phantom uniqueness failure. Scoped to the two `pk`s the test creates (which also retires the `# noqa: PLR2004`).
+  - `[low]` `[patch]` Both new integration tests drew usernames from an unseeded `Faker` under `django_get_or_create = ["username"]`; a repeated draw would return the existing row and turn the collision test into a false accusation against the constraint. Usernames are now explicit.
+  - `[low]` `[patch]` The collision test's bare `pytest.raises(IntegrityError)` was equally satisfied by a duplicate username. It now asserts the error names `idp_subject`, matching the repo's own precedent at `tests/integration/test_postgres_schema.py:147-149`.
+  - `[low]` `[patch]` Nothing asserted the identity key stays out of `list_display` and `search_fields`. Added `test_the_identity_key_is_not_a_lookup_surface`.
+  - `[low]` `[patch]` The unit-test docstring for `USERNAME_FIELD` was ungrammatical and self-contradicting about which field is resolved by. Rewritten.
+  - `[low]` `[patch]` `pixi run ci` runs `pre-commit run --all-files`, which enumerates `git ls-files` — both new files were untracked, so ruff-format and the hygiene hooks never saw them and the reported green gate was weaker than it read. Files staged and the gate re-run: all hooks pass on the new files.
+
+Deferred entries were appended to `deferred-work.md`. The medium-severity reject is the single-column `UNIQUE` over `sub` with no issuer component: an OIDC subject is unique only within an issuer, so a component pointed at two IdPs could collide two people onto one row. Rejected rather than deferred because AD-11 binds the identity key to exactly this shape and Story 2.2's claims contract is where a composite value would be designated; it is recorded under residual risks below rather than dropped.
+
+## Auto Run Result
+
+Status: done
+
+### Implemented change
+
+`User.idp_subject` — a unique, nullable `CharField(max_length=255)` — is added to the user model as the sole store of the
+identity key (AD-11), with the schema migration that carries it and the admin surface that displays it without letting
+anyone edit it. `USERNAME_FIELD` remains `username`; nothing resolves by the new field yet, which is Story 2.4's work.
+
+### Files changed
+
+- `src/django_service/users/models.py` — adds `idp_subject` immediately after `name`, with the reasoning for no `db_index=True` and for load-bearing nullability recorded at the declaration.
+- `src/django_service/users/migrations/0002_user_idp_subject.py` (NEW) — generated; a single `AddField` carrying `null=True`, so existing rows take a null key and no backfill runs.
+- `src/django_service/users/admin.py` — surfaces the field in the first fieldset and pins it in `readonly_fields`; the `secure_admin_login` block and the `TYPE_CHECKING` shim are untouched.
+- `tests/unit/users/test_models.py` (NEW) — field introspection: unique, null, `max_length`, no separate index, `USERNAME_FIELD`.
+- `tests/unit/users/test_migrations.py` (NEW) — pins the migration's operation shape against a later silent backfill.
+- `tests/unit/users/test_api_serializers.py` (NEW) — the identity key is not part of the REST surface.
+- `tests/integration/users/test_models.py` — null tolerance, non-null collision, and the unique index read from the backend catalog.
+- `tests/integration/users/test_admin.py` — the change form has no editable identity key, a crafted POST does not write one, and the field is not a lookup surface.
+
+### Review findings
+
+Ten patches applied (4 medium, 6 low), all test-level: the review changed no production code. Six items deferred to
+`deferred-work.md` — `--reuse-db` hiding new migrations from developer databases, the missing `makemigrations --check`
+drift guard, `UserAdminChangeForm` inheriting `fields = "__all__"`, the untested `""`-versus-`NULL` pseudo-key,
+the concurrent-first-authentication race Story 2.4 inherits, and the missing over-length boundary test. Fourteen
+findings rejected, mostly arguments against decisions the spec makes explicitly (`default=None`, no `db_index`, no
+`CheckConstraint`, no searchability, generated-migration formatting).
+
+### Verification
+
+- `pixi run ci` → exit 0 with every file staged so pre-commit saw them: all hooks pass, build OK, `mypy src/` clean on 38 files, `ruff check .` clean, **323 passed**, coverage **92.50%** against the 90% floor.
+- `pixi run manage makemigrations --check --dry-run` → "No changes detected": the model and the migrations agree.
+- `pixi run manage sqlmigrate users 0002 --backwards` → produces a clean table rebuild; the migration reverses.
+- Mutation check: removing `readonly_fields = ["idp_subject"]` fails exactly the two new admin tests and nothing else, confirming they guard the line rather than restate it.
+- Migration applied and rolled back against a live database during implementation (`pixi run migrate`, `pixi run manage migrate users 0001`, re-applied).
+
+### Residual risks
+
+- **One column, no issuer.** The `UNIQUE` is over the subject alone. An OIDC `sub` is unique only within an issuer, so a component ever pointed at two IdPs collides two people onto one row — the failure AD-11 exists to prevent, reached from the other side. Story 2.2 designates which claim fills the field and is the place to decide whether that value must be composite.
+- **`""` is not `NULL`.** Nothing yet stops an empty string being stored as a pseudo-key that collides on its second write. Deferred, and Story 2.4's mapper must normalize before writing.
+- **Nothing writes the field yet.** Every guarantee here is schema-level; the resolution semantics AD-11 actually cares about arrive with the mapper in Story 2.4.
+- **AC #2's "never resolved by" is only partly assertable today.** `USERNAME_FIELD` and the URL attribute are pinned; the absence of any resolution path over `email`/`name` cannot be asserted until a resolver exists.

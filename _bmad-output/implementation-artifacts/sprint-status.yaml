@@ -60,7 +60,7 @@ development_status:
   1-9-django-runs-on-the-lts-release: done
   epic-1-retrospective: optional
   epic-2: in-progress
-  2-1-the-user-model-carries-the-identity-key: ready-for-dev
+  2-1-the-user-model-carries-the-identity-key: done
   2-2-the-claims-contract-is-read-from-the-environment: ready-for-dev
   2-3-the-designated-groups-exist-before-the-first-authentication: ready-for-dev
   2-4-the-mapper-resolves-an-identity-to-a-user: ready-for-dev
