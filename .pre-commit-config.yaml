@@ -8,6 +8,22 @@ exclude: '^(\.agents/|\.claude/|\.bmad-loop/|\.pixi/|_bmad/|src/django_service/c
 
 default_install_hook_types: [pre-commit, commit-msg]
 
+# Hooks run at the pre-commit stage unless they declare otherwise. Without this,
+# every hook below with no `stages:` also ran at the commit-msg stage, where
+# pre-commit passes the commit-message file as the filename. Two consequences,
+# both fixed here:
+#
+#   1. Every hygiene hook ran twice per commit -- ruff, mypy and the file checks
+#      all executed a second time against COMMIT_EDITMSG, which is meaningless.
+#   2. It made commits impossible in a linked git worktree. A worktree's
+#      COMMIT_EDITMSG lives under the MAIN repo's .git/worktrees/<name>/, which is
+#      outside the worktree, and `git check-attr` refuses a path outside the
+#      repository with exit 128. check-added-large-files calls it with
+#      stderr=DEVNULL, so the failure surfaced only as an opaque traceback.
+#
+# The conventional-commit hook opts back in explicitly with `stages: [commit-msg]`.
+default_stages: [pre-commit]
+
 repos:
   - repo: local
     hooks:
