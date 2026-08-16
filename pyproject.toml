@@ -177,7 +177,6 @@ omit = [
   "**/*.egg-info/**",       # setuptools build artifacts, not source
   "src/config/wsgi.py",     # deployment entrypoints: no logic, exercised by the
   "src/config/asgi.py",     # WSGI/ASGI server rather than by the test suite
-  "src/config/websocket.py",
 ]
 # Measures Django templates alongside Python. Requires
 # TEMPLATES[0]["OPTIONS"]["debug"] = True, which config/settings/test.py sets,
