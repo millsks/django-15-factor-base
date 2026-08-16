@@ -74,7 +74,7 @@ pytestmark = pytest.mark.spike
 VERDICT_VERSIONS = {
     "django-storages": "1.14.6",
     "boto3": "1.43.65",
-    "django": "6.0",
+    "django": "5.2",
     "python": "3.14",
 }
 
@@ -851,7 +851,7 @@ def test_the_object_round_trip_holds_against_a_live_endpoint(
         pytest.skip(
             f"{ROUND_TRIP_OPT_IN} is not set, so the live round trip is not armed. "
             "BOUND ON THE VERDICT: the save -> exists -> open -> size -> url -> delete round trip did not "
-            "run. django-storages 1.14.6 is proven to import, configure and satisfy Django 6.0's Storage "
+            "run. django-storages 1.14.6 is proven to import, configure and satisfy Django 5.2's Storage "
             "contract on Python 3.14; it is NOT proven against a live bucket. Set "
             f"{ROUND_TRIP_OPT_IN}=1 with {ENDPOINT_VARIABLE} and the four other AWS_* variables pointing at "
             "a MinIO or S3 endpoint you are willing to have written to, then re-run "
