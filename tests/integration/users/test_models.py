@@ -72,10 +72,17 @@ def test_the_identity_key_is_unique_in_the_schema_not_only_the_model():
     with connection.cursor() as cursor:
         constraints = connection.introspection.get_constraints(cursor, "users_user")
 
+    # At least one index over the column must be unique -- not every one of them.
+    # PostgreSQL carries two indexes here for a single `unique=True` CharField:
+    # `users_user_idp_subject_key`, the unique btree that is the guarantee, and
+    # `users_user_idp_subject_..._like`, a NON-unique `varchar_pattern_ops` index
+    # Django adds for LIKE performance. Requiring all of them to be unique fails
+    # on PostgreSQL while passing on the sqlite substitution, which never creates
+    # the pattern-ops index -- exactly the R-5 parity gap, and why this assertion
+    # is about existence rather than universality.
     unique_over_idp_subject = [
         name
         for name, definition in constraints.items()
-        if definition["columns"] == ["idp_subject"] and (definition["unique"] or definition["index"])
+        if definition["columns"] == ["idp_subject"] and definition["unique"]
     ]
     assert unique_over_idp_subject, f"no unique index over users_user.idp_subject in {sorted(constraints)}"
-    assert all(constraints[name]["unique"] for name in unique_over_idp_subject)
