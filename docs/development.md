@@ -129,10 +129,11 @@ alone is explicitly insufficient.
 
 The failure mode is concrete rather than theoretical, and it has a name in this
 repository. `django-storages` **is** on conda-forge, which is the availability
-test, and its 1.14.6 release (2025-04-02) declares support for neither Django
-6.0 nor Python 3.14. Availability passed; fitness was unknown. That gap is risk
-**R-1**, and closing it is what [Object storage fitness
-(R-1)](#object-storage-fitness-r-1) below records.
+test, and its 1.14.6 release (2025-04-02) declares support for neither Python
+3.14 nor any Django this project has pinned: not the 6.0 the gap was found
+against, and not the 5.2 LTS pinned since Story 1.9. Availability passed;
+fitness was unknown. That gap is risk **R-1**, and closing it is what [Object
+storage fitness (R-1)](#object-storage-fitness-r-1) below records.
 
 Committing to a feature means declaring its package in `[dependencies]`, so the
 way to obey the rule is to stage the package somewhere else first — a pixi
@@ -170,10 +171,26 @@ was never an available answer — the risk had to be carried rather than avoided
 Hence the spike, run in Epic 1 rather than in Epic 7, on FR-50's own rule that
 fitness is proven before a feature is committed to.
 
-**Verdict: proven with a stated bound.** Recorded 2026-08-16, against
-`django-storages` 1.14.6, `boto3` 1.43.65, Django 6.0 and Python 3.14 — the
-versions the spike reads back from the installed distributions and asserts, so a
-bump to any of them invalidates this verdict rather than inheriting it.
+**Verdict: proven with a stated bound.** Recorded 2026-08-16.
+Tested against: django-storages 1.14.6, boto3 1.43.65, Django 6.0, Python 3.14 —
+the versions the spike reads back from the installed distributions and asserts,
+so a bump to any of them invalidates this verdict rather than inheriting it.
+That listing is reconciled against the one in `pixi.toml`, so this copy cannot
+be left behind when the spike is re-run.
+
+**Out of scope: django 5.2** -- and that is not a footnote to the verdict, it is
+the verdict's current status. Story 1.9 moved the pin off the Django 6.0 feature
+release onto the 5.2 LTS series, and the spike was run against 6.0. So R-1 is
+open again: nothing recorded in this section has been re-earned against the
+Django this project now ships, and `pixi run spike-storage` has to be re-run and
+the verdict re-recorded before Epic 7 Story 7.5 acts on it. Everything else
+here — the verdict above and the evidence for it below — is left exactly as it
+was written, because it is a record of what ran on 2026-08-16 rather than a
+description of today's environment. What the LTS move does to R-1 is narrow the
+gap without closing it: `django-storages` 1.14.6 declares `Framework :: Django`
+for 3.2, 4.1, 4.2, 5.0 and 5.1, so 5.2 is one minor past its declared support
+where 6.0 was two majors, and its Django 5.2 support landed upstream on
+2025-06-17 and has never been released. The escalation ladder is unchanged.
 
 The spike itself runs in no automated path: `.github/workflows/ci.yml` pins
 `environments: dev`, and nothing in `pixi run ci` reaches the `spike-storage`

@@ -325,16 +325,18 @@ Revision 2 established `src/features/` as a path root for feature-owned code, to
 
 ## Stack
 
-Verified against conda-forge and `pixi.lock` on 2026-08-15.
+Verified against conda-forge and `pixi.lock` on 2026-08-15; the Django and
+`django-storages` rows were re-verified against the same two on 2026-08-16, when
+Story 1.9 moved the pin to the LTS series.
 
 | Name | Version | Note |
 | --- | --- | --- |
 | Python | 3.14 | |
-| Django | 6.0 | 6.1 is on the channel; `django-celery-beat` caps `<6.1`, hence AD-3's shared solve-group |
+| Django | 5.2 LTS | Pinned `>=5.2,<5.3`, locked `5.2.15`; supported to April 2028, successor 6.2 LTS. Moved off the 6.0 feature release by Story 1.9, whose full rationale is recorded beside the pin in `pixi.toml`. `django-celery-beat`'s `<6.1` cap, which decided 6.0 over 6.1, no longer binds at this pin; AD-3 is not revisited here |
 | django-allauth | 65.19.1 | Channel recipe declares only `asgiref`/`django`; `requests` is imported directly by the OIDC provider and must be declared (see divergence D-4) |
 | djangorestframework / drf-spectacular | 3.18.0 / 0.30 | |
 | PyJWT / cryptography | 2.13 / 50.0 | New; AD-23 wraps rather than relies on `PyJWKClient` |
-| django-storages / boto3 | 1.14.6 / 1.43.65 | `boto3` already locked via `django-anymail`. `django-storages` released 2025-04-02, declares no Django 6.0 or py3.14 — see residual risk R-1 |
+| django-storages / boto3 | 1.14.6 / 1.43.65 | `boto3` already locked via `django-anymail`. `django-storages` released 2025-04-02, declaring `Framework :: Django` for 3.2–5.1 and no py3.14 — so it declares no support for the 5.2 LTS either. Story 1.8's spike was run against Django 6.0 and its verdict does not carry to 5.2 — see residual risk R-1 |
 | Celery / django-celery-beat | 5.6 / 2.9 | |
 | django-redis / redis-py | 7.0 / 8.1 | |
 | psycopg | 3.3 | |
@@ -430,6 +432,7 @@ graph TD
 Accepted, not mitigated. Recorded so the next reader does not take the rest of this document at face value.
 
 - **R-1 — `django-storages` fitness is unproven, and object storage cannot be deferred.** Present on the channel, which is FR-50's test, but released 2025-04-02 with no declared Django 6.0 or Python 3.14 support and nothing newer available; Django 6.0 support exists only on unreleased upstream master. Object storage appears in three of six combinations, does not exist yet, and is expected to be selected by most components — so dropping it is not an available answer and the risk must be carried rather than avoided. The escalation is ordered: spike `1.14.6` against the locked Django and Python first, since it is a thin wrapper over a `boto3` already in the lock and Django's `Storage` API has been stable; if that fails, push the conda-forge feedstock as was done for `django-celery-beat`, with a **time-boxed** package-index exception whose exit condition is that build landing; a component-owned S3 backend against `django.core.files.storage.Storage` is the last resort, because a platform product owning its own storage backend is a permanent maintenance and security cost. A permanent supply-chain exception is not on the list.
+  *Amended by Story 1.9, which changed what the risk is measured against and nothing else.* The first rung was climbed on 2026-08-16: Story 1.8 spiked `1.14.6` and recorded **proven with a stated bound** — the round-trip against a live endpoint did not run. That verdict was obtained against **Django 6.0**, and Story 1.9 then moved the pin to the **5.2 LTS** series, so it no longer describes the runtime this project ships and is not inherited across the move. R-1 is therefore still open, at the same rung: the spike has to be re-run against 5.2 and the verdict re-recorded before Epic 7 Story 7.5 acts on it. The LTS move narrows the gap rather than closing it — 1.14.6 declares `Framework :: Django` for 3.2, 4.1, 4.2, 5.0 and 5.1, so 5.2 is one minor beyond its declared support where 6.0 was two majors, and its Django 5.2 support landed upstream on 2025-06-17 and remains unreleased. The escalation order above is unchanged and no rung is retired.
 - **R-2 — Bearer revocation latency is the token's lifetime.** AD-10 syncs once per `jti`, so a group revoked at the IdP is honoured until the token expires. Unavoidable for bearer credentials, but it narrows FR-9 and SC-6 and is not the same question as PRD Open Question 1, which covers sessions only.
 - **R-3 — A serving process started outside `pixi run web` does not fire the migrations refusal.** The price of AD-13's fail-open process type, taken because failing it closed deadlocks the release stage.
 - **R-4 — The GitHub-template path ships from `main` HEAD** and carries the machinery Dockerfile and the materializer. AD-32 states the consequences; nothing prevents them.
