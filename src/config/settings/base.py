@@ -8,6 +8,7 @@ from typing import Any
 
 import environ
 
+from config.authorization.claims import load_claims_contract
 from config.observability.logging import build_logging_config
 from config.observability.logging import configure_structlog
 
@@ -140,6 +141,12 @@ AUTH_USER_MODEL = "users.User"
 LOGIN_REDIRECT_URL = "users:redirect"
 # https://docs.djangoproject.com/en/dev/ref/settings/#login-url
 LOGIN_URL = "account_login"
+# The claims contract (FR-10, AD-11, AD-12): the identity-key claim, the group
+# claim, and the staff- and superuser-conferring groups, each read from a
+# COMPONENT_-prefixed variable with no default. Unset stays unset -- an empty
+# field means unconfigured, which is what Epic 4's startup check refuses on.
+# See config/authorization/claims.py and docs/authentication.md.
+CLAIMS_CONTRACT = load_claims_contract(env)
 
 # PASSWORDS
 # ------------------------------------------------------------------------------

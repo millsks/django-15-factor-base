@@ -37,6 +37,18 @@ def no_database_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
+def no_claims_contract_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear the four contract variables so the developer's shell cannot leak in."""
+    for name in (
+        "COMPONENT_IDENTITY_CLAIM",
+        "COMPONENT_GROUP_CLAIM",
+        "COMPONENT_STAFF_GROUP",
+        "COMPONENT_SUPERUSER_GROUP",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
 def production_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DJANGO_SECRET_KEY", "x" * 50)
     monkeypatch.setenv("DJANGO_ADMIN_URL", "admin/")
@@ -87,6 +99,46 @@ def test_postgres_env_selects_postgres(monkeypatch: pytest.MonkeyPatch):
     base = importlib.import_module(BASE)
     assert base.DATABASES["default"]["ENGINE"].endswith("postgresql")
     assert base.DATABASES["default"]["NAME"] == "app"
+
+
+@pytest.mark.usefixtures("no_database_env", "no_claims_contract_env")
+def test_base_imports_cleanly_with_an_unconfigured_contract():
+    """Importing base with no COMPONENT_ variables set must not raise.
+
+    The refusal to start on an unusable claims contract is Epic 4's, gated on a
+    locality signal that does not exist yet. A raise here would fire during the
+    test suite and during every management command. What base owes today is an
+    unconfigured contract that reports itself as one, with nothing defaulted.
+    """
+    base = importlib.import_module(BASE)
+    contract = base.CLAIMS_CONTRACT
+    assert contract.is_configured is False
+    assert contract.identity_key_claim == ""
+    assert contract.group_claim == ""
+    assert contract.staff_group == ""
+    assert contract.superuser_group == ""
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_base_reads_a_configured_contract_from_the_environment(monkeypatch: pytest.MonkeyPatch):
+    """The four variables reach `settings.CLAIMS_CONTRACT`, not just the loader.
+
+    Without this the settings line could be replaced by a hardcoded empty
+    contract and nothing would fail: every deployment silently unconfigured.
+    """
+    monkeypatch.setenv("COMPONENT_IDENTITY_CLAIM", "oid")
+    monkeypatch.setenv("COMPONENT_GROUP_CLAIM", "realm_access.roles")
+    monkeypatch.setenv("COMPONENT_STAFF_GROUP", "ops-staff")
+    monkeypatch.setenv("COMPONENT_SUPERUSER_GROUP", "ops-admin")
+
+    base = importlib.import_module(BASE)
+    contract = base.CLAIMS_CONTRACT
+
+    assert contract.identity_key_claim == "oid"
+    assert contract.group_claim == "realm_access.roles"
+    assert contract.staff_group == "ops-staff"
+    assert contract.superuser_group == "ops-admin"
+    assert contract.is_configured is True
 
 
 @pytest.mark.usefixtures("no_database_env", "production_env")
