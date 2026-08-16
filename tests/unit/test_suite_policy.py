@@ -77,8 +77,23 @@ DB_MARKER = "pytest.mark.django_db"
 # the six-combination harness Linux-only for the same reason. Story 1.6 Task 5
 # requires the runtime `pytest.skip` over `@pytest.mark.skip` exactly so the leg
 # still runs on every platform that can run it.
+# spikes/spike_django_storages_fitness.py -- Story 1.8, Task 6. R-1's
+# django-storages fitness spike. Its optional round-trip leg needs a live
+# S3-compatible endpoint, which nothing in this repository stands up. The leg is
+# armed by an explicit opt-in, `SPIKE_STORAGE_ROUND_TRIP`, rather than by the
+# presence of an endpoint variable: gating on "AWS_S3_ENDPOINT_URL is set" meant
+# a developer with an AWS profile already exported had the leg write to,
+# overwrite in and delete from whatever bucket their shell named, on the
+# strength of running the documented command. The skip message reports the
+# resulting bound in the same words as the verdict recorded beside the
+# declaration in pixi.toml. The spec requires the runtime `pytest.skip` over
+# `@pytest.mark.skip` for the same reason Story 1.6 did: the leg still runs
+# wherever the resource exists. It is not a dodged gate failure -- the whole
+# module runs outside the gate, in the `spike-storage` environment, and cannot
+# dodge anything the gate asserts.
 RECORDED_EXEMPTIONS: dict[str, dict[str, int]] = {
     "integration/test_import_resolution.py": {"pytest.skip(...)": 1},
+    "spikes/spike_django_storages_fitness.py": {"pytest.skip(...)": 1},
 }
 
 
@@ -95,8 +110,19 @@ def _dotted_name(node: ast.expr) -> str:
 
 
 def _test_modules() -> list[Path]:
-    """Return every test module in the suite, unit and integration alike."""
-    return sorted(TESTS_ROOT.rglob("test_*.py")) + sorted(TESTS_ROOT.rglob("conftest.py"))
+    """Return every test module under `tests/`, whatever runs it.
+
+    Three globs, not two. `spike_*.py` is here because Story 1.8 introduced
+    `tests/spikes/`, whose modules are deliberately named so that `pytest tests/`
+    -- the gate -- does not collect them. That naming is what keeps the gate
+    green; it must not also be what puts a directory of tests beyond this scan's
+    reach, or the ban below would have acquired a door that opens by convention.
+    """
+    return (
+        sorted(TESTS_ROOT.rglob("test_*.py"))
+        + sorted(TESTS_ROOT.rglob("spike_*.py"))
+        + sorted(TESTS_ROOT.rglob("conftest.py"))
+    )
 
 
 def _evasions(path: Path) -> list[str]:

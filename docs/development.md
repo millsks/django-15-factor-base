@@ -20,15 +20,36 @@ pixi install -e dev  # add the development toolchain
 pixi run bootstrap   # install the git hooks
 ```
 
-There are two environments. **`default`** holds runtime dependencies only —
+There are three environments. **`default`** holds runtime dependencies only —
 Django, Celery, uvicorn and so on — and is what a production image would
 install. **`dev`** layers the toolchain (ruff, mypy, pytest, mkdocs, git-cliff)
-on top. They share a solve-group, so packages common to both resolve to
-identical versions.
+on top. **`spike-storage`** is `dev` plus `django-storages`, and exists only to
+run R-1's fitness spike — see [Object storage fitness (R-1)](#object-storage-fitness-r-1);
+it goes away when Epic 7 has acted on the verdict. All three share a
+solve-group, so packages common to them resolve to identical versions.
 
-**You never need `-e` for a task.** Every task declares `default-environment`,
-so `pixi run <task>` resolves without a flag and without prompting. `pixi task
-list` shows each task with its description.
+**You never need `-e` for a task.** `pixi run <task>` resolves without a flag
+and without prompting. `pixi task list` shows each task with its description.
+
+Two different mechanisms deliver that, and the difference matters as soon as a
+new environment is added:
+
+- **Every task that declares a `cmd` pins `default-environment`.** That is what
+  keeps it unambiguous however many environments carry the feature declaring it.
+  `tests/unit/test_gate_contract.py::test_every_task_with_a_command_pins_its_environment`
+  holds it for all of them, not just the ones the gate runs.
+- **`ci` cannot pin one, and does not.** pixi rejects `default-environment` on a
+  task that declares only `depends-on`. So `ci` stays unambiguous the only other
+  way available: the feature that declares it — the dependency-free `gate`
+  feature — belongs to **exactly one** environment. That rule is written beside
+  `[feature.gate.tasks]` in `pixi.toml` and asserted by
+  `test_the_gate_task_is_reachable_from_exactly_one_environment`.
+
+The second rule is not decoration. `spike-storage` layers the `dev` *feature*,
+which made `ci` visible from two environments and aborted `pixi run ci` with
+`the task 'ci' is ambiguous` before a single step ran. Epic 8's six-environment
+matrix is the same change six times over, so a new environment that carries the
+`dev` toolchain must not also carry `gate`.
 
 Operational commands — `manage`, `migrate`, `collectstatic`, `createsuperuser`,
 `serve` — run in `default`, because a deployment runs them too. Development-only
@@ -100,10 +121,33 @@ inherit a reason written about its neighbour.
 The channel is a precondition, not a step to work around by reaching for the
 package index.
 
-**Channel presence alone is not fitness.** A package can be on conda-forge and
-still declare no support for the Django or Python this project pins, or be a
-build behind the fix you need. Presence answers *where it comes from*, not
-*whether it works here* — that is a separate check (FR-50).
+**Channel presence alone is not fitness — and this is a standing rule, not an
+observation.** FR-50: before any feature is committed to, confirm **both**
+channel availability **and** fitness against the pinned runtime. Presence
+answers *where a package comes from*, not *whether it works here*. Presence
+alone is explicitly insufficient.
+
+The failure mode is concrete rather than theoretical, and it has a name in this
+repository. `django-storages` **is** on conda-forge, which is the availability
+test, and its 1.14.6 release (2025-04-02) declares support for neither Django
+6.0 nor Python 3.14. Availability passed; fitness was unknown. That gap is risk
+**R-1**, and closing it is what [Object storage fitness
+(R-1)](#object-storage-fitness-r-1) below records.
+
+Committing to a feature means declaring its package in `[dependencies]`, so the
+way to obey the rule is to stage the package somewhere else first — a pixi
+feature of its own, sharing the solve-group — prove it there, record the
+verdict beside the declaration, and only then move it. That is exactly the shape
+`[feature.spike-storage]` has in `pixi.toml`.
+
+**This half of the rule is a documented obligation, not an automated
+assertion.** There is no mechanical test for "a future feature was proposed", so
+nothing in the suite can fail when someone skips the fitness check. What *is*
+asserted is the outcome of the check that was run: that the spiked package stays
+out of the runtime set, that its environment shares the solve-group, and that a
+verdict from the closed set of three is recorded beside the declaration
+(`tests/unit/test_dependency_policy.py`). Saying so plainly is better than
+writing a test that appears to enforce the rule and does not.
 
 `tests/unit/test_dependency_policy.py` asserts all of this against `pixi.toml`
 and `pixi.lock`: the channel list, the single package-index entry, the rationale
@@ -116,6 +160,161 @@ surface is not enumerated; the general rule is the declaration policy above, not
 a test that knows every library by name.
 
 `pixi.lock` is generated. Re-solve it with `pixi install`; never hand-edit it.
+
+### Object storage fitness (R-1)
+
+FR-25's object storage attaches an S3-compatible backend through
+`django-storages` and `boto3`. It appears in three of the six selectable
+combinations and is expected to be selected by most components, so dropping it
+was never an available answer — the risk had to be carried rather than avoided.
+Hence the spike, run in Epic 1 rather than in Epic 7, on FR-50's own rule that
+fitness is proven before a feature is committed to.
+
+**Verdict: proven with a stated bound.** Recorded 2026-08-16, against
+`django-storages` 1.14.6, `boto3` 1.43.65, Django 6.0 and Python 3.14 — the
+versions the spike reads back from the installed distributions and asserts, so a
+bump to any of them invalidates this verdict rather than inheriting it.
+
+The spike itself runs in no automated path: `.github/workflows/ci.yml` pins
+`environments: dev`, and nothing in `pixi run ci` reaches the `spike-storage`
+environment. So the version assertion inside the spike is not what holds this
+verdict to its runtime — `pixi run ci` is. The gate reads those four versions
+back out of the comment in `pixi.toml` and reconciles them against `pixi.lock`
+(`test_the_recorded_verdict_names_the_versions_the_lock_resolves`), which is
+what fails when a bump is solved but never re-spiked.
+
+What the spike proved, all without a network:
+
+- `storages.backends.s3.S3Storage` imports and instantiates. The legacy
+  `storages.backends.s3boto3.S3Boto3Storage` also ships in 1.14.6 and is a
+  subclass of it; Epic 7 names the former.
+- `STORAGES["default"]` resolves through both
+  `django.core.files.storage.storages["default"]` and `default_storage`.
+- `save`, `open`, `exists`, `delete`, `url`, `size`, `listdir` and
+  `get_available_name` are all present, and each accepts the positional call
+  Django 6.0's `Storage` base declares — the minimal one and the maximal one.
+  The two keyword calls Django actually makes — `save(…, max_length=…)` from
+  `django/db/models/fields/files.py` and `get_available_name(…, max_length=…)`
+  from `django/core/files/storage/base.py` — bind as well.
+- The private hooks behind the two inherited methods, `_save` and `_open`,
+  accept the two-argument call Django's own base class makes to them.
+- `boto3` builds its session, resolves the endpoint and assembles a client,
+  offline, against the configured `endpoint_url`.
+- No `DeprecationWarning` and no `RemovedInDjango*Warning` on import or
+  instantiation, checked against freshly re-imported `storages`, `boto3` and
+  `botocore`.
+
+**Two of those eight methods say nothing about `django-storages`, and the
+verdict says so.** `S3Storage.save` and `S3Storage.open` are the *identical
+function objects* as Django 6.0's `Storage.save` and `Storage.open` — the
+package overrides `_save` and `_open`, not the public methods. A signature check
+of those two therefore compares Django with itself and cannot fail. The set of
+inherited methods is frozen in the spike, and the overrides where the real
+behaviour lives are checked separately, which is what keeps the remaining six
+meaningful.
+
+**`run_checks()` is a weak signal, not proof.** Django does not instantiate a
+storage backend during system checks. Setting `STORAGES["default"]["BACKEND"]`
+to a module that does not exist and calling `run_checks()` returns an empty
+list — verified rather than reasoned about; the only check that reads `STORAGES`
+is `staticfiles.checks.check_storages`, and it inspects the `staticfiles` alias.
+The leg is kept because the spec mandates it, and it shows that configuring the
+backend introduces no *other* check error. It does not show the backend is
+check-clean.
+
+**FR-38 is the application's job, and this is the finding Epic 7 Story 7.5 has
+to act on.** `django-storages` 1.14.6 reads only two of the five values from the
+process environment on its own — `access_key` and `secret_key`, via its internal
+`lookup_env` on `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. `endpoint_url`,
+`region_name` and `bucket_name` come from **Django settings alone**. The spike
+proves it by withholding each option in turn and watching those three come back
+`None`, and by putting a value in `settings.AWS_STORAGE_BUCKET_NAME` and
+watching it arrive. So "configured from environment variables alone" is
+something the *settings module* delivers, by routing those three from
+`os.environ` into `STORAGES["default"]["OPTIONS"]` — not something the package
+delivers for free. Story 7.5 reproduces that routing, and raises
+`django.core.exceptions.ImproperlyConfigured` naming the missing variable rather
+than the bare `KeyError` the spike's own helper raises.
+
+**The bound — what is *not* proven.** The round-trip leg (`save` → `exists` →
+`open` → `size` → `url` → `delete` against a live S3-compatible endpoint) did
+not run. It is armed by `SPIKE_STORAGE_ROUND_TRIP` and no endpoint was stood up.
+So the wire protocol against a real bucket is unproven. Set
+`SPIKE_STORAGE_ROUND_TRIP=1` together with `AWS_S3_ENDPOINT_URL` and the four
+other `AWS_*` variables pointing at a MinIO or S3 endpoint you are willing to
+have written to, then re-run `pixi run spike-storage` to close it.
+
+The opt-in is deliberate and it is not a formality. Without it the spike ignores
+ambient `AWS_*` values entirely and uses unreachable `.invalid` fallbacks, so
+running the documented command cannot reach a bucket a developer's shell or AWS
+profile happens to name. When it *is* armed, the leg writes one object under a
+key carrying a fresh UUID, having first asserted that key is free, with
+`file_overwrite` disabled so a collision is renamed rather than silently
+overwritten; teardown deletes both the key it meant to write and whatever name
+`save()` returned, so an object created by a `save()` that then raised is still
+removed. It touches nothing it did not create. That — rather than "it deletes
+what it creates" — is what "leaves the bucket as it found it" means here.
+
+**One divergence, recorded rather than hidden.** `S3Storage` spells Django's
+`Storage.listdir(self, path)` as `listdir(self, name)`. It is harmless because
+`listdir` is not one of the methods Django calls by keyword — *not* because
+Django calls positionally only, which is false: the two `max_length=` call sites
+above are keyword calls into this same contract. A rename touching `save`,
+`get_available_name` or either `max_length` parameter would break Django itself.
+`listdir(path=...)` still raises `TypeError`. The spike freezes the set of such
+renames, so a second one fails instead of passing unremarked.
+
+**The escalation ladder, in R-1's own order.** It is written down whether or not
+it is triggered, so that the next person meets the order rather than inventing
+one:
+
+1. **Spike `1.14.6` against the locked Django and Python** — first, because
+   `django-storages` is a thin wrapper over a `boto3` already in the lock and
+   Django's `Storage` API has been stable. *This is the step that ran, and it
+   passed.*
+2. **If that fails, push the conda-forge feedstock**, as was done for
+   `django-celery-beat`, under a **time-boxed** package-index exception whose
+   exit condition is that build landing. Not triggered.
+3. **A component-owned S3 backend** against `django.core.files.storage.Storage`
+   is the **last resort**, because a platform product owning its own storage
+   backend is a permanent maintenance and security cost. Not triggered.
+
+**A permanent supply-chain exception is not on the list.** Steps 2 and 3 are not
+interchangeable and step 2 is not skippable: reaching for a component-owned
+backend without first attempting the feedstock push takes on permanent
+maintenance to avoid a temporary one.
+
+**Where the verdict lives.** Beside the declaration, in `pixi.toml` under
+`[feature.spike-storage.dependencies]`, which is what AC #1 means by "recorded
+where the dependency is declared" and what lets Epic 7 Story 7.5 act on it
+without re-deriving anything. `django-storages` is deliberately **not** in
+`[dependencies]`: a passing verdict authorises Story 7.5 to build the feature,
+and moving the declaration into the runtime set is that story's act.
+
+**Removing it, and what that costs.** Epic 7 Story 7.5 moves the
+`django-storages` declaration and its verdict comment into the `storage`
+feature; Epic 8 Story 8.1 then deletes `[feature.spike-storage]` and the
+`spike-storage` environment with it. That deletion is not a one-line edit. Nine
+assertions across three test modules name this feature, this directory or this
+task and have to move in the same change: six in
+`tests/unit/test_dependency_policy.py` (staging, single-table declaration,
+solve-group, verdict recorded beside the declaration, verdict-versus-lock
+versions, docs-versus-manifest verdict), three in
+`tests/unit/test_gate_contract.py` (not a gate step, the task's target file
+exists, the gate cannot collect the spike — which asserts `tests/spikes/`
+exists), plus the `RECORDED_EXEMPTIONS` entry in
+`tests/unit/test_suite_policy.py`, which fails both when its `pytest.skip`
+disappears and when a second one appears. The same list is recorded beside the
+declaration in `pixi.toml`, which is where the person doing the removal will be
+looking.
+
+**Running it.** `pixi run spike-storage`. The spike is not part of the gate — it
+needs the `spike-storage` environment, which `pixi run ci` does not use. It
+stays out of collection by name: its module is `tests/spikes/spike_*.py`, which
+`[tool.pytest.ini_options] python_files` does not match, so the `pytest tests/`
+the gate runs never reaches it while a command line that names the file does.
+The alternative — `-m "not spike"` on `test-cov` — is closed by AD-20, which
+bans narrowing flags on the floor-carrying task.
 
 ## Running with no external services
 
@@ -254,6 +453,7 @@ a different environment than the gate uses.
 | `pixi run test` | Unit tests only (fast) |
 | `pixi run test-integration` | Integration tests only |
 | `pixi run test-cov` | Full suite, fails under 90% coverage |
+| `pixi run spike-storage` | R-1's `django-storages` fitness spike — not part of the gate |
 | `pixi run build` | Build the wheel and sdist |
 | `pixi run docs` | Build the documentation (`--strict`) |
 | `pixi run docs-serve` | Serve the documentation with live reload |
@@ -325,6 +525,12 @@ export behaves without a collector.
 - `tests/integration/` — everything else. `tests/integration/conftest.py`
   applies the `integration` marker automatically, so
   `pytest -m "not integration"` selects the fast suite.
+- `tests/spikes/` — fitness probes, not part of the suite. Modules are named
+  `spike_*.py` so `pytest tests/` does not collect them, each runs in a pixi
+  environment of its own, and each is deleted once its question stops
+  mattering. There is one today: [Object storage fitness
+  (R-1)](#object-storage-fitness-r-1). Its disposition is `machinery` — a spike
+  is accelerator work and never travels to a component.
 
 Shared fixtures live in `tests/conftest.py`; `UserFactory` lives in
 `tests/factories.py`.

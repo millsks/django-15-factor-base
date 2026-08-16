@@ -21,6 +21,7 @@ LockLoader: Any = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PIXI_MANIFEST = REPO_ROOT / "pixi.toml"
 PIXI_LOCK = REPO_ROOT / "pixi.lock"
+DEVELOPMENT_DOCS = REPO_ROOT / "docs" / "development.md"
 
 # The project's own editable install is not a supply-chain exception -- it is
 # how the source tree reaches the environment. Every other entry is.
@@ -66,6 +67,60 @@ RATIONALE_REQUIRED = frozenset(
 # A comment that calls a declaration an exception has to say what retires it.
 EXCEPTION_WORD = "exception"
 EXIT_CONDITION_PHRASE = "exit condition"
+
+# R-1's `django-storages` fitness spike (Story 1.8, FR-50). The package is
+# staged in a feature of its own rather than declared as a runtime dependency,
+# because FR-50's rule is that fitness is proven *before* a feature is committed
+# to and a runtime declaration is that commitment.
+SPIKE_PACKAGE = "django-storages"
+SPIKE_FEATURE = "spike-storage"
+SPIKE_ENVIRONMENT = "spike-storage"
+SPIKE_ENVIRONMENT_FEATURES = ["dev", "spike-storage"]
+SHARED_SOLVE_GROUP = "default"
+
+# The three verdicts the spike may record, and no fourth, softer one. Ordered
+# longest-first because "proven with a stated bound" contains "proven": a reader
+# that matched the shorter string first would read a bounded verdict as an
+# unbounded one, which is exactly the overstatement CG-2 forbids.
+# `test_the_verdict_reader_does_not_read_a_bound_as_full_coverage` pins that.
+VERDICTS = ("proven with a stated bound", "proven", "failed")
+VERDICT_PREFIX = "verdict:"
+
+# What the spike actually recorded on 2026-08-16. Restated here rather than
+# merely parsed, so the manifest cannot be edited to a different verdict without
+# this file being edited to agree with it.
+RECORDED_VERDICT = "proven with a stated bound"
+
+# The bounded verdict has to say what the bound *is*. These are the words that
+# make it a bound rather than a hedge: which leg did not run, and what would
+# make it run.
+BOUND_PHRASES = ("bound", "round-trip", "spike_storage_round_trip", "aws_s3_endpoint_url")
+
+# The heading the same verdict is repeated under in `docs/development.md`. Two
+# copies exist because a reader who never opens `pixi.toml` still has to be able
+# to find the verdict, and two copies drift: when the bound is later closed, the
+# manifest and this module move together by design while the docs are free to
+# keep saying "proven with a stated bound". The reader the docs copy exists for
+# is exactly the reader who would then get the stale answer, so the two are
+# reconciled -- see `test_the_docs_copy_of_the_verdict_matches_the_manifest`.
+DOCS_VERDICT_HEADING = "### Object storage fitness (R-1)"
+
+# The line in the verdict block that names the runtime the verdict is a
+# statement about, and the packages it must name. The spike asserts the same
+# four against the *installed* distributions, but the spike runs in no automated
+# path -- `.github/workflows/ci.yml` pins `environments: dev`, and `pixi run ci`
+# never reaches the spike-storage environment. So a Django bump could be solved
+# into `pixi.lock` with the gate green while the manifest still certified a
+# verdict against a Django nobody re-ran the spike on, and Epic 7 Story 7.5 is
+# instructed to act on that verdict. This is the gate-side half: the versions the
+# comment names are reconciled against what the lock actually resolved.
+TESTED_AGAINST_PREFIX = "tested against:"
+VERDICT_VERSION_PACKAGES = frozenset({"django-storages", "django", "python", "boto3"})
+
+# `name version` pairs inside the "Tested against:" listing. Names are matched
+# lowercase, so `Django 6.0` and `Python 3.14` are found as readily as
+# `django-storages 1.14.6`.
+TESTED_AGAINST_ENTRY = re.compile(r"([a-z0-9][a-z0-9._-]*)\s+(\d[\w.]*)")
 
 # `[dependencies]`, `[pypi-dependencies]`, and their per-feature and per-target
 # variants. Anything else in pixi.toml -- tasks, environments, activation -- is
@@ -485,6 +540,12 @@ def manifest_lines() -> list[str]:
 
 
 @pytest.fixture(scope="module")
+def docs() -> str:
+    """Return `docs/development.md` as text, for the second copy of the R-1 verdict."""
+    return DEVELOPMENT_DOCS.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
 def lock() -> dict[str, Any]:
     """Return the parsed pixi lock file, read once for the module."""
     with PIXI_LOCK.open("rb") as handle:
@@ -781,6 +842,385 @@ def test_libpq_is_declared_rather_than_assumed(manifest: dict[str, Any], lock: d
     assert not missing, f"libpq is not resolved in pixi.lock for: {missing}."
 
 
+def _recorded_verdict(rationale: str) -> str | None:
+    """Return the R-1 verdict a rationale records, or None when it records none.
+
+    Matched against the closed set of three, longest first, so that "proven with
+    a stated bound" is never read as the unbounded "proven".
+
+    Args:
+        rationale: The comment text recorded beside a declaration.
+
+    Returns:
+        The verdict as one of `VERDICTS`, or None.
+    """
+    lowered = " ".join(rationale.lower().split())
+    for verdict in VERDICTS:
+        if f"{VERDICT_PREFIX} {verdict}" in lowered:
+            return verdict
+    return None
+
+
+def _tested_against(rationale: str) -> dict[str, str]:
+    """Return the ``name -> version`` pairs the verdict's "Tested against:" line names.
+
+    Read out of the comment rather than restated in this module, because the
+    comment is what a reader of `pixi.toml` believes and therefore what has to be
+    reconciled against the lock. Everything after the first ``--`` is prose about
+    the list and is not scanned.
+
+    Args:
+        rationale: The comment text recorded beside the declaration.
+
+    Returns:
+        Lowercased package name to the version the verdict claims, empty when the
+        rationale carries no such line.
+    """
+    collapsed = " ".join(rationale.lower().split())
+    _head, separator, tail = collapsed.partition(TESTED_AGAINST_PREFIX)
+    if not separator:
+        return {}
+    return dict(TESTED_AGAINST_ENTRY.findall(tail.split("--", 1)[0]))
+
+
+def _is_same_release_line(locked: str, named: str) -> bool:
+    """Report whether a locked version is the one a verdict names, at the verdict's precision.
+
+    A verdict says "Django 6.0", and the lock says `6.0.8`. That is the same
+    release line and the spike's conclusions carry; `6.1.0` is not, and they do
+    not. Comparison is therefore component-prefixed rather than string-prefixed,
+    so `3.14` does not match `3.140`.
+
+    Args:
+        locked: The concrete version `pixi.lock` resolved.
+        named: The version the verdict names, at whatever precision it names it.
+
+    Returns:
+        True when the locked version lies inside the named release line.
+    """
+    return locked == named or locked.startswith(f"{named}.")
+
+
+def _verdict_drift(named: dict[str, str], platforms: dict[str, dict[str, str]]) -> list[str]:
+    """Return every place the lock has moved off a version the verdict names.
+
+    Split out from its test so that it can be exercised against a synthetic lock:
+    `pixi run` re-solves and rewrites `pixi.lock` before a task starts, so a
+    mutated lock file cannot survive long enough for a test to read it, and this
+    rule would otherwise be unverifiable by mutation.
+
+    Args:
+        named: Package name to the version the verdict claims.
+        platforms: platform -> {package: resolved version}, for one environment.
+
+    Returns:
+        One description per drift, empty when the lock still holds the verdict's
+        runtime.
+    """
+    drifted: list[str] = []
+    for platform, packages in sorted(platforms.items()):
+        for package, version in sorted(named.items()):
+            locked = packages.get(package)
+            if locked is None:
+                drifted.append(f"{package} is named by the verdict but resolves nowhere on {platform}")
+            elif not _is_same_release_line(locked, version):
+                drifted.append(f"{package}: verdict says {version}, lock resolves {locked} on {platform}")
+    return drifted
+
+
+def _cross_environment_divergences(resolved: dict[str, dict[str, dict[str, str]]]) -> list[str]:
+    """Return every package resolving to more than one version across environments.
+
+    Grouped per platform, because two platforms resolving different versions of
+    the same package is ordinary and not what the shared solve-group is about.
+
+    Split out from its test for the same reason as `_verdict_drift`: the lock
+    cannot be mutated in place under `pixi run`.
+
+    Args:
+        resolved: environment -> platform -> {package: resolved version}.
+
+    Returns:
+        One description per divergence, sorted; empty when every shared package
+        agrees.
+    """
+    versions: dict[tuple[str, str], dict[str, str]] = {}
+    for environment, platforms in resolved.items():
+        for platform, packages in platforms.items():
+            for package, version in packages.items():
+                versions.setdefault((platform, package), {})[environment] = version
+    return sorted(
+        f"{package} on {platform}: {found}"
+        for (platform, package), found in versions.items()
+        if len(set(found.values())) > 1
+    )
+
+
+def _docs_section(text: str, heading: str) -> str:
+    """Return the body of one markdown section, up to the next heading of the same level or higher.
+
+    Args:
+        text: The whole document.
+        heading: The exact heading line to start from.
+
+    Returns:
+        The section body, empty when the heading is absent.
+    """
+    lines = text.splitlines()
+    if heading not in lines:
+        return ""
+    body: list[str] = []
+    for line in lines[lines.index(heading) + 1 :]:
+        if re.match(r"^#{1,3} ", line):
+            break
+        body.append(line)
+    return " ".join(body)
+
+
+def test_the_storage_spike_is_staged_rather_than_committed_to(manifest: dict[str, Any]) -> None:
+    """R-1: `django-storages` is declared in the spike feature and nowhere else.
+
+    This assertion encodes the recorded verdict, which is **proven with a stated
+    bound** -- not *failed*. Two consequences, and both are asserted:
+
+    * AC #3's branch is *not* taken. A failed verdict would have added a
+      time-boxed `[pypi-dependencies]` entry with its exit condition beside it,
+      pending a conda-forge feedstock push. The package resolves from
+      conda-forge as it stands, so no such entry exists and none may appear.
+    * AC #2's branch is taken, but not by this story. A passing verdict lets
+      Epic 7 Story 7.5 build object storage on the channel build; it does not by
+      itself move the declaration into `[dependencies]`. Until Story 7.5 does
+      that, a `django-storages` in the runtime set is a feature committed to
+      without the feature existing, which is what FR-50 exists to prevent.
+
+    If Story 7.5 moves it, this test moves with it -- it becomes an assertion
+    that the package sits in the `storage` feature. It does not get deleted.
+
+    "Nowhere else" is checked against **every** dependency table, not the two at
+    the top level. `[feature.dev.dependencies]` is a declaration site exactly as
+    real as `[dependencies]`, and putting the package there would place it in the
+    environment the entire product test suite runs in -- a commitment in all but
+    name, and one the earlier two-table form of this test passed cleanly.
+    `DEPENDENCY_TABLE` above already knows the per-feature and per-target
+    variants, so the scan reads every table the manifest can declare into.
+    """
+    spike_dependencies = manifest["feature"][SPIKE_FEATURE]["dependencies"]
+    assert SPIKE_PACKAGE in spike_dependencies, (
+        f"{SPIKE_PACKAGE} must be declared in [feature.{SPIKE_FEATURE}.dependencies]; "
+        "that declaration is what R-1's spike runs against."
+    )
+    assert SPIKE_PACKAGE not in manifest["dependencies"], (
+        f"{SPIKE_PACKAGE} is in [dependencies]. The recorded verdict permits Epic 7 Story 7.5 to build "
+        "object storage; moving the declaration into the runtime set is that story's act, not this one's."
+    )
+    assert SPIKE_PACKAGE not in manifest.get("pypi-dependencies", {}), (
+        f"{SPIKE_PACKAGE} is in [pypi-dependencies]. R-1's escalation permits a time-boxed package-index "
+        "exception only on a *failed* verdict, and the recorded verdict is not failed."
+    )
+
+
+def test_the_storage_spike_is_declared_in_no_other_dependency_table(manifest_lines: list[str]) -> None:
+    """R-1: the staging is only staging if `django-storages` is declared in exactly one table.
+
+    The sibling above checks the two tables a commitment would most obviously use.
+    This checks all of them -- `[feature.<name>.dependencies]`,
+    `[feature.<name>.pypi-dependencies]` and the `[target.<platform>....]`
+    variants -- because the point of FR-50's staging is that the package reaches
+    one deliberately isolated environment and no other. A `django-storages` in
+    `[feature.dev.dependencies]` would reach the environment `pixi run ci` uses,
+    which is the commitment this story exists to withhold.
+    """
+    tables = sorted(
+        declaration.table for declaration in _declarations(manifest_lines) if declaration.name == SPIKE_PACKAGE
+    )
+    expected = [f"[feature.{SPIKE_FEATURE}.dependencies]"]
+    assert tables == expected, (
+        f"{SPIKE_PACKAGE} is declared in {tables}; it may be declared in {expected} and nowhere else until "
+        "Epic 7 Story 7.5 moves it into the `storage` feature. Any other table puts the package into an "
+        "environment the spike's verdict says nothing about."
+    )
+
+
+def test_the_spike_environment_shares_the_solve_group(manifest: dict[str, Any]) -> None:
+    """AD-3: the spike must exercise the Django the product ships, not one of its own.
+
+    Without the shared solve-group the spike environment resolves independently
+    and could pick a different Django, at which point the verdict is a statement
+    about a runtime nothing runs. That would be a verdict that looks like
+    evidence and is not.
+    """
+    environment = manifest["environments"][SPIKE_ENVIRONMENT]
+    assert environment.get("solve-group") == SHARED_SOLVE_GROUP, (
+        f"environment {SPIKE_ENVIRONMENT!r} declares solve-group {environment.get('solve-group')!r}, "
+        f"not {SHARED_SOLVE_GROUP!r}; it would then test a different Django from the one the product ships."
+    )
+    assert environment.get("features") == SPIKE_ENVIRONMENT_FEATURES, (
+        f"environment {SPIKE_ENVIRONMENT!r} is built from {environment.get('features')}, not "
+        f"{SPIKE_ENVIRONMENT_FEATURES}; it needs `dev` for pytest and `{SPIKE_FEATURE}` for the package."
+    )
+
+
+def test_the_spike_verdict_is_recorded_beside_the_declaration(manifest_lines: list[str]) -> None:
+    """AC #1: "the result is recorded where the dependency is declared".
+
+    The record is a comment block beside the declaration, so it is read as text
+    -- `tomllib` discards exactly the thing this asserts. Three properties, and
+    each of them is a way the record could be present and useless:
+
+    1. There is a verdict at all, and it is one of the closed set of three. A
+       fourth, softer outcome ("mostly works", "no blockers found") is what a
+       spike degrades into when nobody is holding it to a vocabulary.
+    2. It is the verdict this suite records. The manifest and this file have to
+       be edited together, so a verdict cannot be upgraded in a comment alone.
+    3. A bounded verdict names its bound. "Proven with a stated bound" without
+       the stated bound is just "proven" with a disclaimer, which is the
+       silently narrowed claim CG-2 calls worse than a bounded one.
+    4. The staging says what retires it. `[feature.spike-storage]` is temporary
+       by construction, and Task 1 required its reasoning and exit condition to
+       be recorded beside the declaration -- which means *below* the table
+       header, where `_rationale` can reach it. Written above the header they
+       were invisible to every assertion in this file and could have been
+       deleted with the suite green.
+    """
+    declarations = {declaration.name: declaration for declaration in _declarations(manifest_lines)}
+    assert SPIKE_PACKAGE in declarations, f"{SPIKE_PACKAGE} is not declared in pixi.toml at all"
+
+    rationale = _rationale(declarations[SPIKE_PACKAGE], manifest_lines)
+    assert rationale is not None, (
+        f"no comment block sits beside the {SPIKE_PACKAGE} declaration. AC #1 requires the spike's verdict "
+        "to be recorded where the dependency is declared, and `_rationale` reads adjacency strictly -- the "
+        "block must be on the lines immediately above the declaration, below the table header."
+    )
+
+    verdict = _recorded_verdict(rationale)
+    assert verdict is not None, (
+        f"the comment beside {SPIKE_PACKAGE} records no verdict. Write `Verdict: <one of {list(VERDICTS)}>`; "
+        "a fourth, softer outcome is not available."
+    )
+    assert verdict == RECORDED_VERDICT, (
+        f"pixi.toml records the verdict {verdict!r} and this suite records {RECORDED_VERDICT!r}. "
+        "Re-run `pixi run spike-storage` and change both together, or neither."
+    )
+
+    lowered = rationale.lower()
+    missing = sorted(phrase for phrase in BOUND_PHRASES if phrase not in lowered)
+    assert not missing, (
+        f"the verdict is bounded but does not state the bound: {missing} appear nowhere beside the "
+        f"{SPIKE_PACKAGE} declaration. Say which leg did not run and what would make it run."
+    )
+
+    assert EXIT_CONDITION_PHRASE in lowered, (
+        f"the comment beside {SPIKE_PACKAGE} records no exit condition. [feature.{SPIKE_FEATURE}] is "
+        "temporary staging, not a home; say what retires it, below the table header where this reader can "
+        f"see it, using the words {EXIT_CONDITION_PHRASE!r}."
+    )
+
+
+def test_the_recorded_verdict_names_the_versions_the_lock_resolves(
+    manifest_lines: list[str],
+    lock: dict[str, Any],
+) -> None:
+    """A verdict is a statement about specific versions, so the lock must still hold them.
+
+    The spike asserts the same four versions against the installed distributions,
+    but the spike runs in no automated path: `.github/workflows/ci.yml` pins
+    `environments: dev`, and nothing in `pixi run ci` reaches the `spike-storage`
+    environment. Meanwhile `django = ">=6.0,<7"` admits 6.1 on a re-solve and
+    `boto3` is transitive and floats freely, so the whole of this could happen
+    with a green gate: someone bumps Django, `pixi install` re-solves, and
+    `pixi.toml` goes on certifying a verdict against a runtime nobody re-spiked
+    -- which Epic 7 Story 7.5 is instructed to act on.
+
+    This is what closes that. The versions are read out of the comment a reader
+    actually believes and reconciled, per platform, against what `pixi.lock`
+    resolved for the environment the spike runs in. Matching is at the verdict's
+    own precision: "Django 6.0" is satisfied by a locked `6.0.8` and not by
+    `6.1.0`.
+    """
+    declarations = {declaration.name: declaration for declaration in _declarations(manifest_lines)}
+    rationale = _rationale(declarations[SPIKE_PACKAGE], manifest_lines)
+    assert rationale is not None, f"no comment block sits beside the {SPIKE_PACKAGE} declaration"
+
+    named = _tested_against(rationale)
+    assert set(named) == VERDICT_VERSION_PACKAGES, (
+        f"the verdict's 'Tested against:' line names {sorted(named)}, and the versions a verdict about "
+        f"{SPIKE_PACKAGE} has to pin are {sorted(VERDICT_VERSION_PACKAGES)}. A name dropped from that line "
+        "is a version this test stops reconciling against the lock."
+    )
+
+    resolved = _resolved_packages(lock)
+    assert SPIKE_ENVIRONMENT in resolved, (
+        f"environment {SPIKE_ENVIRONMENT!r} is absent from pixi.lock, so the verdict's versions cannot be "
+        "reconciled against anything. Run `pixi install`."
+    )
+
+    drifted = _verdict_drift(named, resolved[SPIKE_ENVIRONMENT])
+    assert not drifted, (
+        f"the lock has moved off the runtime the R-1 verdict is a statement about: {sorted(set(drifted))}. "
+        "Re-run `pixi run spike-storage` against the new versions and re-record the verdict in pixi.toml "
+        "and docs/development.md; a verdict is not inherited across a version bump."
+    )
+
+
+def test_every_shared_package_resolves_to_one_version_across_environments(lock: dict[str, Any]) -> None:
+    """AD-3's shared solve-group, asserted against what was solved rather than what was declared.
+
+    `test_the_spike_environment_shares_the_solve_group` reads the manifest, and
+    its docstring names the stake: without the shared group the spike resolves
+    its own Django and the verdict is a statement about a runtime nothing runs.
+    Nothing checked that the lock actually delivered it.
+    `test_lock_file_resolves_every_declared_dependency` cannot -- it checks each
+    environment against the declared *range* independently, so `django 6.0.8` in
+    `dev` and `6.1.0` in `spike-storage` would both satisfy `>=6.0,<7` and both
+    pass.
+
+    Grouped per platform, because two platforms resolving different builds of the
+    same package is ordinary and not what this is about.
+    """
+    resolved = _resolved_packages(lock)
+    assert resolved, "pixi.lock declares no environments; it has not been solved."
+
+    divergent = _cross_environment_divergences(resolved)
+    assert not divergent, (
+        f"these packages resolve to different versions in different environments: {divergent}. "
+        'Every environment declares `solve-group = "default"` so that the environments a spike or a '
+        "matrix leg runs in exercise the versions the product ships; re-solve with `pixi install`."
+    )
+
+
+def test_the_docs_copy_of_the_verdict_matches_the_manifest(manifest_lines: list[str], docs: str) -> None:
+    """The verdict is recorded twice, so the two copies are reconciled.
+
+    `docs/development.md` carries the verdict for "a reader who never opens
+    `pixi.toml`" -- which is exactly the reader a stale copy misleads. When the
+    bound is later closed, `pixi.toml` and this module move together by design,
+    and nothing would have made the docs move with them.
+    """
+    declarations = {declaration.name: declaration for declaration in _declarations(manifest_lines)}
+    rationale = _rationale(declarations[SPIKE_PACKAGE], manifest_lines)
+    assert rationale is not None, f"no comment block sits beside the {SPIKE_PACKAGE} declaration"
+
+    section = _docs_section(docs, DOCS_VERDICT_HEADING)
+    assert section, (
+        f"{DEVELOPMENT_DOCS.name} has no {DOCS_VERDICT_HEADING!r} section. Task 3 requires the verdict to be "
+        "readable without opening pixi.toml."
+    )
+
+    documented = _recorded_verdict(section)
+    assert documented == _recorded_verdict(rationale) == RECORDED_VERDICT, (
+        f"{DEVELOPMENT_DOCS.name} records the verdict {documented!r}, pixi.toml records "
+        f"{_recorded_verdict(rationale)!r} and this suite records {RECORDED_VERDICT!r}. All three move "
+        "together or none of them do."
+    )
+
+    lowered = section.lower()
+    missing = sorted(phrase for phrase in BOUND_PHRASES if phrase not in lowered)
+    assert not missing, (
+        f"the docs copy of the verdict is bounded but does not state the bound: {missing} appear nowhere "
+        f"under {DOCS_VERDICT_HEADING!r}. The bound has to survive the second copy, not only the first."
+    )
+
+
 # The rules above are only as good as the helpers underneath them, and those
 # helpers are not covered by anything else -- `--cov=src` does not measure this
 # module. The two tests below pin the properties whose absence would let a rule
@@ -857,3 +1297,132 @@ def test_satisfies_compares_versions_rather_than_strings() -> None:
 
     with pytest.raises(UnrecognisedConstraintError, match="Unrecognised version constraint"):
         _satisfies("1.2.3", "~=1.2")
+
+
+def test_the_verdict_reader_does_not_read_a_bound_as_full_coverage() -> None:
+    """A bounded verdict must not be readable as an unbounded one.
+
+    "proven with a stated bound" contains "proven". A reader that scanned the
+    shorter string first would report the strongest of the three verdicts for a
+    record that says the opposite -- and it would do it silently, on a green
+    suite, which is the exact failure mode CG-2 names. The ordering of `VERDICTS`
+    is what prevents it, and this is what holds the ordering.
+    """
+    assert _recorded_verdict("Verdict: proven with a stated bound.") == "proven with a stated bound"
+    assert _recorded_verdict("Verdict: proven.") == "proven"
+    assert _recorded_verdict("Verdict: failed.") == "failed"
+    assert _recorded_verdict("# Verdict:  proven  with a stated  bound") == "proven with a stated bound"
+    assert _recorded_verdict("the spike has proven nothing yet") is None
+    assert _recorded_verdict("Verdict: mostly fine") is None
+
+
+def test_the_tested_against_reader_finds_every_named_version() -> None:
+    """The versions reconciled against the lock are parsed, so the parser is pinned.
+
+    A parser that silently returned fewer pairs than the comment names would
+    reduce `test_the_recorded_verdict_names_the_versions_the_lock_resolves` to
+    checking whatever it happened to find -- and the set assertion there is what
+    stops that, so this holds the parser up from underneath.
+    """
+    rationale = (
+        "Verdict: proven with a stated bound. Tested against: django-storages 1.14.6, Django 6.0, "
+        "Python 3.14, boto3 1.43.65 -- the versions the spine's Stack table names, read back from the "
+        "installed distribution rather than assumed. Bound: the round-trip leg did not run."
+    )
+    assert _tested_against(rationale) == {
+        "django-storages": "1.14.6",
+        "django": "6.0",
+        "python": "3.14",
+        "boto3": "1.43.65",
+    }
+    assert _tested_against("Verdict: proven. No versions recorded.") == {}
+
+
+def test_a_named_release_line_does_not_match_a_neighbouring_one() -> None:
+    """ "Django 6.0" covers 6.0.8 and does not cover 6.1.0 or 6.01.
+
+    Component-prefixed rather than string-prefixed: a plain `startswith` would
+    read `3.140` as inside `3.14`, and the whole point of the reconciliation is
+    that a version bump invalidates the verdict rather than sliding under it.
+    """
+    assert _is_same_release_line("6.0.8", "6.0")
+    assert _is_same_release_line("6.0", "6.0")
+    assert _is_same_release_line("3.14.6", "3.14")
+    assert not _is_same_release_line("6.1.0", "6.0")
+    assert not _is_same_release_line("3.140.1", "3.14")
+    assert not _is_same_release_line("1.14.6", "1.14.7")
+
+
+def test_a_lock_that_moved_off_the_verdicts_runtime_is_reported() -> None:
+    """The verdict-versus-lock rule is verified against a synthetic lock, not a mutated one.
+
+    It cannot be verified against a mutated `pixi.lock`: `pixi run` re-solves and
+    rewrites the lock before a task starts, so an edited one is restored before
+    pytest ever opens it. The rule is therefore exercised here, on data shaped
+    exactly as `_resolved_packages` returns it.
+
+    Three cases, because each is a different way a verdict outlives its runtime:
+    the lock agrees, the lock has moved to a neighbouring release line, and the
+    package has left the environment altogether.
+    """
+    named = {"django": "6.0", "python": "3.14", "django-storages": "1.14.6"}
+    agreeing = {"linux-64": {"django": "6.0.8", "python": "3.14.6", "django-storages": "1.14.6"}}
+    assert _verdict_drift(named, agreeing) == []
+
+    bumped = {"linux-64": {"django": "6.1.0", "python": "3.14.6", "django-storages": "1.14.6"}}
+    assert _verdict_drift(named, bumped) == ["django: verdict says 6.0, lock resolves 6.1.0 on linux-64"]
+
+    absent = {"linux-64": {"django": "6.0.8", "python": "3.14.6"}}
+    assert _verdict_drift(named, absent) == ["django-storages is named by the verdict but resolves nowhere on linux-64"]
+
+
+def test_one_environment_resolving_its_own_django_is_reported() -> None:
+    """The shared-solve-group rule, verified the same way and for the same reason.
+
+    This is the failure AD-3's solve-group exists to prevent, and the one
+    `test_lock_file_resolves_every_declared_dependency` cannot see: both versions
+    below satisfy `django = ">=6.0,<7"`, so checking each environment against the
+    declared range independently passes while the spike proves nothing about the
+    Django the product ships. A per-platform difference is left alone, because
+    that is ordinary.
+    """
+    agreeing = {
+        "dev": {"linux-64": {"django": "6.0.8"}},
+        "spike-storage": {"linux-64": {"django": "6.0.8"}},
+    }
+    assert _cross_environment_divergences(agreeing) == []
+
+    divergent = {
+        "dev": {"linux-64": {"django": "6.0.8"}},
+        "spike-storage": {"linux-64": {"django": "6.1.0"}},
+    }
+    assert _cross_environment_divergences(divergent) == [
+        "django on linux-64: {'dev': '6.0.8', 'spike-storage': '6.1.0'}"
+    ]
+
+    per_platform = {
+        "dev": {"linux-64": {"libpq": "17.11"}, "win-64": {"libpq": "17.10"}},
+        "spike-storage": {"linux-64": {"libpq": "17.11"}, "win-64": {"libpq": "17.10"}},
+    }
+    assert _cross_environment_divergences(per_platform) == []
+
+
+def test_a_docs_section_stops_at_the_next_heading() -> None:
+    """The docs copy of the verdict is read by section, so the section boundary is pinned.
+
+    A reader that ran past the next heading would find the word "proven"
+    somewhere later in the file and report a verdict the section does not carry.
+    """
+    document = (
+        "## Supply chain\n"
+        "preamble\n"
+        "### Object storage fitness (R-1)\n"
+        "Verdict: proven with a stated bound.\n"
+        "\n"
+        "## Running with no external services\n"
+        "Verdict: failed."
+    )
+    section = _docs_section(document, "### Object storage fitness (R-1)")
+    assert _recorded_verdict(section) == "proven with a stated bound"
+    assert "failed" not in section
+    assert _docs_section(document, "### No Such Heading") == ""
