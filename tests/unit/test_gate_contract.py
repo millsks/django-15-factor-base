@@ -9,6 +9,7 @@ reading repository files, no network, no database.
 from __future__ import annotations
 
 import tomllib
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -21,13 +22,42 @@ Workflows = dict[str, dict[str, Any]]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PIXI_MANIFEST = REPO_ROOT / "pixi.toml"
+PYPROJECT = REPO_ROOT / "pyproject.toml"
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
+TESTS_ROOT = REPO_ROOT / "tests"
+
+# R-1's django-storages fitness spike (Story 1.8). It runs in the
+# `spike-storage` environment, which the gate's `dev` environment is not, so it
+# must be reachable by its own task and unreachable from `pixi run ci`.
+#
+# The mechanism is naming, not a pytest flag. `test-cov` runs `pytest tests/`,
+# and the two flags that would exclude a subtree from it -- `-m "not spike"` and
+# `--ignore=tests/spikes` -- are both banned on the floor-carrying task by
+# tests/unit/test_coverage_policy.py, because narrowing what the floor measures
+# is how the floor stops being a floor. So the spike lives in a module whose
+# name `[tool.pytest.ini_options] python_files` does not match; pytest collects
+# such a file only when it is named on the command line, which the spike task
+# does and the gate never does.
+SPIKE_TASK = "spike-storage"
+SPIKE_ENVIRONMENT = "spike-storage"
+SPIKE_DIRECTORY = REPO_ROOT / "tests" / "spikes"
+SPIKE_MODULE_PREFIX = "spike_"
 
 # The five gate steps in the order AD-18 fixes. These are this repository's task
 # identifiers, which differ from the global standard's fmt/check/cov names; the
 # AD names the steps, not the identifiers, and renaming them would break
 # .pre-commit-config.yaml, release.yml and sonarqube.yml in the same change.
 GATE_SEQUENCE = ["precommit", "build", "typecheck", "lint", "test-cov"]
+
+# The task that *is* the gate, and the invariant that keeps `pixi run ci`
+# unambiguous. pixi rejects `default-environment` on a task declaring only
+# `depends-on`, so `ci` cannot pin an environment the way every other task does;
+# the only thing that can keep it unambiguous is the feature declaring it
+# belonging to exactly one `[environments]` entry. That is what the
+# dependency-free `gate` feature is for, and until now it was argued for in prose
+# and asserted nowhere -- while Epic 8's six-environment matrix is exactly the
+# change that would reintroduce `the task 'ci' is ambiguous`.
+GATE_TASK = "ci"
 
 # Gate steps that must not be invoked by any workflow other than the gate job.
 # `build` also has its own narrower check for cron specifically
@@ -104,6 +134,54 @@ def _all_tasks(manifest: dict[str, Any]) -> dict[str, Any]:
     return tasks
 
 
+def _feature_declaring(manifest: dict[str, Any], task: str) -> str | None:
+    """Return the name of the feature whose `tasks` table declares a task.
+
+    Args:
+        manifest: The parsed pixi manifest.
+        task: The task name to locate.
+
+    Returns:
+        The feature name, or None when the task is declared in the top-level
+        `[tasks]` table (the default feature) or not at all.
+    """
+    for name, feature in manifest.get("feature", {}).items():
+        if task in feature.get("tasks", {}):
+            return name
+    return None
+
+
+def _environments_carrying(manifest: dict[str, Any], feature: str) -> list[str]:
+    """Return every declared environment built from a given feature.
+
+    Args:
+        manifest: The parsed pixi manifest.
+        feature: The feature name to look for.
+
+    Returns:
+        The environment names, sorted.
+    """
+    carrying: list[str] = []
+    for name, spec in manifest.get("environments", {}).items():
+        declared = spec if isinstance(spec, list) else spec.get("features", [])
+        if feature in declared:
+            carrying.append(name)
+    return sorted(carrying)
+
+
+def _spike_directories() -> list[Path]:
+    """Return every directory under `tests/` that holds a spike module.
+
+    Found rather than hard-coded, and found recursively: a second spike
+    directory, or a subdirectory of an existing one, is covered on the day it
+    appears rather than on the day someone remembers to add it here.
+
+    Returns:
+        The directories, sorted and de-duplicated.
+    """
+    return sorted({path.parent for path in TESTS_ROOT.rglob(f"{SPIKE_MODULE_PREFIX}*.py")})
+
+
 def _run_steps(workflow: dict[str, Any]) -> list[str]:
     """Return the `run` body of every step in every job of a workflow."""
     steps: list[str] = []
@@ -168,6 +246,64 @@ def test_every_gate_step_pins_its_environment(manifest: dict[str, Any]) -> None:
     assert unpinned == [], f"these steps would prompt for an environment: {unpinned}"
 
 
+def test_the_gate_task_is_reachable_from_exactly_one_environment(manifest: dict[str, Any]) -> None:
+    """`pixi run ci` must never be ambiguous, and only one thing can make that true.
+
+    Every other task pins `default-environment`, which keeps `pixi run <task>`
+    unambiguous however many environments carry the feature declaring it. `ci`
+    cannot: pixi rejects `default-environment` on a task that declares only
+    `depends-on`. So the invariant is structural -- the feature that declares
+    `ci` must belong to exactly one `[environments]` entry -- and it is the whole
+    reason the dependency-free `gate` feature exists.
+
+    It was argued at length in the story that introduced it and asserted nowhere.
+    The failure it guards has already happened once: `spike-storage` layered the
+    `dev` *feature*, `ci` became visible from two environments, and `pixi run ci`
+    aborted with `the task 'ci' is ambiguous` before running a step. Epic 8's
+    six-environment matrix is the same change again, six times over.
+    """
+    assert GATE_TASK not in manifest.get("tasks", {}), (
+        f"{GATE_TASK!r} is declared in [tasks], which belongs to the default feature and is therefore "
+        "visible from every environment. `pixi run ci` would be ambiguous the moment a second environment "
+        "exists; declare it in a feature carried by exactly one environment instead."
+    )
+
+    feature = _feature_declaring(manifest, GATE_TASK)
+    assert feature is not None, f"no feature declares the {GATE_TASK!r} task"
+
+    carrying = _environments_carrying(manifest, feature)
+    assert len(carrying) == 1, (
+        f"feature {feature!r} declares {GATE_TASK!r} and is carried by environments {carrying}. "
+        f"`pixi run {GATE_TASK}` cannot pin an environment -- pixi rejects `default-environment` on a "
+        "depends-on-only task -- so the feature declaring it must belong to exactly one environment."
+    )
+
+
+def test_every_task_with_a_command_pins_its_environment(manifest: dict[str, Any]) -> None:
+    """`docs/development.md`'s "you never need `-e` for a task" has to be true of every task.
+
+    The gate's own five steps are checked by the sibling above this one, and the
+    spike task by its own test -- six of the manifest's tasks. The other twelve
+    were covered by the documented rule and by nothing else. `changelog` is the
+    concrete case: `.github/workflows/release.yml` invokes it, so losing its
+    `default-environment` would surface at release time, with `pixi run ci`
+    green and the tag already pushed.
+
+    A task declared as a bare string cannot pin an environment at all, so it
+    fails here too rather than slipping through the `.get` on a dict.
+    """
+    unpinned = sorted(
+        name
+        for name, task in _all_tasks(manifest).items()
+        if not isinstance(task, dict) or ("cmd" in task and not task.get("default-environment"))
+    )
+    assert unpinned == [], (
+        f"these tasks declare a command without pinning `default-environment`: {unpinned}. "
+        "`pixi run <task>` would prompt, or pick an environment by accident, as soon as more than one "
+        "environment carries the feature declaring it."
+    )
+
+
 def test_exactly_one_workflow_invokes_the_gate(workflows: Workflows) -> None:
     """AD-18: a single workflow invokes `pixi run ci`."""
     invoking = [
@@ -199,6 +335,85 @@ def test_gate_steps_run_only_inside_the_gate(task: str, workflows: Workflows) ->
         if name != "ci.yml" and any(_invokes(step, task) for step in _run_steps(workflow))
     ]
     assert offenders == [], f"{task} must run only in the gate, found in {offenders}"
+
+
+def test_the_storage_spike_is_not_a_gate_step(manifest: dict[str, Any]) -> None:
+    """R-1's spike runs on demand, in its own environment, and never inside the gate.
+
+    It needs `django-storages`, which only the `spike-storage` environment has.
+    A spike promoted to a gate step would fail the gate on every developer
+    machine for a package the runtime set deliberately does not carry.
+    """
+    tasks = _all_tasks(manifest)
+    assert SPIKE_TASK in tasks, f"{SPIKE_TASK} must stay runnable as a task of its own"
+    assert tasks[SPIKE_TASK].get("default-environment") == SPIKE_ENVIRONMENT, (
+        f"{SPIKE_TASK} must pin the {SPIKE_ENVIRONMENT!r} environment; the gate's `dev` environment does "
+        "not carry django-storages"
+    )
+    assert SPIKE_TASK not in _all_tasks(manifest)["ci"]["depends-on"], f"{SPIKE_TASK} must not be a gate step"
+
+
+def test_the_spike_task_names_a_file_that_exists(manifest: dict[str, Any]) -> None:
+    """The spike task's command path is reconciled with the tree, not merely written down.
+
+    `pixi run spike-storage` is the one command the recorded verdict tells Epic 7
+    Story 7.5 to re-run, and its `cmd` names the spike module by path. Renaming
+    the module while updating its `RECORDED_EXEMPTIONS` key in
+    `tests/unit/test_suite_policy.py` -- the natural paired edit -- would leave
+    the gate green and the task failing with "file or directory not found".
+    """
+    command = _all_tasks(manifest)[SPIKE_TASK]["cmd"]
+    named = [token for token in command.split() if token.endswith(".py")]
+    assert named, f"the {SPIKE_TASK} task names no module: {command!r}"
+
+    missing = sorted(token for token in named if not (REPO_ROOT / token).is_file())
+    assert missing == [], (
+        f"the {SPIKE_TASK} task runs {command!r}, and these paths do not exist: {missing}. "
+        "Rename the task's target in the same change that renames the module."
+    )
+
+
+def test_the_gate_cannot_collect_the_storage_spike() -> None:
+    """The gate runs `pytest tests/`, and the spike lives under `tests/`. Naming is what separates them.
+
+    Asserted from both sides, because either alone is satisfiable while the gate
+    still breaks: every module under a spike directory is named `spike_*.py`, and
+    no pattern in `python_files` matches that name. Add a `test_*.py` to such a
+    directory, or add `spike_*.py` to `python_files`, and `pixi run ci` starts
+    collecting a module whose imports its environment cannot satisfy.
+
+    The scan recurses, and it finds its directories rather than being told one.
+    A non-recursive `glob` over a single hard-coded path let
+    `tests/spikes/s3/test_helpers.py` be collected by the gate while the test
+    written to prevent exactly that went on passing.
+    """
+    with PYPROJECT.open("rb") as handle:
+        patterns = tomllib.load(handle)["tool"]["pytest"]["ini_options"]["python_files"]
+
+    assert SPIKE_DIRECTORY.is_dir(), f"{SPIKE_DIRECTORY} does not exist; the spike has no home"
+    directories = _spike_directories()
+    assert SPIKE_DIRECTORY in directories, (
+        f"{SPIKE_DIRECTORY} holds no {SPIKE_MODULE_PREFIX}*.py module; this assertion would pass vacuously"
+    )
+
+    collectable = sorted(
+        str(path.relative_to(TESTS_ROOT))
+        for directory in directories
+        for path in directory.rglob("*.py")
+        if path.name != "__init__.py"
+        if any(fnmatch(path.name, pattern) for pattern in patterns)
+    )
+    assert collectable == [], (
+        f"these modules under {[str(path.relative_to(TESTS_ROOT)) for path in directories]} match "
+        f"`python_files` {patterns} and so are collected by `pytest tests/` in the gate: {collectable}. "
+        f"Name them {SPIKE_MODULE_PREFIX}*.py instead."
+    )
+
+    matching_patterns = sorted(pattern for pattern in patterns if fnmatch(f"{SPIKE_MODULE_PREFIX}anything.py", pattern))
+    assert matching_patterns == [], (
+        f"`python_files` now matches {SPIKE_MODULE_PREFIX}*.py via {matching_patterns}, so the gate would "
+        "collect the spike. The spike needs the spike-storage environment and would fail on import."
+    )
 
 
 def _image_repository(image: str) -> str:

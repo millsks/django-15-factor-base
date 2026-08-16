@@ -209,6 +209,12 @@ python_files = [
 ]
 markers = [
   "integration: marks tests as integration tests requiring real I/O, network, or DB",
+  # R-1's django-storages fitness spike. It runs only in the `spike-storage`
+  # pixi environment, via `pixi run spike-storage`, and never in the gate --
+  # `test-cov` runs `pytest tests/`, and `python_files` below does not match the
+  # `spike_*.py` module the spike lives in, so collection never reaches it.
+  # The marker is registered here so `-m spike` selects rather than warns.
+  "spike: marks the R-1 django-storages fitness spike; runs only in the spike-storage environment",
 ]
 
 # ==== Coverage ====
