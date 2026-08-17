@@ -1,4 +1,7 @@
+from config.authorization.claims import ClaimsContract
+
 from .base import *  # noqa: F403
+from .base import CLAIMS_CONTRACT
 from .base import INSTALLED_APPS
 from .base import MIDDLEWARE
 from .base import env
@@ -97,5 +100,35 @@ CELERY_TASK_ALWAYS_EAGER = True
 # mean the same thing for failures as it does for successes.
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-eager-propagates
 CELERY_TASK_EAGER_PROPAGATES = True
+# AUTHENTICATION
+# ------------------------------------------------------------------------------
+# Local development values, not defaults. `base.py` defaults none of the four
+# claim names -- `config/authorization/claims.py` reads each from the environment
+# and leaves it empty when unset, deliberately, so that a deployed component with
+# a half-configured contract is caught by Epic 4's stage-1 refusal rather than
+# silently mapping against a conventional name nobody declared.
+#
+# Local development still needs a *configured* contract: FR-19's personas are
+# materialized by driving the real mapper with synthetic claims, and the mapper
+# rejects a payload whose identity-key claim it cannot find. With the contract
+# left empty here, `pixi run -e dev seed-personas` fails on a fresh clone with
+# `ClaimsRejected: identity key claim absent` -- which is the mapper behaving
+# correctly against a contract that was never declared, not a seeding bug.
+#
+# These names mirror `config/settings/test.py`'s fixture values so that what a
+# developer exercises by hand is what the suite exercises.
+#
+# Only *unset* fields are filled. `base.py` has already read all four through
+# `load_claims_contract(env)`, so pointing a local run at a real identity realm
+# is still done with the four `COMPONENT_*` variables that
+# `config/authorization/claims.py` declares -- this block does not re-spell their
+# names, and anything the environment supplied survives untouched.
+CLAIMS_CONTRACT = ClaimsContract(
+    identity_key_claim=CLAIMS_CONTRACT.identity_key_claim or "sub",
+    group_claim=CLAIMS_CONTRACT.group_claim or "groups",
+    staff_group=CLAIMS_CONTRACT.staff_group or "platform-staff",
+    superuser_group=CLAIMS_CONTRACT.superuser_group or "platform-superuser",
+)
+
 # Your stuff...
 # ------------------------------------------------------------------------------

@@ -86,10 +86,12 @@ configuration — an OpenShift configmap or equivalent — in sole control of th
 variable, because nothing in `default` overrides it.
 
 **The one thing to know as a developer:** the operational commands in `[tasks]` —
-`manage`, `migrate`, `collectstatic`, `createsuperuser`, `serve` — live in
-`default`, so run them as `pixi run -e dev migrate` (and so on) when you want
-them to behave locally. Bare `pixi run migrate` is the *deployed* invocation,
-and that is deliberate: it is the one the release stage uses.
+`manage`, `migrate`, `collectstatic`, `createsuperuser`, `serve`,
+`seed-personas` — live in `default`, so run them as `pixi run -e dev migrate`
+(and so on) when you want them to behave locally. Bare `pixi run migrate` is the
+*deployed* invocation, and that is deliberate: it is the one the release stage
+uses. `seed-personas` is the one that *refuses* rather than merely behaving
+differently — see [Local personas](#local-personas).
 
 **Absent or unrecognized means deployed.** Locality fails closed on purpose:
 local development is the exception that must declare itself, so a declaration
@@ -441,6 +443,68 @@ services before believing it — point `DATABASE_URL` at a PostgreSQL instance
 (see [The parity gap between local runs and the gate](#the-parity-gap-between-local-runs-and-the-gate))
 rather than treating a green local run as the answer.
 
+## Local personas
+
+The fourth substitution is the identity provider. There is none locally, so
+identities are **declared as configuration** in `src/config/local_dev/personas.py`
+and materialized by a task. Two are declared, with deliberately different
+authorization:
+
+| Persona | Identity key (`idp_subject`) | Groups | Reaches the admin |
+| --- | --- | --- | --- |
+| `staff` | `local-dev:persona:staff` | the designated **staff** group | yes |
+| `reader` | `local-dev:persona:reader` | none | no |
+
+No persona names a group. A declaration lists the sentinel `DESIGNATED_STAFF` or
+`DESIGNATED_SUPERUSER`, and the *configured* name — `COMPONENT_STAFF_GROUP`,
+`COMPONENT_SUPERUSER_GROUP` — is substituted when the claims are built, so the
+personas are correct in a component pointed at any IdP's taxonomy. Neither
+persona carries `DESIGNATED_SUPERUSER`: a superuser bypasses every permission
+check, so a superuser persona would make every local authorization check pass
+and prove nothing.
+
+Seed them with:
+
+```console
+pixi run -e dev seed-personas
+```
+
+**The `-e dev` is required.** Locality is declared once, in
+`[feature.dev.activation.env]`, so the `dev` environment is what carries
+`COMPONENT_RUNTIME=local`. A bare `pixi run seed-personas` resolves in `default`,
+which declares nothing and therefore reads *deployed*, and the task refuses with
+`ImproperlyConfigured` before it touches the database. That refusal is the
+feature, not a bug: **persona seeding never creates a local account in a deployed
+environment**, and locality fails closed, so a declaration lost anywhere between
+here and production leaves the refusal armed. The same form applies to the other
+`[tasks]` entries — see [Locality is declared by the environment](#locality-is-declared-by-the-environment).
+
+Two properties of the seeding are worth knowing:
+
+- **It calls the component's own group provisioning** —
+  `django_service.users.provisioning.provision_designated_groups()`, the same
+  callable the data migration invokes — rather than creating groups of its own.
+  A seeding task that created groups itself would pass every local check while
+  leaving every deployed component ungovernable: its IdP asserts groups no
+  `Group` row matches, so nobody gets any authorization and nobody can reach the
+  admin to fix it. See [Authentication](authentication.md).
+- **It drives the real mapper.** Each persona's declaration is turned into a
+  synthetic claims payload keyed by the configured claim names, and that payload
+  goes through the same `resolve_user` and `sync_for_interactive` an IdP login
+  does. So changing a persona's declared groups and re-authenticating produces
+  the corresponding membership change — including the *removal* of a group it no
+  longer declares — and signing in twice resolves to the same user, because
+  resolution is by the identity key and by nothing else.
+
+**R-5, said plainly: the local personas are not a mitigation.** The product's own
+risk register puts it that way — there is no break-glass account, and "the local
+personas are not a mitigation; they exist only where the refusals do not apply."
+Synthetic claims never exercise JWKS retrieval, signature verification against a
+rotating key, discovery, or anything else an IdP actually does; they exercise the
+mapping and nothing below it. A persona signing in locally is evidence about this
+component's authorization logic, never evidence that its identity provider
+integration works.
+
 ## Database
 
 `config/settings/base.py` selects a backend in this order:
@@ -547,6 +611,7 @@ a different environment than the gate uses.
 | `pixi run migrate` | Apply migrations |
 | `pixi run makemigrations` | Generate migrations |
 | `pixi run createsuperuser` | Create an admin user |
+| `pixi run -e dev seed-personas` | Seed the local development personas — refused without `-e dev` |
 | `pixi run collectstatic` | Collect static files into `staticfiles/` |
 | `pixi run format` | `ruff format` |
 | `pixi run lint` | `ruff check` |

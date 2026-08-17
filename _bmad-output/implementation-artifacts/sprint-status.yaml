@@ -72,7 +72,7 @@ development_status:
   epic-3: in-progress
   3-1-local-pixi-tasks-declare-themselves-local: done
   3-2-the-database-cache-and-task-substitutions-hold-locally: done
-  3-3-personas-are-seeded-from-declared-claims: ready-for-dev
+  3-3-personas-are-seeded-from-declared-claims: done
   3-4-local-sign-in-is-a-url-route-that-drives-the-real-mapper: ready-for-dev
   3-5-the-local-programmatic-flow-validates-for-real: ready-for-dev
   3-6-observability-is-not-substituted-locally: ready-for-dev
