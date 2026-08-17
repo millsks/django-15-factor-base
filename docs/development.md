@@ -496,6 +496,66 @@ Two properties of the seeding are worth knowing:
   longer declares — and signing in twice resolves to the same user, because
   resolution is by the identity key and by nothing else.
 
+### Signing in as a persona
+
+Seeding creates the accounts; signing in as one is a **URL route and nothing
+else**. It is mounted at `_local/`:
+
+| Path | Method | What it does |
+| --- | --- | --- |
+| `/_local/` | `GET` | Lists the declared personas, one form each |
+| `/_local/<persona>/` | `POST` | Signs in as that persona and redirects to `LOGIN_REDIRECT_URL` |
+
+Four properties are deliberate and none of them is incidental:
+
+- **`POST` only.** A `GET` to the sign-in path answers `405` and establishes no
+  session. A credential path you can reach by following a link is a drive-by
+  session — a prefetch, an image tag or a link in a chat message would sign you
+  in — so listing is a `GET` and the act is a `POST`. The persona is selected by
+  a **path segment**, never a query parameter.
+- **Mounted only when `COMPONENT_RUNTIME=local`.** The module ships in every
+  component; the route is mounted only where locality is local, and the gate is
+  `config.locality.is_local()` rather than `DEBUG` — see
+  [Locality is declared by the environment](#locality-is-declared-by-the-environment).
+  Shipping is not mounting. The views also refuse a non-local run themselves,
+  with `404` rather than a configuration error, so a route that became reachable
+  by a hand edit still answers nothing.
+- **It drives the real mapper.** The view builds the same synthetic claims
+  payload the seeding task does, hands it to `resolve_user` and then to
+  `sync_for_interactive`, and contains no mapping logic of its own: no group
+  assignment, no `is_staff` write, no permission decision. That is why the
+  `staff` persona reaches `/admin/` and the `reader` persona is refused it — the
+  difference is produced by the mapper reading the claims, exactly as it is for
+  an identity the IdP asserted. If the claims cannot be mapped, the page
+  re-renders with the mapper's reason and status `400`; on a fresh clone with no
+  `COMPONENT_IDENTITY_CLAIM` configured, that is the first thing you will see.
+- **It adds no authentication backend.** `AUTHENTICATION_BACKENDS` is unchanged;
+  the session names the already-declared `ModelBackend`. The route prefix is the
+  one new entry on the component's credential surface. That surface is not yet
+  enumerated anywhere — the allowlist that will enumerate it is a later epic's,
+  and until it lands the prefix is guarded by the locality gate alone.
+
+The route's name and prefix are fixed constants declared once, in
+`src/config/local_dev/constants.py`, and they move into `accelerator.toml` in a
+later epic without changing their meaning.
+
+**What the route is not.** Signing in as a persona calls
+`django.contrib.auth.login` directly; it does not go through allauth. The
+authorization you see is the deployed authorization — that is the whole point of
+driving the real mapper — but the *session* is not the deployed session: it
+carries no `EmailAddress`, no `SocialAccount`, and none of allauth's own state,
+so email verification, logout and re-authentication behave differently here than
+they do against a real identity provider. This is one more face of R-5 below.
+
+**This route will be refused at startup in a deployed component — that refusal
+does not exist yet.** Its reachability is one of the startup refusal conditions a
+later epic adds, and that refusal will resolve the view callable's owning module
+rather than match the URL name or the prefix, so a rename cannot evade it. It is
+the backstop for a route that is reachable anyway, not the expected path. Until
+it lands, the locality gate above is the only thing keeping the route unmounted,
+so a `COMPONENT_RUNTIME=local` that leaked into a deployed environment would
+serve it rather than fail closed at boot.
+
 **R-5, said plainly: the local personas are not a mitigation.** The product's own
 risk register puts it that way — there is no break-glass account, and "the local
 personas are not a mitigation; they exist only where the refusals do not apply."
