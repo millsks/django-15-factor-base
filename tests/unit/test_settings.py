@@ -15,6 +15,8 @@ import sys
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
+from config.authorization import claims
+
 # AD-23's declared windows, in seconds, and the values the environment-driven
 # case overrides them with. Named rather than written at the assertion so the
 # numbers read as the policy they are.
@@ -136,6 +138,39 @@ def test_local_falls_back_to_sqlite():
     local = importlib.import_module(LOCAL)
     assert local.DATABASES["default"]["ENGINE"].endswith("sqlite3")
     assert local.DEBUG is True
+
+
+def test_local_supplies_a_configured_claims_contract(monkeypatch: pytest.MonkeyPatch):
+    """Local development gets a usable contract even when nothing declares one.
+
+    `base.py` deliberately defaults none of the four claim names, so on a fresh
+    clone the contract is empty. FR-19's persona seeding drives the real mapper,
+    which rejects a payload whose identity-key claim it cannot find -- so without
+    this, `pixi run -e dev seed-personas` fails with `identity key claim absent`.
+    """
+    for name in claims.CLAIMS_ENVIRONMENT_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
+    local = importlib.import_module(LOCAL)
+
+    assert local.CLAIMS_CONTRACT.is_configured
+    assert local.CLAIMS_CONTRACT.identity_key_claim == "sub"
+
+
+def test_local_does_not_override_a_declared_claims_contract(monkeypatch: pytest.MonkeyPatch):
+    """Only unset fields are filled; the environment still wins.
+
+    The fallback must not re-spell the `COMPONENT_*` variable names or shadow a
+    local run pointed at a real identity realm.
+    """
+    monkeypatch.setenv("COMPONENT_IDENTITY_CLAIM", "oid")
+    monkeypatch.setenv("COMPONENT_GROUP_CLAIM", "realm_access.roles")
+
+    local = importlib.import_module(LOCAL)
+
+    assert local.CLAIMS_CONTRACT.identity_key_claim == "oid"
+    assert local.CLAIMS_CONTRACT.group_claim == "realm_access.roles"
+    assert local.CLAIMS_CONTRACT.staff_group == "platform-staff"
 
 
 def test_postgres_env_selects_postgres(monkeypatch: pytest.MonkeyPatch):

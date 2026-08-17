@@ -461,6 +461,19 @@ createsuperuser = { cmd = "python manage.py createsuperuser", default-environmen
 # uvicorn runs on all three platforms, unlike the gunicorn+uvicorn-worker
 # pairing used in production, which is POSIX-only.
 serve = { cmd = "uvicorn config.asgi:application", default-environment = "default", description = "Serve with uvicorn (production-like ASGI)" }
+# The local personas (FR-19). It belongs here rather than in [feature.dev.tasks]
+# because src/config/local_dev/ is `core` and ships in every component: the path
+# is guarded by a refusal rather than stripped, so it must be runnable from the
+# runtime environment for that refusal to be the thing that stops it.
+#
+# It declares no `env`, and must not. Locality is declared exactly once, in
+# [feature.dev.activation.env] (AD-13 as amended), and a task `env` overrides
+# the caller's -- tests/unit/test_locality_declaration.py fails the gate on any
+# task that declares COMPONENT_RUNTIME. So the invocation is
+# `pixi run -e dev seed-personas`, which resolves in `dev` and inherits
+# COMPONENT_RUNTIME=local; bare `pixi run seed-personas` resolves in `default`,
+# reads *deployed*, and is correctly refused with ImproperlyConfigured.
+seed-personas = { cmd = "python -m config.local_dev.seed", default-environment = "default", description = "Seed the local development personas" }
 
 # ---- Development-only Django commands ----
 # The dev server, autoreload and migration authoring. These run with
