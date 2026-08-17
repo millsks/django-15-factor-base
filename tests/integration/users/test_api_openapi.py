@@ -10,6 +10,9 @@ from drf_spectacular.generators import SchemaGenerator
 BEARER_SCHEME_NAME = "bearerAuth"
 BEARER_SCHEME = {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
 
+# The name drf-spectacular generates for `TokenAuthentication`, retired in Story 2.8.
+RETIRED_SCHEME_NAME = "tokenAuth"
+
 # The warning drf-spectacular emits for an authenticator it has no extension for.
 # Matched as a substring because the full text names the class and the view.
 UNRESOLVED_AUTHENTICATOR = "could not resolve authenticator"
@@ -67,16 +70,23 @@ def test_the_bearer_credential_is_described_in_the_published_contract():
     drf-spectacular resolves an authenticator to a security scheme only through a
     registered `OpenApiAuthenticationExtension`, and it ships none for a
     `BaseAuthentication` subclass of ours. Without `OIDCBearerScheme` the
-    generated document lists `cookieAuth` and `tokenAuth` and says nothing about
-    the credential every API client is expected to present -- so the one artifact
-    a client author reads describes the session cookie and the credential Story
-    2.8 removes, and omits the one that replaces them.
+    generated document lists `cookieAuth` alone and says nothing about the
+    credential every API client is expected to present -- so the one artifact a
+    client author reads describes the session cookie and omits the credential
+    that is the point of the API.
+
+    The published contract is also the fourth surface Story 2.8's removal reaches,
+    and the only one a client author reads: before that story the document listed
+    `tokenAuth` for the static token. Its absence is asserted here rather than
+    merely narrated, because a `tokenAuth` scheme reappearing would advertise a
+    retired credential to every client that generates from this document.
     """
     schema, _ = _generated_schema()
 
     schemes = schema["components"]["securitySchemes"]
 
     assert schemes[BEARER_SCHEME_NAME] == BEARER_SCHEME
+    assert RETIRED_SCHEME_NAME not in schemes
 
 
 def test_generating_the_schema_resolves_every_authenticator():

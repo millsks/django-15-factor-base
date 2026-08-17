@@ -130,7 +130,6 @@ THIRD_PARTY_APPS = [
     "allauth.socialaccount.providers.openid_connect",
     "django_celery_beat",
     "rest_framework",
-    "rest_framework.authtoken",
     "corsheaders",
     "drf_spectacular",
     "django_structlog",
@@ -516,13 +515,13 @@ REST_FRAMEWORK = {
     # None rather than raising when no Bearer header is there, so a
     # session-authenticated request still falls through to the class below it.
     #
-    # `TokenAuthentication` stays for now. Removing it is Story 2.8's, and the
-    # ordering is load-bearing: 2.6 and 2.7 precede 2.8 so the replacement
-    # credential paths exist before the old ones are deleted.
+    # These two are the whole credential surface (FR-6, Story 2.8): the
+    # locally minted static-token path is deleted, app and class alike, so every
+    # credential a component accepts is one the IdP owns, plus the session those
+    # flows establish. See docs/authentication.md, "Retired surfaces".
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "config.authorization.authentication.OIDCBearerAuthentication",
         "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.TokenAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",

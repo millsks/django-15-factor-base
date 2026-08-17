@@ -340,17 +340,51 @@ def test_the_bearer_class_is_asked_before_the_session():
     assert classes.index("rest_framework.authentication.SessionAuthentication") > 0
 
 
-@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
-def test_the_old_token_credential_is_still_installed():
-    """Removing `TokenAuthentication` is Story 2.8's, deliberately after this one.
+def _assert_no_static_token_surface(module) -> None:
+    """Assert a settings module declares neither half of the retired token surface.
 
-    The readiness assessment records the ordering as load-bearing: 2.6 and 2.7
-    precede 2.8 so the replacement credential paths exist before the old ones
-    are deleted.
+    Args:
+        module: An imported settings module.
+
     """
-    base = importlib.import_module(BASE)
+    assert "rest_framework.authtoken" not in module.INSTALLED_APPS
+    assert not [
+        entry for entry in module.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"] if "TokenAuthentication" in entry
+    ]
 
-    assert "rest_framework.authentication.TokenAuthentication" in base.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"]
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_static_token_credential_is_gone():
+    """FR-6 / Story 2.8: the locally minted credential is no longer one of the defaults.
+
+    Read off `base.py` rather than the loaded settings so the removal is asserted
+    where it is declared -- `tests/unit/test_credential_surface.py` makes the
+    same assertion against the settings in force, and against the URLconf the
+    minting route was mounted in.
+    """
+    _assert_no_static_token_surface(importlib.import_module(BASE))
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_static_token_credential_is_gone_from_local_too():
+    """`local.py` mutates `INSTALLED_APPS` three times, so inheriting the removal is not assumed.
+
+    A removal asserted only against `base` is a removal that a
+    `INSTALLED_APPS += [...]` one module down can undo with nothing to catch it.
+    """
+    _assert_no_static_token_surface(importlib.import_module(LOCAL))
+
+
+@pytest.mark.usefixtures("no_oidc_env", "production_env")
+def test_the_static_token_credential_is_gone_from_production(monkeypatch: pytest.MonkeyPatch):
+    """The settings module that actually ships is the one the story's goal is stated about.
+
+    `production.py` appends to `INSTALLED_APPS` as well, and AD-24 forbids making
+    the removal conditional on locality. This is what would notice if it were.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pw@db:5432/app")
+
+    _assert_no_static_token_surface(importlib.import_module(PRODUCTION))
 
 
 @pytest.mark.usefixtures("no_database_env", "no_oidc_env")
