@@ -382,13 +382,58 @@ dev = { features = ["dev", "gate"], solve-group = "default" }
 spike-storage = { features = ["dev", "spike-storage"], solve-group = "default" }
 
 [activation.env]
+# No COMPONENT_* variable may be declared here (AD-13). This is the table the
+# `default` environment resolves, and the golden base runs pixi, so whatever
+# sits here reaches production: a COMPONENT_RUNTIME=local written here would
+# arrive in the deployed image and invert the fail-closed locality default,
+# disarming every refusal built on it. `default` declaring nothing is what
+# leaves the deployment platform's own configuration -- an OpenShift configmap
+# or equivalent -- in sole control of the variable.
+#
+# COMPONENT_PROCESS is forbidden more broadly still: not here, and not in any
+# [feature.<name>.activation.env] either. Placed in any activation env it would
+# make every management command declare itself a serving process -- `pixi run
+# migrate` included, a release-stage step, which then refuses on the
+# unapplied-migrations condition and deadlocks the release. Serving processes
+# declare it in their own task `env` (Epic 5, AD-14) and nowhere else.
+#
+# tests/unit/test_locality_declaration.py asserts both prohibitions over the
+# materialized manifest, platform-scoped tables included.
+#
 # django_coverage_plugin is a dynamic file tracer, which needs sys.settrace.
 # On Python 3.12+ coverage defaults to the `sysmon` core, which does not
 # support such plugins -- templates get discovered but never traced, and
 # silently report 0%. Force the C trace core so template coverage is real.
 COVERAGE_CORE = "ctrace"
 
+# Locality is declared by the *environment*, not by the task (AD-13), and this
+# is its one declaration site in the whole repository.
+#
+# Every developer path resolves to the `dev` environment and inherits
+# COMPONENT_RUNTIME=local from here -- `runserver`, `serve-reload`,
+# `makemigrations`, `test`, `test-integration`, `test-cov`, `typecheck`,
+# `precommit`, `ruff-report`, `spike-storage`, and an ad-hoc `pixi run -e dev
+# -- <cmd>` or `pixi shell -e dev` alike. The `default` environment declares
+# nothing and therefore reads *deployed*, which is what the golden base runs
+# and what the release stage invokes: bare `pixi run migrate` and `pixi run
+# collectstatic` resolve in `default` and correctly read deployed. A developer
+# who wants those to behave locally runs `pixi run -e dev migrate`.
+#
+# Why not on the tasks. A task's `env` *overrides* the caller's environment
+# (probed on pixi 0.70.2), so a task-level COMPONENT_RUNTIME=local on `migrate`
+# could not be overridden by the deployment platform's configmap: the
+# production release stage would read *local* and skip every stage-1 refusal
+# built on it, with no way for the platform to correct it. Declaring nothing in
+# `default` inverts that -- absence fails closed to *deployed*, and the platform
+# keeps sole control of the variable. So no task declares COMPONENT_RUNTIME in
+# its own `env`, and tests/unit/test_locality_declaration.py asserts that none
+# does.
+#
+# Absent or unrecognized means *deployed* (src/config/locality.py), so a
+# declaration lost between here and production leaves the refusals armed rather
+# than disarmed.
 [feature.dev.activation.env]
+COMPONENT_RUNTIME = "local"
 # Turns on django-debug-toolbar and django-extensions in
 # config/settings/local.py. They ship only in this feature, so the runtime
 # environment leaves the flag off and Django starts without them.

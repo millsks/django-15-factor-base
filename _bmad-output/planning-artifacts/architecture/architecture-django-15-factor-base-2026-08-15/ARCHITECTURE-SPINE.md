@@ -153,12 +153,14 @@ graph TD
 - **Prevents:** a misconfiguration presenting as a permissions bug; IdP group taxonomy silently becoming Django taxonomy; an `IntegrityError` mid-authentication.
 - **Rule:** A token lacking the configured group claim is rejected with 401, never authenticated with zero groups. A claim asserting a group with no matching Django `Group` is ignored and logged, never created — which is safe only because AD-27 guarantees the designated groups exist. `is_staff` and `is_superuser` are each set from their own designated group and cleared when the claims stop asserting it. A `username` collision between two distinct `idp_subject`s is refused and logged; the second identity keeps its existing username and authenticates normally.
 
-### AD-13 — Locality and process type are declared per pixi task
+### AD-13 — Locality is declared by the dev environment; process type per pixi task
 
 - **Binds:** FR-12, FR-13, FR-14, FR-40, SC-5
-- **Prevents:** the declaration travelling into the deployed image and inverting the fail-closed property; the entire test suite refusing to start on the day the refusal contract lands; `sys.argv` sniffing.
-- **Rule:** `COMPONENT_RUNTIME=local` is set in the `env` of each local pixi task. `web`, `worker` and `beat` set no runtime and inherit *deployed*; each sets `COMPONENT_PROCESS`. **No `COMPONENT_*` variable may appear in `[activation.env]`**, and a gate test asserts it over the materialized `pixi.toml` — the golden base runs pixi, so activation env reaches production, and `COMPONENT_PROCESS` placed there would make every management command declare itself a serving process and deadlock the release stage on the migrations refusal.
+- **Prevents:** the declaration travelling into the deployed image and inverting the fail-closed property; a release-stage task reading *local* and disarming every stage-1 refusal; the entire test suite refusing to start on the day the refusal contract lands; `sys.argv` sniffing.
+- **Rule:** `COMPONENT_RUNTIME = "local"` is declared exactly once, in `[feature.dev.activation.env]`. Every developer path runs in the `dev` environment and inherits it; the `default` environment declares nothing and therefore reads *deployed* — which is what the golden base runs and what the release stage invokes (`pixi run migrate`, `pixi run collectstatic`). `web`, `worker` and `beat` set no runtime and inherit *deployed*; each sets `COMPONENT_PROCESS` in its own task `env`.
+  **No `COMPONENT_*` variable may appear in the `default` environment's resolved activation env; `COMPONENT_PROCESS` may not appear in *any* activation env**, feature-scoped included, because a `COMPONENT_PROCESS` there would make every management command declare itself a serving process and deadlock the release stage on the migrations refusal. **No production-bound environment may include the `dev` feature.** A gate test asserts all three over the materialized `pixi.toml`.
   Locality fails closed: absent or unrecognized means deployed. Process type fails open: absent means not a serving process, because failing it closed would produce exactly that deadlock.
+- **Why the environment and not the task** (probed against pixi 0.70.2, 2026-08-17): a task's `env` *overrides* the caller's environment, so a statically declared `COMPONENT_RUNTIME=local` on `migrate` cannot be overridden by the deployment platform's configmap — the release stage would read *local* with no way to opt out. Declaring nothing in `default` leaves the platform in sole control of the value and fails closed when it sets nothing. `${VAR:-default}` is **not** expanded in a task `env` (the literal string is exported, which `is_local()` reads as *deployed*), and a same-named task in both `[tasks]` and `[feature.dev.tasks]` is rejected as ambiguous — neither is an available mechanism.
 
 ### AD-14 — The process model is pixi tasks; its constraints are component data
 
@@ -313,7 +315,7 @@ Revision 2 established `src/features/` as a path root for feature-owned code, to
 | Concern | Convention |
 | --- | --- |
 | Package naming | `django_service` is constant and never parameterized. Tenant apps are single unqualified names under `src/django_apps/`. No feature owns a package; feature surface is regions of `core` paths (AD-24) and dependency entries. Cross-cutting concerns with several independent consumers and no natural owner live under `src/config/<concern>/`, as `observability/` already does and `authorization/` and `startup/` will. |
-| Environment variables | `COMPONENT_`-prefixed for component-level runtime facts, and never in `[activation.env]` (AD-13). Never `DJANGO_ENV` or a bare `ENV` — the platform is likely to set a generic `ENV=dev` for a development *deployment*, and a deployed dev environment is still deployed. |
+| Environment variables | `COMPONENT_`-prefixed for component-level runtime facts. `COMPONENT_RUNTIME` is declared only in `[feature.dev.activation.env]` and never in the `default` environment's activation env; `COMPONENT_PROCESS` only in a process task's own `env` and never in any activation env (AD-13). Never `DJANGO_ENV` or a bare `ENV` — the platform is likely to set a generic `ENV=dev` for a development *deployment*, and a deployed dev environment is still deployed. |
 | Declaration files | Hand-authored declarations are TOML and visible: `accelerator.toml`, `component.toml`, `pixi.toml`, `pyproject.toml`. Machine-written records are JSON and hidden: `.accelerator.json`. Format signals authorship. |
 | Test location | Accelerator and base tests live under `tests/`, mirroring `src/`, and carry the disposition of what they cover — a feature's tests are `feature:<name>` and are pruned with it, except the immovable-core assertion suite (AD-30), which is `core`. A tenant app's tests live **inside the app**, because they must graduate with it. |
 | Feature-conditional code | The two feature-scoped refusals (FR-14) are feature-owned regions declared under AD-24, not unconditional code guarded by a flag. |
@@ -419,7 +421,7 @@ graph TD
 | Immovable core (§4.1) | `src/config/`, `src/django_service/` | AD-2, AD-3, AD-5, AD-29, AD-30 |
 | Authentication & authorization (§4.2) | `src/config/authorization/`, DRF auth class, allauth adapter | AD-10, AD-11, AD-12, AD-23, AD-27, AD-31 |
 | Refusal contract (§4.3) | `src/config/startup/` | AD-26, AD-13, AD-9, AD-21, AD-27 |
-| Local development contract (§4.4) | `pixi.toml` task env, settings `local` | AD-13, AD-9, AD-21, AD-27, AD-30 |
+| Local development contract (§4.4) | `pixi.toml` dev-feature activation env, settings `local` | AD-13, AD-9, AD-21, AD-27, AD-30 |
 | Feature model & clean extraction (§4.5) | `accelerator.toml` | AD-1, AD-2, AD-24, AD-25, AD-29 |
 | Verification model (§4.6) | `tools/materializer/`, CI | AD-3, AD-18, AD-19, AD-20, AD-30 |
 | Deployment interface (§4.7) | `pixi.toml` tasks, `component.toml` | AD-14, AD-15, AD-17, AD-22, AD-28, AD-32 |
