@@ -41,7 +41,7 @@
 # - Retrospective appends its action items to action_items; sprint-status surfaces open ones
 
 generated: 2026-08-15
-last_updated: 2026-08-16
+last_updated: 2026-08-17
 project: django-15-factor-base
 project_key: NOKEY
 tracking_system: file-system
@@ -67,7 +67,7 @@ development_status:
   2-5-the-mapper-syncs-authorization-once-per-credential-epoch: done
   2-6-a-person-authenticates-interactively-against-the-idp: done
   2-7-an-api-client-authenticates-programmatically-against-the-idp: done
-  2-8-the-static-token-credential-surface-is-removed-entirely: ready-for-dev
+  2-8-the-static-token-credential-surface-is-removed-entirely: done
   epic-2-retrospective: optional
   epic-3: in-progress
   3-1-local-pixi-tasks-declare-themselves-local: ready-for-dev

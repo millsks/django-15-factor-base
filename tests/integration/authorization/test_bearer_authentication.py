@@ -548,7 +548,14 @@ def test_no_authorization_header_falls_through_to_session_authentication(client:
 
 
 def test_a_header_naming_another_scheme_falls_through_too(client: Client, route: str) -> None:
-    """`TokenAuthentication` is still installed until Story 2.8; this class must not swallow it."""
+    """A scheme this class does not own is passed on rather than refused.
+
+    `Token ...` is the one Story 2.8 retired, and it is still the right probe:
+    nothing accepts that scheme any more, so the request must fall through to
+    `SessionAuthentication` and be decided by the session it carries. Refusing an
+    unrecognised scheme here would mean a signed-in caller sending any other
+    `Authorization` header -- one this component never issued -- got a 401.
+    """
     person = User.objects.create(username="signed-in", idp_subject="urn:example:principal:session")
     client.force_login(person)
 

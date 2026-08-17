@@ -144,3 +144,64 @@ on an unconfigured contract, and refusing the credential-bearing paths where the
 are not legitimate — are not landed yet. Until they are, the command's
 availability is a matter of discipline rather than of enforcement, which is
 exactly why it is written down here.
+
+## Retired surfaces
+
+**The static-token credential surface is removed entirely.** A component no longer
+mints API tokens of its own: the API credentials it accepts are the ones the
+provider issues — a Bearer access token, and the session an interactive sign-in
+through the provider establishes. Three things went, and this is what they were:
+
+| Removed | Where it lived |
+| --- | --- |
+| `rest_framework.authtoken` | `INSTALLED_APPS` |
+| `rest_framework.authentication.TokenAuthentication` | `REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"]` |
+| The `obtain_auth_token` route at `/api/auth-token/` | `config/urls.py` |
+
+They were deleted rather than deprecated. No 410, no redirect, no shim: a
+credential-minting route that still resolves is still a route, and a refusal
+softened into a warning is not a refusal.
+
+This is the static-token surface only. It is **not** the claim that no local
+credential path exists anywhere: `AUTHENTICATION_BACKENDS` still carries
+`django.contrib.auth.backends.ModelBackend` and allauth's local account URLs are
+still mounted at `accounts/`. Closing those is the refusal contract's job, not
+this removal's — see "`createsuperuser` and where it is still available" above,
+which concedes the same gap for the same reason.
+
+### What an API client sends instead
+
+A client that used to POST a username and password to `/api/auth-token/` and
+replay the returned `Authorization: Token …` header now obtains an access token
+from the identity provider and sends `Authorization: Bearer …`. The trade is
+deliberate and worth stating plainly: programmatic access now depends on a
+reachable, configured provider. A component with no provider configured has no
+programmatic credential path at all, which is the intended posture rather than an
+oversight.
+
+### What remains in an already-migrated database
+
+Removing the app from `INSTALLED_APPS` does not touch a database that already ran
+its migrations. Such a database still holds:
+
+- the `authtoken_token` table — `TokenProxy` is a proxy model and never had a
+  table of its own — and
+- the app's rows in `django_migrations`.
+
+**No migration is written in this repository to drop them.** That is deliberate. A
+destructive drop authored here would run against every environment on the next
+release with no operator having decided it. Dropping the table is a release-stage
+step performed by the deployment repository, at a time an operator chooses.
+
+Two things an operator needs before choosing that time:
+
+- **The residue is not inert.** `authtoken_token` still holds usable secrets, and
+  `rest_framework.authentication.TokenAuthentication` ships inside the installed
+  `djangorestframework` package — it is one settings line from reading them
+  again. Treat the rows as live credential material until they are dropped.
+- **The retained foreign key outlives the app.** The `user_id` column carries a
+  DB-level `OneToOneField` constraint against the user table, but with the app
+  uninstalled Django's deletion collector no longer knows to cascade it. Deleting
+  a user who still has a token row therefore fails on the constraint. Either drop
+  the table before the first user deletion, or drop it as part of the same
+  release.
