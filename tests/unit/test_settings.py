@@ -37,15 +37,21 @@ OVERRIDDEN_OIDC_LEEWAY_SECONDS = 5.0
 BASE = "config.settings.base"
 LOCAL = "config.settings.local"
 PRODUCTION = "config.settings.production"
+TEST = "config.settings.test"
+
+# The one in-process cache backend, named once. Both `local.py` and `test.py`
+# declare it, and the assertions below compare against this rather than against
+# each other so that a change to one of them is a failure rather than a drift.
+LOCMEM_CACHE_BACKEND = "django.core.cache.backends.locmem.LocMemCache"
 
 
 @pytest.fixture(autouse=True)
 def _evict_settings_modules():
     """Drop freshly imported settings modules before and after each test."""
-    for name in (BASE, LOCAL, PRODUCTION):
+    for name in (BASE, LOCAL, PRODUCTION, TEST):
         sys.modules.pop(name, None)
     yield
-    for name in (BASE, LOCAL, PRODUCTION):
+    for name in (BASE, LOCAL, PRODUCTION, TEST):
         sys.modules.pop(name, None)
 
 
@@ -516,3 +522,64 @@ def test_a_negative_clock_skew_tolerance_is_clamped_to_zero(monkeypatch: pytest.
     base = importlib.import_module(BASE)
 
     assert base.OIDC_LEEWAY_SECONDS == DEFAULT_OIDC_LEEWAY_SECONDS
+
+
+# ---------------------------------------------------------------------------
+# Story 3.2 -- the cache and task substitutions (FR-18, FR-22).
+#
+# The database substitution is asserted in `tests/unit/test_database_selection.py`,
+# which owns that contract; these two are the other halves of the same "nothing
+# has to be running" claim. `base.py` declares no `CACHES` and no `CELERY_TASK_*`
+# at all, so every attribute read below fails outright if the declaration is
+# removed from the module under test rather than falling through to an inherited
+# value -- which is exactly why `test.py` declares them instead of relying on
+# Django's implicit LocMemCache default.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_local_configures_an_in_process_cache():
+    """FR-18: with no Redis running, the cache is in-process rather than absent.
+
+    The substitution is a backend swap and nothing else -- the cache API is
+    unchanged, so no call site branches on which of the two is active. What this
+    pins is that a backend *is* named locally: falling back to Django's implicit
+    default would work by accident and would be undone silently the day `base.py`
+    grows a `CACHES` key of its own.
+    """
+    local = importlib.import_module(LOCAL)
+
+    assert local.CACHES["default"]["BACKEND"] == LOCMEM_CACHE_BACKEND
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_local_executes_tasks_eagerly_and_propagates():
+    """FR-18 / FR-22: no broker locally, in every valid combination.
+
+    Both settings are asserted because eager alone is not the substitution.
+    Eager execution captures a raised exception into the `EagerResult` instead
+    of re-raising it, so a caller that does not inspect the result sees a failing
+    task as a passing one; propagation is what makes the synchronous call behave
+    like the call it stands in for.
+    """
+    local = importlib.import_module(LOCAL)
+
+    assert local.CELERY_TASK_ALWAYS_EAGER is True
+    assert local.CELERY_TASK_EAGER_PROPAGATES is True
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_the_test_settings_declare_the_same_substitutions_rather_than_inheriting_them():
+    """The suite runs under `config.settings.test`, so it owes the same three.
+
+    Written against the settings module the suite itself loads: if these three
+    were left implicit, the substitutions the rest of this story documents would
+    be true of `local.py` and merely *probably* true of the environment every
+    test in this repository actually executes in.
+    """
+    test_settings = importlib.import_module(TEST)
+
+    assert test_settings.DATABASES["default"]["ENGINE"].endswith("sqlite3")
+    assert test_settings.CACHES["default"]["BACKEND"] == LOCMEM_CACHE_BACKEND
+    assert test_settings.CELERY_TASK_ALWAYS_EAGER is True
+    assert test_settings.CELERY_TASK_EAGER_PROPAGATES is True

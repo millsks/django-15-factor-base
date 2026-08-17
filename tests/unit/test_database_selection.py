@@ -210,3 +210,68 @@ def test_every_branch_sets_atomic_requests(
     assert base.DATABASES["default"]["ENGINE"] == expected_engine
     without = [alias for alias, config in base.DATABASES.items() if config.get("ATOMIC_REQUESTS") is not True]
     assert without == [], f"ATOMIC_REQUESTS is not set on {without}"
+
+
+# ---------------------------------------------------------------------------
+# Story 3.2 -- the local substitution as a reusable selection (AD-9).
+#
+# `apply_local_database_substitution` is called on the module's own `DATABASES`
+# at import, where it is a no-op today: the three branches above always leave
+# `default` configured. Its reason for existing is the alias a contributed
+# database adds in Epic 9, and that alias is unit-testable now -- the function
+# takes a plain dict, so these tests need neither a second database nor a
+# connection. Testing it only through the module would mean the hook stayed
+# unexercised until the epic that depends on it arrived.
+# ---------------------------------------------------------------------------
+
+
+def test_local_substitution_fills_an_unconfigured_extra_alias() -> None:
+    """AD-9's hook: an alias with no configuration gets its own sqlite database.
+
+    "Its own" is the assertion that matters. Two aliases pointing at one file
+    would satisfy a naive check that both are sqlite while giving a contributed
+    database the same tables as the component's -- so the filenames are asserted
+    distinct rather than merely present.
+    """
+    base = _load_base()
+    databases = {"default": dict(base.DATABASES["default"]), "contributed": {}}
+
+    base.apply_local_database_substitution(databases, base.BASE_DIR)
+
+    assert databases["contributed"]["ENGINE"] == SQLITE_ENGINE
+    assert databases["contributed"]["NAME"] != databases["default"]["NAME"]
+
+
+def test_local_substitution_leaves_a_configured_alias_untouched() -> None:
+    """A substitution that shadowed a real database would be a data-loss bug.
+
+    The developer who has pointed a second alias at a running PostgreSQL is the
+    one the substitution must not help: silently rewriting their configuration
+    to a local file would send every write to a database they never named, and
+    the reads that followed would succeed against it.
+    """
+    base = _load_base()
+    configured = {"ENGINE": POSTGRES_ENGINE, "NAME": "contributeddb", "HOST": "contributed.internal"}
+    databases = {"default": {}, "contributed": dict(configured)}
+
+    base.apply_local_database_substitution(databases, base.BASE_DIR)
+
+    assert databases["contributed"] == configured
+
+
+def test_the_default_alias_is_unchanged_by_the_substitution_call_site() -> None:
+    """The new call site runs at import, so `default` is asserted after it has.
+
+    The regression this catches is the alias-aware filename being applied to
+    `default` as well: `db.default.sqlite3` would be a *new, empty* database for
+    every existing checkout, which looks from the outside like the data having
+    vanished. `default` keeps `db.sqlite3`, and the three branches above -- not
+    the substitution -- remain what decides its backend.
+    """
+    base = _load_base()
+
+    name = base.DATABASES["default"]["NAME"]
+
+    assert name.endswith("db.sqlite3")
+    assert not name.endswith("db.default.sqlite3")
+    assert list(base.DATABASES) == ["default"], "the base configures one database; a second is Epic 9's"

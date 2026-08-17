@@ -30,6 +30,34 @@ TEST_RUNNER = "django.test.runner.DiscoverRunner"
 # https://docs.djangoproject.com/en/dev/ref/settings/#password-hashers
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
+# CACHES
+# ------------------------------------------------------------------------------
+# Declared rather than inherited. Django's own default is already LocMemCache and
+# base.py sets no `CACHES` at all, so leaving this out would give the suite the
+# right backend for the wrong reason -- an implicit framework default that no
+# assertion can distinguish from a deliberate substitution, and that a future
+# `CACHES` key in base.py would silently replace.
+# https://docs.djangoproject.com/en/dev/ref/settings/#caches
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "",
+    },
+}
+
+# Celery
+# ------------------------------------------------------------------------------
+# The same substitution local.py declares, for the same reason and stated in the
+# same place: the suite runs with no broker, and a task's body is expected to run
+# in the calling process and to raise into it. Neither of these changes the
+# suite's behaviour today -- pytest-django loads these settings and the one task
+# test already forces eager execution itself -- which is the point: they make the
+# substitution visible to a reader and assertable by a test.
+# https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-always-eager
+CELERY_TASK_ALWAYS_EAGER = True
+# https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-eager-propagates
+CELERY_TASK_EAGER_PROPAGATES = True
+
 # EMAIL
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#email-backend

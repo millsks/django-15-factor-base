@@ -18,6 +18,12 @@ ALLOWED_HOSTS = ["localhost", "0.0.0.0", "127.0.0.1"]  # noqa: S104
 # CACHES
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#caches
+# One of FR-18's five substitutions: with no Redis running, the cache is the
+# in-process one. What makes it a substitution rather than a different feature is
+# that the cache *API* is preserved -- `django.core.cache.cache` behaves the same
+# here as it does against the Redis backend production.py configures, so no call
+# site may branch on which backend is active. The moment one does, this stops
+# being a stand-in and becomes a second code path that local runs never exercise.
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
@@ -74,8 +80,21 @@ if DEBUG_APPS:
     INSTALLED_APPS += ["django_extensions"]
 # Celery
 # ------------------------------------------------------------------------------
+# FR-18's task substitution, and it holds in **all six** valid combinations
+# locally -- including the two that selected background task processing. FR-22's
+# broker constraint is a statement about *deployment* only: nothing has to be
+# running here, because the task body executes in the calling process.
+#
+# Deployed, the same absence is a conditional refusal (FR-14, Epic 4): a
+# component that selected background task processing and came up with no broker
+# is misconfigured, not conveniently eager.
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-always-eager
 CELERY_TASK_ALWAYS_EAGER = True
+# Eager on its own captures a raised exception into the result object, where a
+# caller that never inspects `.result` will not see it -- so a task body that
+# fails locally would look like one that passed. Propagating is what re-raises it
+# in the caller, which is what makes "task bodies are invoked synchronously"
+# mean the same thing for failures as it does for successes.
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#task-eager-propagates
 CELERY_TASK_EAGER_PROPAGATES = True
 # Your stuff...

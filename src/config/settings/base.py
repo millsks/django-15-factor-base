@@ -69,6 +69,54 @@ LOCALE_PATHS = [str(BASE_DIR / "locale")]
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#databases
 
+
+def _sqlite_alias(base_dir: Path, alias: str = "default") -> dict[str, Any]:
+    """Build the sqlite configuration that stands in for one database alias.
+
+    The `default` alias keeps the historical `db.sqlite3` filename so an existing
+    checkout's database is still the one that gets opened; every other alias gets
+    its own file, because two aliases sharing one file is not a second database.
+
+    Args:
+        base_dir: The repository root, which is where the file is written.
+        alias: The database alias the configuration is being built for.
+
+    Returns:
+        A Django database configuration dict for the sqlite backend.
+
+    """
+    name = base_dir / "db.sqlite3" if alias == "default" else base_dir / f"db.{alias}.sqlite3"
+    return {"ENGINE": "django.db.backends.sqlite3", "NAME": str(name)}
+
+
+def apply_local_database_substitution(databases: dict[str, Any], base_dir: Path) -> None:
+    """Fill every unconfigured database alias with the local sqlite substitution.
+
+    This is FR-18's database substitution, and AD-9 requires the *base* to apply
+    it automatically rather than each settings module doing so for itself: a
+    contributed database (Epic 9) adds an alias to `DATABASES`, and that alias
+    must be substituted by this same code path instead of inventing a second
+    mechanism. An alias whose configuration is already populated is left exactly
+    as it is -- the substitution must never shadow a real database.
+
+    It is called unconditionally from this module, not gated on locality and not
+    moved into `local.py`, because FR-12 makes the refusal contract evaluate
+    independently of which settings module loaded. What keeps that safe is the
+    refusal, not a condition here: `config/settings/production.py` raises rather
+    than serving a deployment off sqlite. Do not "fix" this into a local-only
+    call -- doing so is what would let a production module with an unconfigured
+    alias reach a caller with no database at all.
+
+    Args:
+        databases: The `DATABASES` mapping, mutated in place.
+        base_dir: The repository root, passed to `_sqlite_alias`.
+
+    """
+    for alias in list(databases):
+        if not databases[alias]:
+            databases[alias] = _sqlite_alias(base_dir, alias)
+
+
 if os.getenv("DATABASE_URL", default=None):
     DATABASES = {"default": env.db("DATABASE_URL")}
 elif os.getenv("POSTGRES_DB", default=None):
@@ -85,12 +133,14 @@ elif os.getenv("POSTGRES_DB", default=None):
 else:
     # Local-development fallback until Postgres is provisioned. Production
     # refuses to boot on sqlite -- see config/settings/production.py.
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": str(BASE_DIR / "db.sqlite3"),
-        },
-    }
+    DATABASES = {"default": _sqlite_alias(BASE_DIR)}
+
+# After the selection, never instead of it: the three branches above own which
+# backend `default` gets, and this only fills in aliases that ended up with no
+# configuration at all. Today that is a no-op; it is the declared hook AD-9's
+# contributed database extends, so that FR-18 stays true by construction rather
+# than by a second epic remembering to add its own fallback.
+apply_local_database_substitution(DATABASES, BASE_DIR)
 
 DATABASES["default"]["ATOMIC_REQUESTS"] = True
 # https://docs.djangoproject.com/en/stable/ref/settings/#std:setting-DEFAULT_AUTO_FIELD
