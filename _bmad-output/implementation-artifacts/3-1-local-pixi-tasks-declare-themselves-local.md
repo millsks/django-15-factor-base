@@ -1,13 +1,13 @@
 ---
 baseline_revision: 9b64e8c
 review_loop_iteration: 0
-status: blocked
+status: ready-for-dev
 warnings: []
 ---
 
 # Story 3.1: Local pixi tasks declare themselves local
 
-Status: blocked
+Status: ready-for-dev
 
 ## Story
 
@@ -316,43 +316,3 @@ was written.
 - The non-vacuity guard in `test_no_component_variable_in_activation_env` would fail if
   `COVERAGE_CORE` ever left `[activation.env]`. The guard is deliberate and its message says
   exactly why; a manifest with no activation table at all is a reader failure worth failing on.
-
-## Auto Run Result
-
-Status: blocked
-Blocking condition: intent gap in intent contract
-
-### What was attempted
-
-The full story was implemented and reached `pixi run ci` exit 0 — 729 passed, coverage 95.82%
-against the 90% floor, `src/config/locality.py` at 100%. All six tasks and all four acceptance
-criteria verified against the tree before review. Adversarial, edge-case and verification-gap
-review then established that AC #2's premise is false for the task set Task 2 names, which
-invalidates the change rather than any part of its execution. The code was reverted under the
-intent-gap branch and stashed.
-
-### Verification performed
-
-- `pixi run ci` → exit 0 (729 passed, 95.82%) on the implementation, before revert.
-- Live probes against pixi 0.70.2 established four mechanism facts the story's comments assert
-  and get wrong or omit: task `env` overrides caller env; `[target.<platform>.activation.env]`
-  is honoured; `env` on a `depends-on`-only task is a parse error; a dependency task keeps its
-  own `env` when reached through `depends-on`.
-- The intent gap is corroborated by three independent committed sources: `docs/development.md:55`,
-  Story 5.5 lines 71 and 77, and `pyproject.toml:306,323`.
-
-### What the human needs to decide
-
-Which of the three resolutions in "The intent gap" above governs, and what rule — not list —
-determines whether a task is local. That decision binds AD-13, Epic 4 Story 4.2 and Epic 5
-Story 5.5, so it belongs upstream of this story.
-
-### Residual risks
-
-- The stash is the only copy of the implementation. It is recoverable but uncommitted; a
-  `git stash drop` or a branch deletion loses it.
-- Whichever resolution is chosen, findings 1-11 above still apply to the re-derived code. Four
-  of them (1, 2, 3, 5) are holes in the very assertions AC #1 and AC #3 require.
-- Once the task set is settled, the whole suite running under `COMPONENT_RUNTIME=local` means
-  the deployed branch of any locality-dependent code is never exercised by `pixi run ci` unless
-  a test explicitly strips the variable. Deliberate and required by Story 4.1, but unrecorded.
