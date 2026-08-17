@@ -1,13 +1,25 @@
-"""The mapper: claims in, a `User` out, resolved by the identity key alone.
+"""The mapper: claims in, a `User` out, plus the authorization that user carries.
 
-AD-10 splits authorization into two operations and this module holds the first
-of them. **Resolve** takes claims and returns the user by the identity key. It
-runs on every authentication, including every Bearer request, and is a single
-indexed read. **Sync** -- group diffing, `is_staff`/`is_superuser`, the epoch
-record -- is Story 2.5 and lands beside `resolve_user` in this same module,
-under its own name. The two are kept apart deliberately: conflating them buys
-either `auth_user_groups` write amplification on every API call or stale
-authorization, and there is no third outcome.
+AD-10 splits authorization into two operations and this module holds both, under
+separate names and at separate frequencies. **Resolve** takes claims and returns
+the user by the identity key; it runs on every authentication, including every
+Bearer request, and is a single indexed read. **Sync** diffs the asserted groups
+against the stored ones, adds, removes, sets `is_staff` and `is_superuser`, and
+emits the structured log line; it runs once per *credential epoch* -- every
+interactive login, and once per Bearer token at the first sighting of its `jti`.
+The two are kept apart deliberately: conflating them buys either
+`auth_user_groups` write amplification on every API call or stale authorization,
+and there is no third outcome.
+
+**R-2, recorded so it is not mistaken for an oversight.** Syncing once per `jti`
+means a group revoked at the IdP is honoured until the token expires. That is
+unavoidable for bearer credentials and it narrows FR-9 and SC-6; token lifetime
+is the IdP's policy lever, not this component's. Nothing here may try to close
+the window: a shorter re-sync interval, a "re-sync every N minutes" timer and a
+revocation callback each reintroduce the write amplification AD-10 exists to
+prevent, and none of them invalidates the token. Deleting the epoch row early to
+force a re-sync is the same mistake by another route -- the row's purpose is
+idempotence, not freshness.
 
 AD-11 makes `User.idp_subject` the sole store of identity. Nothing here resolves
 by email, by username or through `SocialAccount`, and there is no fallback that
@@ -21,16 +33,24 @@ AD-12 governs the one conflict this creates. Two distinct identity keys asking
 for the same `username` is refused and logged, never resolved by overwriting and
 never allowed to reach the database as an `IntegrityError` mid-authentication.
 
-AD-4 permits `config` to import `django_service`, so reaching the user model
-here is legal. It is reached through `django.contrib.auth.get_user_model()` at
-call time rather than by importing the concrete class, so this module does not
-pin `AUTH_USER_MODEL`.
+AD-4 permits `config` to import `django_service`, so reaching into it here is
+legal -- and the reverse, `django_service` importing this module, is not, which
+is why nothing in this file is imported from there. The user model is reached
+through `django.contrib.auth.get_user_model()` at call time rather than by
+importing the concrete class, so this module does not pin `AUTH_USER_MODEL`.
+`CredentialEpoch` is imported directly instead: it is not swappable, and AD-10
+names `django_service` as the owner of that table, so there is nothing for a
+late lookup to keep open. The two territories are deliberate -- the epoch
+*table* is `django_service`-owned, the sync *logic* is this package's.
 """
 
 from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
+from datetime import UTC
+from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
@@ -38,18 +58,32 @@ from typing import Final
 import structlog
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.db import IntegrityError
 from django.db import transaction
 
+from config.authorization.claims import read_group_claim
 from config.authorization.claims import read_identity_key
 from config.authorization.exceptions import ClaimsRejected
+from django_service.users.models import CredentialEpoch
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from django_service.users.models import User
 
-__all__ = ["EMAIL_CLAIM", "NAME_CLAIM", "USERNAME_CLAIM", "resolve_user"]
+__all__ = [
+    "EMAIL_CLAIM",
+    "EXPIRY_CLAIM",
+    "JTI_CLAIM",
+    "NAME_CLAIM",
+    "USERNAME_CLAIM",
+    "SyncOutcome",
+    "resolve_user",
+    "sync_authorization",
+    "sync_for_interactive",
+    "sync_once_per_epoch",
+]
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -62,6 +96,14 @@ logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 USERNAME_CLAIM: Final = "preferred_username"
 EMAIL_CLAIM: Final = "email"
 NAME_CLAIM: Final = "name"
+
+#: The two registered JWT claims the epoch gate reads (RFC 7519). Not
+#: configurable for the same reason the attribute claims are not: `jti` and `exp`
+#: are defined by the standard rather than by an IdP's taxonomy, and the claims
+#: contract designates only the claims *authorization is decided from*. An epoch
+#: is not an authorization decision -- it is how often one is taken.
+JTI_CLAIM: Final = "jti"
+EXPIRY_CLAIM: Final = "exp"
 
 #: The user-model fields every claim-derived value is written to. The bound each
 #: value is truncated to is read from the field itself (`_field_max_length`)
@@ -76,6 +118,13 @@ _USERNAME_FIELD: Final = "username"
 _EMAIL_FIELD: Final = "email"
 _NAME_FIELD: Final = "name"
 _IDENTITY_FIELD: Final = "idp_subject"
+
+#: The epoch model's own column, spelled out separately from `JTI_CLAIM`. The
+#: two names coincide today and nothing keeps them that way: one is a registered
+#: JWT claim RFC 7519 defines, the other is a column on a table this project
+#: owns and is free to rename. Reading the column's bound through the claim's
+#: name would make a rename of either one a silent `FieldDoesNotExist`.
+_JTI_FIELD: Final = "jti"
 
 #: Everything Django's `UnicodeUsernameValidator` would reject, restricted to
 #: ASCII. The validator admits `[\w.@+-]`; keeping the class ASCII-only means a
@@ -101,6 +150,34 @@ _DERIVED_USERNAME_PREFIX: Final = "idp-"
 _IDENTITY_KEY_ABSENT: Final = "identity key claim absent"
 _IDENTITY_KEY_TOO_LONG: Final = "identity key longer than the identity field"
 _USERNAME_UNAVAILABLE: Final = "no username available for the identity key"
+_GROUP_CLAIM_ABSENT: Final = "group claim absent"
+_NO_JTI: Final = "token carries no jti"
+_JTI_TOO_LONG: Final = "jti longer than the epoch field"
+_JTI_REUSED: Final = "jti recorded for another identity"
+
+
+@dataclass(frozen=True, slots=True)
+class SyncOutcome:
+    """What one sync did, so a caller can log or assert it without re-querying.
+
+    Attributes:
+        added: Names of the groups the claims asserted that the user did not
+            already hold.
+        removed: Names of the groups the user held that the claims no longer
+            assert. This is the half FR-9 calls revocation, and it is why sync
+            diffs rather than only adding.
+        ignored: Names the claims asserted that match no Django `Group`. Ignored
+            and logged, never created (AD-12).
+        is_staff: The staff flag as the claims left it.
+        is_superuser: The superuser flag as the claims left it.
+
+    """
+
+    added: tuple[str, ...] = ()
+    removed: tuple[str, ...] = ()
+    ignored: tuple[str, ...] = ()
+    is_staff: bool = False
+    is_superuser: bool = False
 
 
 def resolve_user(claims: Mapping[str, Any]) -> User:
@@ -539,3 +616,338 @@ def _derived_username(subject: str) -> str:
     """
     digest = hashlib.sha256(subject.encode()).hexdigest()[:_DERIVED_DIGEST_LENGTH]
     return f"{_DERIVED_USERNAME_PREFIX}{digest}"
+
+
+def sync_authorization(user: User, claims: Mapping[str, Any]) -> SyncOutcome:
+    """Re-derive a user's authorization from the claims, additions and removals alike.
+
+    AD-10's second operation. It takes the user it is handed -- it never looks
+    one up, which is `resolve_user`'s job and runs at a different frequency -- and
+    makes the stored authorization equal what the claims assert: groups added,
+    groups no longer asserted removed, `is_staff` and `is_superuser` each set
+    from its own designated group and each cleared when unasserted.
+
+    All of it runs inside one transaction, which is what makes the add-then-remove
+    ordering a detail rather than a security property: no observer sees the user
+    holding the union or the empty intersection.
+
+    Args:
+        user: The user the claims resolved to, already saved.
+        claims: The decoded token claims, or the equivalent mapping an
+            interactive login supplies. Read-only.
+
+    Returns:
+        What the sync did, for the caller to log or assert without re-querying.
+
+    Raises:
+        ClaimsRejected: `group claim absent` -- the configured group claim is
+            absent or unreadable. AD-12 is explicit that this is a 401 and never
+            an authentication with zero groups: the two are indistinguishable on
+            the row afterwards, and treating a misconfigured claim name as "this
+            person has no groups" is how a misconfiguration presents as a
+            permissions bug. A claim that is *present* and empty is a legitimate
+            assertion of no groups and syncs normally.
+
+    """
+    contract = settings.CLAIMS_CONTRACT
+    asserted = read_group_claim(claims, contract.group_claim)
+    if asserted is None:
+        # The refusal AD-12 asks for, said out loud rather than only raised. The
+        # whole reason an absent group claim is a 401 is that a misconfigured
+        # claim *name* is indistinguishable from an identity holding no groups
+        # once the request is over, so the event carries the name that was
+        # looked for -- the one thing the operator cannot infer from the 401.
+        # The name, never the claims: a configured claim name is the operator's
+        # own setting, not the token's contents.
+        logger.warning(
+            "authorization.claims_rejected",
+            reason=_GROUP_CLAIM_ABSENT,
+            idp_subject=user.idp_subject,
+            group_claim=contract.group_claim,
+        )
+        raise ClaimsRejected(_GROUP_CLAIM_ABSENT)
+
+    with transaction.atomic():
+        # One query for the whole asserted set. Names that come back with no row
+        # are the ignored set -- never created (AD-12), which is safe only
+        # because Story 2.3 guarantees the designated rows already exist. Group
+        # creation has exactly one call site in this repository, and it is
+        # `django_service.users.provisioning`.
+        resolved: dict[str, int] = dict(Group.objects.filter(name__in=asserted).values_list("name", "pk"))
+        held: dict[str, int] = dict(user.groups.values_list("name", "pk"))
+
+        # `dict.fromkeys` rather than a set: a claim asserting the same name
+        # twice is one group, and the order the claims asserted them in is the
+        # only order that means anything to whoever reads the event.
+        ordered = tuple(dict.fromkeys(asserted))
+        ignored = tuple(name for name in ordered if name not in resolved)
+        added = tuple(name for name in ordered if name in resolved and name not in held)
+        # Sorted because the held set arrives in the database's order, which is
+        # not an order anyone declared; an unsorted tuple would make the emitted
+        # event and any assertion against it depend on it.
+        removed = tuple(sorted(name for name in held if name not in resolved))
+
+        # `add`/`remove` rather than `set`: AC #1 requires the log line to record
+        # what changed, and `set` hides which rows moved.
+        if added:
+            user.groups.add(*(resolved[name] for name in added))
+        if removed:
+            user.groups.remove(*(held[name] for name in removed))
+
+        # Each flag from its own designated group, and each *cleared* when the
+        # claims stop asserting it (AD-12) -- the clearing half is what makes a
+        # revocation at the IdP reach the component. Read against the resolved
+        # names rather than the asserted ones so a designated group that does not
+        # exist cannot confer anything.
+        user.is_staff = contract.staff_group in resolved
+        user.is_superuser = contract.superuser_group in resolved
+        user.save(update_fields=["is_staff", "is_superuser"])
+
+        for name in ignored:
+            # Handled, not swallowed: an IdP taxonomy that does not match this
+            # component's groups is a configuration mistake somebody has to be
+            # able to see, and it is the one thing the caller cannot infer from
+            # the outcome of an otherwise successful authentication.
+            logger.warning(
+                "authorization.unknown_group_claim",
+                idp_subject=user.idp_subject,
+                group=name,
+            )
+
+        outcome = SyncOutcome(
+            added=added,
+            removed=removed,
+            ignored=ignored,
+            is_staff=user.is_staff,
+            is_superuser=user.is_superuser,
+        )
+        # The spine makes every authorization change an event, and this is the
+        # authorization change. One line per sync, recording what moved.
+        logger.info(
+            "authorization.synced",
+            idp_subject=user.idp_subject,
+            groups_added=outcome.added,
+            groups_removed=outcome.removed,
+            groups_ignored=outcome.ignored,
+            is_staff=outcome.is_staff,
+            is_superuser=outcome.is_superuser,
+        )
+    return outcome
+
+
+def sync_for_interactive(user: User, claims: Mapping[str, Any]) -> SyncOutcome:
+    """Sync an interactive login, unconditionally.
+
+    An interactive login *is* the epoch: it carries no `jti`, and there is
+    nothing to record a first sighting of. Routing it through the epoch gate
+    would either reject every interactive login for having no `jti` or force one
+    to be invented, and both are worse than the write this saves -- an
+    interactive login happens once per session, not once per API call, so the
+    amplification AD-10 guards against is not on this path.
+
+    Args:
+        user: The user the claims resolved to.
+        claims: The claims the provider supplied for this login.
+
+    Returns:
+        What the sync did.
+
+    Raises:
+        ClaimsRejected: As `sync_authorization`.
+
+    """
+    return sync_authorization(user, claims)
+
+
+def sync_once_per_epoch(user: User, claims: Mapping[str, Any]) -> SyncOutcome | None:
+    """Sync a Bearer credential at the first sighting of its `jti`, and never again.
+
+    The gate AD-10 turns on. Syncing on every Bearer request is
+    `auth_user_groups` write amplification on every API call; syncing never is
+    stale authorization. Recording the epoch in a table -- never in
+    `django.core.cache`, whose in-process backend in the two Redis-less
+    combinations would degrade "first sighting" to
+    first-sighting-per-worker-per-restart -- is what makes the frequency the same
+    in all six.
+
+    Args:
+        user: The user the claims resolved to.
+        claims: The decoded token claims.
+
+    Returns:
+        What the sync did, or None when this `jti` had already been seen and no
+        sync was therefore performed.
+
+    Raises:
+        ClaimsRejected: There are four, and every one of them is a 401 the
+            caller translates:
+
+            * `token carries no jti` -- the token is absent a `jti`, or carries a
+              blank or non-string one. Rejected rather than tolerated: without
+              the rule, one builder syncs on every request and another never
+              syncs again, which are exactly the two outcomes AD-10 exists to
+              prevent.
+            * `jti longer than the epoch field` -- the `jti` would not fit the
+              column. Refused before the insert for the same reason an over-long
+              identity key is: truncating would make two distinct credentials
+              share one epoch, and PostgreSQL answers the alternative with a
+              `DataError` in the middle of an authentication.
+            * `jti recorded for another identity` -- the epoch row for this
+              `jti` names a different user. Whatever produced it -- an issuer
+              minting identifiers that collide, or a token presented for the
+              wrong subject -- syncing would decide this user's authorization
+              from another credential's epoch, which is the stale-authorization
+              half of what AD-10 prevents.
+            * `group claim absent` -- raised by `sync_authorization`, which this
+              calls at a first sighting, and propagated rather than caught. The
+              epoch row the sighting inserted rolls back with it, so the
+              credential is free to sync once the claim is configured correctly
+              rather than having burnt its one epoch on a refusal.
+
+    """
+    jti = _read_text(claims, JTI_CLAIM)
+    if not jti:
+        logger.warning(
+            "authorization.jti_rejected",
+            reason=_NO_JTI,
+            idp_subject=user.idp_subject,
+        )
+        raise ClaimsRejected(_NO_JTI)
+    _reject_an_unstorable_jti(jti)
+
+    with transaction.atomic():
+        try:
+            # An inner `atomic()` is a savepoint, and here it is defence in depth
+            # rather than the only thing keeping the request's transaction
+            # usable: `get_or_create` opens one of its own around the insert.
+            # `ATOMIC_REQUESTS` is on, so a violation escaping both would leave
+            # the request's transaction broken and the recovery read below
+            # unable to run in it. The savepoint confines the rollback.
+            with transaction.atomic():
+                epoch, created = CredentialEpoch.objects.get_or_create(
+                    jti=jti,
+                    defaults={"user": user, "expires_at": _expires_at(claims)},
+                )
+        except IntegrityError:
+            # Not the two-worker race, despite the name of the event below.
+            # Django's `get_or_create` wraps the insert in its own `atomic()`,
+            # catches the violation and re-reads, so the loser of a race for one
+            # first sighting comes back with `created` False and never reaches
+            # here. What reaches here is a violation whose re-read *also* found
+            # nothing: the user row gone under a foreign key, a null in a NOT
+            # NULL column, some other constraint entirely. So this branch is the
+            # second line of defence for the race and the guard against a
+            # different fault being reported as a sighting -- which would skip
+            # the sync outright and leave a debug line as the only trace.
+            if CredentialEpoch.objects.filter(jti=jti).exists():
+                # Genuinely already recorded, and the answer is a second
+                # sighting's: nothing to sync. Debug rather than warning -- it is
+                # the constraint working, not a fault.
+                logger.debug("authorization.epoch_race", idp_subject=user.idp_subject)
+                return None
+            # `exception` rather than `error`: it is the same error level with
+            # the database's own message attached, and which constraint the
+            # driver named is the whole content of the report. Re-raised
+            # afterwards rather than answered with None -- an epoch that was
+            # never recorded is not a sighting, and reporting it as one would
+            # skip the sync and leave this line as the only trace.
+            logger.exception("authorization.epoch_insert_failed", idp_subject=user.idp_subject)
+            raise
+
+        if not created:
+            _reject_a_jti_held_by_another_identity(user, epoch, jti)
+            return None
+        return sync_authorization(user, claims)
+
+
+def _reject_a_jti_held_by_another_identity(user: User, epoch: CredentialEpoch, jti: str) -> None:
+    """Refuse a credential whose epoch was recorded against a different user.
+
+    A second sighting of a `jti` is ordinarily nothing to do, which is the whole
+    point of the gate. A second sighting *belonging to somebody else* is not the
+    same event: the identifier is either colliding at the issuer or being
+    presented for the wrong subject, and taking the quiet path would let this
+    authentication ride another credential's epoch -- authorization decided from
+    a sync nobody performed for this user, which is exactly the staleness AD-10
+    exists to prevent. No new exception class: `ClaimsRejected.reason` is what
+    distinguishes the refusals (AD-12).
+
+    Args:
+        user: The user the claims resolved to.
+        epoch: The epoch row already recorded for this `jti`.
+        jti: The token identifier, for its length alone.
+
+    Raises:
+        ClaimsRejected: The recorded epoch names another user.
+
+    """
+    if epoch.user_id == user.pk:
+        return
+    # The length, never the value, for the reason `_reject_an_unstorable_jti`
+    # gives: a `jti` in the log is a token identifier leaking out of the token.
+    logger.warning(
+        "authorization.epoch_jti_reuse",
+        reason=_JTI_REUSED,
+        idp_subject=user.idp_subject,
+        jti_length=len(jti),
+    )
+    raise ClaimsRejected(_JTI_REUSED)
+
+
+def _reject_an_unstorable_jti(jti: str) -> None:
+    """Refuse a `jti` the epoch column could not hold.
+
+    Args:
+        jti: The token identifier, already read and non-blank.
+
+    Raises:
+        ClaimsRejected: The `jti` is longer than the column can store.
+
+    """
+    # `_JTI_FIELD`, not `JTI_CLAIM`: the column's name and the claim's name are
+    # independent of each other and coincide only by convention.
+    limit = CredentialEpoch._meta.get_field(_JTI_FIELD).max_length  # noqa: SLF001 - `Model._meta` is Django's documented field API
+    if not isinstance(limit, int) or len(jti) <= limit:
+        return
+    # The length, never the value: a `jti` in the log is a token identifier
+    # leaking out of the token.
+    logger.warning(
+        "authorization.jti_rejected",
+        reason=_JTI_TOO_LONG,
+        jti_length=len(jti),
+        jti_field_length=limit,
+    )
+    raise ClaimsRejected(_JTI_TOO_LONG)
+
+
+def _expires_at(claims: Mapping[str, Any]) -> datetime | None:
+    """Read the token's expiry as the moment the epoch row stops mattering.
+
+    The column exists so AD-31's declared admin process can prune the table
+    alongside expired sessions; without it the table grows without bound. This
+    story builds the column, not the pruner.
+
+    Args:
+        claims: The decoded token claims.
+
+    Returns:
+        The `exp` claim as an aware UTC datetime, or None when the token carries
+        no readable one. RFC 7519 defines `exp` as a NumericDate -- seconds since
+        the epoch -- so a boolean, a string or a value the platform cannot
+        represent as a datetime yields None rather than an invented expiry. A
+        null expiry means "not prunable by expiry", which is the safe reading:
+        an epoch row pruned early would re-sync a credential, never admit one.
+
+    """
+    value = claims.get(EXPIRY_CLAIM)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        return datetime.fromtimestamp(value, tz=UTC)
+    except OverflowError, OSError, ValueError:
+        # Handled and reported, never swallowed. The authentication proceeds --
+        # an unreadable expiry is not grounds to refuse a token whose signature
+        # and claims are otherwise good -- but the row is left unprunable, and
+        # that is a thing an operator watching the table's size needs told.
+        logger.warning("authorization.unreadable_expiry_claim")
+        return None
