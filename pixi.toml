@@ -48,6 +48,28 @@ crispy-bootstrap5 = ">=2026.3,<2027"
 # LTS series, and that the django-stubs pins below keep the same minor.
 django = ">=5.2,<5.3"
 django-allauth = ">=65.19,<66"
+# The three packages below are django-allauth's `socialaccount` extra, declared
+# directly because the conda-forge django-allauth 65.19 recipe encodes none of
+# it: its run requirements are asgiref, django and python alone, while upstream
+# names oauthlib, requests and pyjwt[crypto]. AD-31 wires
+# allauth.socialaccount.providers.openid_connect, so this is not optional --
+# without them the OIDC login route is an ImportError rather than a redirect.
+#
+# `requests` is imported at the top of
+# allauth/socialaccount/providers/openid_connect/provider.py. It already reaches
+# this environment, but only as a transitive of
+# opentelemetry-exporter-otlp-proto-http -- and the spine's supply-chain rule is
+# that transitive availability is not declaration, so changing the OTLP exporter
+# would otherwise break authentication.
+requests = ">=2.34,<3"
+# ID-token decoding runs through allauth/socialaccount/internal/jwtkit.py, which
+# imports `jwt`. Absent from pixi.lock entirely until this line.
+pyjwt = ">=2.13,<3"
+# The `crypto` half of pyjwt[crypto]: jwtkit's signature verification is
+# `cryptography` under another name. Declared with this story rather than with
+# Story 2.7's Bearer path because allauth reaches for it the moment interactive
+# sign-in lands.
+cryptography = ">=50.0,<51"
 django-anymail = ">=15.1,<16"
 # Resolved from conda-forge since build 2.9.0 pyhcf101f3_1. Earlier builds
 # transcribed upstream's `importlib-metadata<5.0; python_version < "3.8"`

@@ -1,65 +1,36 @@
-"""
-To understand why this file is here, please read:
+"""Retired by AD-31. This node exists; it no longer does anything.
 
-https://cookiecutter-django.readthedocs.io/en/latest/5-help/faq.html#why-is-there-a-django-contrib-sites-directory-in-cookiecutter-django
+It used to write a `Site` row through `RunPython`, hardcoding one repository's
+domain and name into the database of every component generated from this
+accelerator -- which meant every deployed component advertising whatever
+callback domain a data migration had baked in. AD-31 answers that by making the
+`Site` domain environment-driven: `SITE_DOMAIN` and `SITE_NAME` in
+`config/settings/base.py`, read from `COMPONENT_SITE_DOMAIN` and
+`COMPONENT_SITE_NAME`.
+
+Retired rather than parameterized, and rather than deleted:
+
+* **Not parameterized.** AD-25 owns parameterization and it is Epic 7's work.
+  AD-31 says this migration is retired, which is a different outcome from one
+  that writes a templated value.
+* **Not deleted.** `0004_alter_options_ordering_domain` depends on this node,
+  and every database that has already applied it carries the row in
+  `django_migrations`. Removing the node would break both. Retiring the
+  *operations* is what leaves the history intact.
+* **Nothing writes the row instead.** Not here, not at startup: NFR-1 requires
+  the startup checks to make no query beyond migration state and AD-22 forbids
+  a process performing writes at boot. The `django_site` table still has to
+  exist, because allauth resolves a provider app through
+  `SocialApp.objects.on_site(request)` on every lookup -- the table, never a
+  row, is what that needs.
+
+`RunPython.noop` in both directions so the node stays reversible.
 """
-from django.conf import settings
 from django.db import migrations
-
-
-def _update_or_create_site_with_sequence(site_model, connection, domain, name):
-    """Update or create the site with default ID and keep the DB sequence in sync."""
-    site, created = site_model.objects.update_or_create(
-        id=settings.SITE_ID,
-        defaults={
-            "domain": domain,
-            "name": name,
-        },
-    )
-    # Sequences are a PostgreSQL concept; sqlite has no django_site_id_seq and
-    # manages AUTOINCREMENT itself, so there is nothing to resync there.
-    if created and connection.vendor == "postgresql":
-        # We provided the ID explicitly when creating the Site entry, therefore the DB
-        # sequence to auto-generate them wasn't used and is now out of sync. If we
-        # don't do anything, we'll get a unique constraint violation the next time a
-        # site is created.
-        # To avoid this, we need to manually update DB sequence and make sure it's
-        # greater than the maximum value.
-        max_id = site_model.objects.order_by("-id").first().id
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT last_value from django_site_id_seq")
-            (current_id,) = cursor.fetchone()
-            if current_id <= max_id:
-                cursor.execute(
-                    "alter sequence django_site_id_seq restart with %s",
-                    [max_id + 1],
-                )
-
-
-def update_site_forward(apps, schema_editor):
-    """Set site domain and name."""
-    Site = apps.get_model("sites", "Site")
-    _update_or_create_site_with_sequence(
-        Site,
-        schema_editor.connection,
-        "millsks.github.io",
-        "Django 15-Factor Application Accelerator",
-    )
-
-
-def update_site_backward(apps, schema_editor):
-    """Revert site domain and name to default."""
-    Site = apps.get_model("sites", "Site")
-    _update_or_create_site_with_sequence(
-        Site,
-        schema_editor.connection,
-        "example.com",
-        "example.com",
-    )
 
 
 class Migration(migrations.Migration):
 
     dependencies = [("sites", "0002_alter_domain_unique")]
 
-    operations = [migrations.RunPython(update_site_forward, update_site_backward)]
+    operations = [migrations.RunPython(migrations.RunPython.noop, migrations.RunPython.noop)]

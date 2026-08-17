@@ -703,6 +703,37 @@ def test_no_third_party_package_index_dependencies(manifest: dict[str, Any]) -> 
     )
 
 
+def test_the_allauth_socialaccount_extra_is_declared_rather_than_inherited(
+    manifest: dict[str, Any],
+    manifest_lines: list[str],
+) -> None:
+    """AD-31's OIDC provider needs three packages the conda-forge allauth recipe omits.
+
+    The recipe's run requirements are ``asgiref``, ``django`` and ``python``
+    alone -- none of upstream's ``socialaccount`` extra. ``requests`` is
+    imported at the top of the provider module and ``pyjwt``/``cryptography``
+    back the ID-token decoding in ``allauth.socialaccount.internal.jwtkit``, so
+    all three are imported directly by code this component runs.
+
+    ``requests`` is the reason this test exists rather than being left to the
+    solver: it already reached the environment before Story 2.6, but only as a
+    transitive of ``opentelemetry-exporter-otlp-proto-http``. The spine's rule
+    is that transitive availability is not declaration, and the concrete failure
+    it prevents is a change to the OTLP exporter breaking authentication with an
+    ``ImportError`` nobody would connect to the change that caused it.
+    """
+    declarations = {declaration.name: declaration for declaration in _declarations(manifest_lines)}
+    for name in ("requests", "pyjwt", "cryptography"):
+        assert name in manifest["dependencies"], (
+            f"{name} is imported by django-allauth's OIDC provider and must be declared in "
+            "[dependencies], whatever else happens to pull it in."
+        )
+        assert declarations[name].table == "[dependencies]"
+        assert _rationale(declarations[name], manifest_lines) is not None, (
+            f"Write why {name} is declared beside its declaration in pixi.toml."
+        )
+
+
 def test_own_package_is_an_editable_path_install(manifest: dict[str, Any]) -> None:
     """The one permitted entry points at the source tree, not at a published release."""
     own = manifest["pypi-dependencies"][OWN_PACKAGE]

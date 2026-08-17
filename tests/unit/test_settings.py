@@ -49,6 +49,22 @@ def no_claims_contract_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
+def no_oidc_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear the provider variables so the developer's shell cannot leak in."""
+    for name in (
+        "COMPONENT_OIDC_ISSUER",
+        "COMPONENT_OIDC_CLIENT_ID",
+        "COMPONENT_OIDC_CLIENT_SECRET",
+        "COMPONENT_OIDC_PROVIDER_ID",
+        "COMPONENT_OIDC_PROVIDER_NAME",
+        "COMPONENT_SITE_DOMAIN",
+        "COMPONENT_SITE_NAME",
+        "DJANGO_ADMIN_FORCE_ALLAUTH",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
 def production_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DJANGO_SECRET_KEY", "x" * 50)
     monkeypatch.setenv("DJANGO_ADMIN_URL", "admin/")
@@ -139,6 +155,127 @@ def test_base_reads_a_configured_contract_from_the_environment(monkeypatch: pyte
     assert contract.staff_group == "ops-staff"
     assert contract.superuser_group == "ops-admin"
     assert contract.is_configured is True
+
+
+def _oidc_app(base: object) -> dict[str, object]:
+    """Return the single provider app `SOCIALACCOUNT_PROVIDERS` declares."""
+    apps = base.SOCIALACCOUNT_PROVIDERS["openid_connect"]["APPS"]  # type: ignore[attr-defined]
+    assert len(apps) == 1, "one provider app: a second is what makes allauth's get_app ambiguous"
+    return apps[0]  # type: ignore[no-any-return]
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_oidc_provider_ships_with_the_installed_allauth():
+    """AC #2: allauth's own provider, and no second OIDC framework beside it."""
+    base = importlib.import_module(BASE)
+
+    assert "allauth.socialaccount.providers.openid_connect" in base.INSTALLED_APPS
+    # The entry sits with allauth's own apps rather than being appended to the
+    # end, and it is never guarded (AD-24): no conditional import, no
+    # settings-module inheritance, no try/except ImportError.
+    assert base.INSTALLED_APPS.index("allauth.socialaccount.providers.openid_connect") == (
+        base.INSTALLED_APPS.index("allauth.socialaccount") + 1
+    )
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_the_provider_is_configured_from_the_environment(monkeypatch: pytest.MonkeyPatch):
+    """AC #4: from `SOCIALACCOUNT_PROVIDERS`, populated from the environment."""
+    monkeypatch.setenv("COMPONENT_OIDC_ISSUER", "https://idp.example.test/realms/component")
+    monkeypatch.setenv("COMPONENT_OIDC_CLIENT_ID", "component-web")
+    monkeypatch.setenv("COMPONENT_OIDC_CLIENT_SECRET", "s3cret")
+    monkeypatch.setenv("COMPONENT_OIDC_PROVIDER_ID", "realm")
+    monkeypatch.setenv("COMPONENT_OIDC_PROVIDER_NAME", "Component Realm")
+
+    app = _oidc_app(importlib.import_module(BASE))
+
+    assert app["settings"]["server_url"] == "https://idp.example.test/realms/component"  # type: ignore[index]
+    assert app["client_id"] == "component-web"
+    assert app["secret"] == "s3cret"  # noqa: S105 - a test fixture, not a credential
+    assert app["provider_id"] == "realm"
+    assert app["name"] == "Component Realm"
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_provider_reads_but_never_defaults_the_issuer():
+    """An unconfigured IdP imports cleanly; refusing it is Epic 4's stage 1, not this module's."""
+    app = _oidc_app(importlib.import_module(BASE))
+
+    assert app["settings"]["server_url"] == ""  # type: ignore[index]
+    assert app["client_id"] == ""
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_pkce_is_enabled_on_the_provider():
+    """FR-4 specifies Authorization Code with PKCE; allauth's default without this key is off."""
+    app = _oidc_app(importlib.import_module(BASE))
+
+    assert app["settings"]["oauth_pkce_enabled"] is True  # type: ignore[index]
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_email_is_never_an_authentication_key():
+    """AD-11: `idp_subject` is the sole identity key, so a matching address may not sign anyone in."""
+    base = importlib.import_module(BASE)
+
+    assert base.SOCIALACCOUNT_EMAIL_AUTHENTICATION is False
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_social_adapter_is_the_one_that_calls_the_mapper():
+    base = importlib.import_module(BASE)
+
+    assert base.SOCIALACCOUNT_ADAPTER == "config.authorization.adapters.OIDCSocialAccountAdapter"
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_login_url_is_the_provider_route_rather_than_the_local_form():
+    """AC #1: an unauthenticated request lands on the IdP redirect, never on allauth's form."""
+    base = importlib.import_module(BASE)
+
+    login_url = str(base.LOGIN_URL)
+
+    assert login_url.endswith("/oidc/oidc/login/")
+    assert login_url != "/accounts/login/"
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_the_login_url_follows_the_configured_provider_id(monkeypatch: pytest.MonkeyPatch):
+    """One variable, one meaning: the route and the provider app read the same name."""
+    monkeypatch.setenv("COMPONENT_OIDC_PROVIDER_ID", "realm")
+
+    base = importlib.import_module(BASE)
+
+    assert str(base.LOGIN_URL).endswith("/realm/login/")
+    assert _oidc_app(base)["provider_id"] == "realm"
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_admin_is_forced_through_allauth_by_default():
+    """FR-7 / AC #6: true with the variable unset. It shipped false, which was the defect."""
+    base = importlib.import_module(BASE)
+
+    assert base.DJANGO_ADMIN_FORCE_ALLAUTH is True
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_site_domain_defaults_to_localhost_rather_than_a_repository_domain():
+    base = importlib.import_module(BASE)
+
+    assert base.SITE_DOMAIN == "localhost"
+    assert base.SITE_NAME == "localhost"
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_the_site_domain_is_environment_driven(monkeypatch: pytest.MonkeyPatch):
+    """AC #5: the domain comes from the environment, never from a data migration."""
+    monkeypatch.setenv("COMPONENT_SITE_DOMAIN", "component.example.test")
+    monkeypatch.setenv("COMPONENT_SITE_NAME", "Component")
+
+    base = importlib.import_module(BASE)
+
+    assert base.SITE_DOMAIN == "component.example.test"
+    assert base.SITE_NAME == "Component"
 
 
 @pytest.mark.usefixtures("no_database_env", "production_env")

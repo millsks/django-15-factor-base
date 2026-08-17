@@ -1,21 +1,22 @@
-"""Tests for the allauth account adapters.
+"""Tests for the allauth account adapter.
 
 These exercise adapter behaviour against unsaved User instances, so they need
 no database.
+
+The social adapter's cases are not here. It moved to
+`config.authorization.adapters` when AD-11 routed interactive sign-in through
+the mapper, and its tests moved with it to
+`tests/unit/authorization/test_adapters.py`.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from typing import Any
 
 import pytest
-from allauth.socialaccount.models import SocialLogin
 from django.test import RequestFactory
 
 from django_service.users.adapters import AccountAdapter
-from django_service.users.adapters import SocialAccountAdapter
-from django_service.users.models import User
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -35,42 +36,14 @@ class TestAccountAdapter:
         assert AccountAdapter().is_open_for_signup(http_request) is False
 
 
-class TestSocialAccountAdapter:
-    def test_open_for_signup_by_default(self, http_request: HttpRequest):
-        sociallogin = SocialLogin(user=User())
-        adapter = SocialAccountAdapter()
-        assert adapter.is_open_for_signup(http_request, sociallogin) is True
+def test_the_social_adapter_no_longer_lives_here():
+    """AD-4: `django_service` may not import `config`, so the social adapter cannot stay.
 
-    def test_registration_can_be_disabled(self, settings, http_request: HttpRequest):
-        settings.ACCOUNT_ALLOW_REGISTRATION = False
-        sociallogin = SocialLogin(user=User())
-        adapter = SocialAccountAdapter()
-        assert adapter.is_open_for_signup(http_request, sociallogin) is False
+    Asserted rather than left implicit because the class leaving is what forces
+    `SOCIALACCOUNT_ADAPTER` to point at the authorization package. A copy
+    reappearing here would give the component two social adapters, one of which
+    consults no mapper.
+    """
+    import django_service.users.adapters as module  # noqa: PLC0415
 
-    @pytest.mark.parametrize(
-        ("data", "expected_name"),
-        [
-            ({"name": "Ada Lovelace"}, "Ada Lovelace"),
-            ({"first_name": "Ada"}, "Ada"),
-            ({"first_name": "Ada", "last_name": "Lovelace"}, "Ada Lovelace"),
-            ({}, ""),
-        ],
-    )
-    def test_populate_user_derives_name(
-        self,
-        http_request: HttpRequest,
-        data: dict[str, Any],
-        expected_name: str,
-    ):
-        sociallogin = SocialLogin(user=User())
-        user = SocialAccountAdapter().populate_user(http_request, sociallogin, data)
-        assert user.name == expected_name
-
-    def test_populate_user_keeps_existing_name(self, http_request: HttpRequest):
-        sociallogin = SocialLogin(user=User(name="Grace Hopper"))
-        user = SocialAccountAdapter().populate_user(
-            http_request,
-            sociallogin,
-            {"name": "Ada Lovelace"},
-        )
-        assert user.name == "Grace Hopper"
+    assert not hasattr(module, "SocialAccountAdapter")
