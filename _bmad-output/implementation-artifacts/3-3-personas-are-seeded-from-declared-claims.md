@@ -63,12 +63,14 @@ so that I can exercise real authorization differences without an identity realm.
 
 - [ ] Task 4: Author the runnable entry point and the pixi task (AC: #2, #4)
   - [ ] Create `src/config/local_dev/seed.py` (NEW) as a `python -m` entry point: `os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.local")`, `django.setup()`, then call `seed_personas()` and log the result. Guard the call with `if __name__ == "__main__":`.
-  - [ ] Add to `pixi.toml` `[tasks]`: `seed-personas = { cmd = "python -m config.local_dev.seed", env = { COMPONENT_RUNTIME = "local" }, default-environment = "default", description = "Seed the local development personas" }`. It belongs in `[tasks]`, not `[feature.dev.tasks]`, because it ships in every component and must run from the runtime environment.
-  - [ ] Add `seed-personas` to the `LOCAL_TASKS` data set in `tests/unit/test_locality_declaration.py` (authored by Story 3.1) so the two-way locality assertion covers it.
+  - [ ] Add to `pixi.toml` `[tasks]`: `seed-personas = { cmd = "python -m config.local_dev.seed", default-environment = "default", description = "Seed the local development personas" }`. It belongs in `[tasks]`, not `[feature.dev.tasks]`, because it ships in every component and must run from the runtime environment.
+  - [ ] **Declare no `env` on it.** AD-13 was amended on 2026-08-17 (spine commit `d40b684`, delivered by Story 3.1): locality is declared once in `[feature.dev.activation.env]` and **no task declares `COMPONENT_RUNTIME` in its own `env`**. `tests/unit/test_locality_declaration.py::test_no_task_declares_component_runtime` fails on any task that does, so the superseded instruction would break the gate this story inherits.
+  - [ ] There is consequently **nothing to register** in `tests/unit/test_locality_declaration.py` — the `LOCAL_TASKS` data set named by the superseded spec does not exist in the delivered file. Leave that module alone.
+  - [ ] The invocation is therefore `pixi run -e dev seed-personas`, which resolves in the `dev` environment and inherits `COMPONENT_RUNTIME=local`; bare `pixi run seed-personas` resolves in `default`, reads *deployed*, and is correctly refused by Task 2's refuse-if-deployed guard. Document the `-e dev` form wherever the task is mentioned, exactly as `docs/development.md` already does for `pixi run -e dev migrate`.
   - [ ] Do **not** implement seeding as a Django management command. A management command must live inside an installed app; the only installed app package is `django_service`, and `django_service` importing `config.local_dev` inverts AD-4's dependency direction. The `python -m` entry point keeps the arrow pointing `config → django_service`.
 
 - [ ] Task 5: Document the personas (AC: #1, #2, #4)
-  - [ ] In `docs/development.md`, add a `## Local personas` section: the declared personas and their memberships, `pixi run seed-personas`, the statement that seeding calls the component's own group provisioning rather than creating groups, and the statement that it refuses in a deployed environment.
+  - [ ] In `docs/development.md`, add a `## Local personas` section: the declared personas and their memberships, `pixi run -e dev seed-personas` (the `-e dev` is required — the bare form resolves in `default`, reads *deployed*, and is refused), the statement that seeding calls the component's own group provisioning rather than creating groups, and the statement that it refuses in a deployed environment.
   - [ ] Carry R-5 honestly: synthetic claims never exercise JWKS retrieval or rotation, and the PRD's own words — the local personas "are not a mitigation" for the absence of a real IdP.
 
 - [ ] Task 6: Tests (AC: #1, #2, #3, #4, #5)
@@ -116,8 +118,8 @@ This is load-bearing and it is the single easiest rule in this story to break by
 | `src/config/local_dev/personas.py` | NEW | `Persona` dataclass, `DESIGNATED_STAFF` / `DESIGNATED_SUPERUSER` sentinels, `PERSONAS`, `get_persona`, `persona_keys`, `resolve_groups`, `build_claims`. |
 | `src/config/local_dev/seeding.py` | NEW | `seed_personas()` — refuse-if-deployed, call the shared group provisioning, drive the mapper per persona. |
 | `src/config/local_dev/seed.py` | NEW | `python -m config.local_dev.seed` entry point. |
-| `pixi.toml` | UPDATE | Add the `seed-personas` task with `env = { COMPONENT_RUNTIME = "local" }`. |
-| `tests/unit/test_locality_declaration.py` | UPDATE | Add `seed-personas` to `LOCAL_TASKS` (file authored by Story 3.1). |
+| `pixi.toml` | UPDATE | Add the `seed-personas` task with **no** `env` — AD-13 as amended forbids a task declaring `COMPONENT_RUNTIME`. Invoked as `pixi run -e dev seed-personas`. |
+| `tests/unit/test_locality_declaration.py` | UNCHANGED | Nothing to register; `LOCAL_TASKS` does not exist in the delivered file. Its `test_no_task_declares_component_runtime` already covers the new task. |
 | `docs/development.md` | UPDATE | New `## Local personas` section. |
 | `tests/unit/test_local_dev_personas.py` | NEW | Declaration-shape and claims-construction assertions. |
 | `tests/unit/test_local_dev_seeding_refusal.py` | NEW | The deployed-environment refusal, asserted before any database work. |
@@ -127,7 +129,7 @@ This is load-bearing and it is the single easiest rule in this story to break by
 
 | From | Surface |
 | --- | --- |
-| Story 3.1 | `config.locality.is_local()` |
+| Story 3.1 | `config.locality.is_local()`. Note AD-13 was amended when 3.1 landed: locality comes from `[feature.dev.activation.env]`, never a task `env`. |
 | Story 2.1 | `User.idp_subject` — unique, indexed, nullable |
 | Story 2.2 | `src/config/authorization/claims.py`: `ClaimsContract(identity_key_claim, group_claim, staff_group, superuser_group)`, `load_claims_contract`, `read_group_claim`, `read_identity_key`; exposed as `settings.CLAIMS_CONTRACT` from `src/config/settings/base.py`, with explicit fixture values set in `src/config/settings/test.py` |
 | Story 2.3 | `src/django_service/users/provisioning.py`: `provision_designated_groups(apps=None) -> ProvisionResult`, `DESIGNATED_GROUP_PERMISSIONS` |

@@ -60,11 +60,12 @@ so that API authorization is exercised locally rather than stubbed.
   - [ ] Sign with `PyJWT` using `RS256`, the private key from `ensure_keypair()`, and a `kid` header matching the JWKS entry. `RS256` must be a member of Story 2.7's `ALLOWED_ALGORITHMS` (`COMPONENT_OIDC_ALGORITHMS`, default `["RS256"]`); do not widen that allowlist, and never let the token's own header choose the algorithm. Rotation is what `kid` exists for; a token minted without one cannot be matched to a key.
   - [ ] Do **not** add a verification bypass, a `verify_signature=False` path, a settings flag that relaxes audience checking, or a test-only authentication class. FR-20's whole point is that the real class verifies for real.
   - [ ] Create `src/config/local_dev/mint.py` (NEW) as the `python -m config.local_dev.mint <persona-key>` entry point: `os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.local")`, `django.setup()`, parse the persona key from `sys.argv`, call `ensure_keypair()` then `mint_token()`, and emit the token as a structured `structlog` event — never `print`.
-  - [ ] Add to `pixi.toml` `[tasks]`: `mint-token = { cmd = "python -m config.local_dev.mint", env = { COMPONENT_RUNTIME = "local" }, default-environment = "default", description = "Mint a development JWT for a local persona" }`.
-  - [ ] Add `mint-token` to the `LOCAL_TASKS` data set in `tests/unit/test_locality_declaration.py` (Story 3.1).
+  - [ ] Add to `pixi.toml` `[tasks]`: `mint-token = { cmd = "python -m config.local_dev.mint", default-environment = "default", description = "Mint a development JWT for a local persona" }`.
+  - [ ] **Declare no `env` on it.** AD-13 was amended on 2026-08-17 (spine commit `d40b684`, delivered by Story 3.1): locality is declared once in `[feature.dev.activation.env]` and no task declares `COMPONENT_RUNTIME`. `tests/unit/test_locality_declaration.py::test_no_task_declares_component_runtime` fails on any task that does.
+  - [ ] Nothing to register in `tests/unit/test_locality_declaration.py` — the `LOCAL_TASKS` data set named by the superseded spec does not exist in the delivered file. The invocation is `pixi run -e dev mint-token <persona-key>`; the bare form resolves in `default` and reads *deployed*.
 
 - [ ] Task 4: Document the flow and the never-commit rule (AC: #1, #4)
-  - [ ] Extend `docs/development.md`'s `## Local personas` section (Story 3.3) with a subsection on the programmatic flow: `pixi run mint-token <persona>`, the `file://` JWKS location, and the statement that the token is verified by the real Bearer authentication class with nothing stubbed.
+  - [ ] Extend `docs/development.md`'s `## Local personas` section (Story 3.3) with a subsection on the programmatic flow: `pixi run -e dev mint-token <persona>` (the `-e dev` is required), the `file://` JWKS location, and the statement that the token is verified by the real Bearer authentication class with nothing stubbed.
   - [ ] State the never-commit rule and its reason (NFR-7), and state R-5 plainly: synthetic claims never exercise JWKS retrieval over the network or key rotation at the IdP.
 
 - [ ] Task 5: Tests (AC: #1, #2, #3, #4)
@@ -110,9 +111,9 @@ Two consequences for this story. First, because retrieval is component code, add
 | `src/config/local_dev/tokens.py` | NEW | `mint_token()` — RS256 over `build_claims` plus `iss`/`aud`/`exp`/`iat`/`jti`, `kid` header. |
 | `src/config/local_dev/mint.py` | NEW | `python -m config.local_dev.mint <persona-key>` entry point. |
 | `src/config/settings/local.py` | UPDATE | Point Story 2.7's JWKS-location setting at `file://` + `DEV_KEY_DIR / "jwks.json"`. |
-| `pixi.toml` | UPDATE | Add the `mint-token` task with `env = { COMPONENT_RUNTIME = "local" }`; add `pyjwt` and `cryptography` to `[dependencies]` if Story 2.7 has not. |
+| `pixi.toml` | UPDATE | Add the `mint-token` task with **no** `env` (AD-13 as amended); invoked as `pixi run -e dev mint-token`; add `pyjwt` and `cryptography` to `[dependencies]` if Story 2.7 has not. |
 | `.gitignore` | UPDATE | Add `.local-dev-keys/` with the reason. |
-| `tests/unit/test_locality_declaration.py` | UPDATE | Add `mint-token` to `LOCAL_TASKS`. |
+| `tests/unit/test_locality_declaration.py` | UNCHANGED | Nothing to register; `LOCAL_TASKS` does not exist in the delivered file. |
 | `docs/development.md` | UPDATE | Programmatic-flow subsection under `## Local personas`. |
 | `tests/unit/test_local_dev_keys.py` | NEW | Refusal, on-demand generation, idempotence, file modes, JWKS shape. |
 | `tests/unit/test_gitignore_covers_dev_keys.py` | NEW | `.gitignore` carries `.local-dev-keys/`. |
