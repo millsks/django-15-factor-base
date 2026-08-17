@@ -1,13 +1,13 @@
 ---
-baseline_revision: 9b64e8c
+baseline_revision: abb084f
 review_loop_iteration: 0
-status: ready-for-dev
+status: done
 warnings: []
 ---
 
 # Story 3.1: Local pixi tasks declare themselves local
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -44,46 +44,46 @@ so that a freshly cloned component runs with one command and the declaration is 
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Author the locality reader at `src/config/locality.py` (AC: #4)
-  - [ ] Create `src/config/locality.py` (NEW) with module-level constants `RUNTIME_ENV_VAR = "COMPONENT_RUNTIME"`, `PROCESS_ENV_VAR = "COMPONENT_PROCESS"`, `LOCAL = "local"`, and `SERVING_PROCESSES: frozenset[str] = frozenset({"web", "worker", "beat"})`. These four names are the single declaration site for the `COMPONENT_*` contract; nothing else in the tree may re-spell them as string literals.
-  - [ ] Implement `is_local() -> bool`: returns `True` only when `os.environ.get(RUNTIME_ENV_VAR, "").strip().lower() == LOCAL`. Any other value — absent, empty, `"Local "` after strip/lower is still local, but `"dev"`, `"1"`, `"true"` — is **not** local. **Fails closed.**
-  - [ ] Implement `is_deployed() -> bool` as `not is_local()`. Deployed is the default and requires no declaration.
-  - [ ] Implement `component_process() -> str | None`: returns the `COMPONENT_PROCESS` value when it is a member of `SERVING_PROCESSES`, else `None`. Implement `is_serving_process() -> bool` as `component_process() is not None`. **Fails open** — absent means not a serving process.
-  - [ ] Read the environment inside the functions, never at import time, so a test's `monkeypatch.setenv` is observed without module reloading.
-  - [ ] Full type hints, Google-style docstrings, no `print`, no stdlib `logging`.
+- [x] Task 1: Author the locality reader at `src/config/locality.py` (AC: #4)
+  - [x] Create `src/config/locality.py` (NEW) with module-level constants `RUNTIME_ENV_VAR = "COMPONENT_RUNTIME"`, `PROCESS_ENV_VAR = "COMPONENT_PROCESS"`, `LOCAL = "local"`, and `SERVING_PROCESSES: frozenset[str] = frozenset({"web", "worker", "beat"})`. These four names are the single declaration site for the `COMPONENT_*` contract; nothing else in the tree may re-spell them as string literals.
+  - [x] Implement `is_local() -> bool`: returns `True` only when `os.environ.get(RUNTIME_ENV_VAR, "").strip().lower() == LOCAL`. Any other value — absent, empty, `"Local "` after strip/lower is still local, but `"dev"`, `"1"`, `"true"` — is **not** local. **Fails closed.**
+  - [x] Implement `is_deployed() -> bool` as `not is_local()`. Deployed is the default and requires no declaration.
+  - [x] Implement `component_process() -> str | None`: returns the `COMPONENT_PROCESS` value when it is a member of `SERVING_PROCESSES`, else `None`. Implement `is_serving_process() -> bool` as `component_process() is not None`. **Fails open** — absent means not a serving process.
+  - [x] Read the environment inside the functions, never at import time, so a test's `monkeypatch.setenv` is observed without module reloading.
+  - [x] Full type hints, Google-style docstrings, no `print`, no stdlib `logging`.
 
-- [ ] Task 2: Declare `COMPONENT_RUNTIME=local` once, in the `dev` environment (AC: #1, #2)
-  - [ ] In `pixi.toml`, add `COMPONENT_RUNTIME = "local"` to `[feature.dev.activation.env]`, beside the existing `DJANGO_DEBUG_APPS = "True"`.
-  - [ ] Add **no** `env` table to any task. Do not put `COMPONENT_RUNTIME` in `[tasks]`, `[feature.dev.tasks]`, or `[activation.env]`. There is exactly one declaration site.
-  - [ ] The developer paths inherit it because their tasks resolve to the `dev` environment: `runserver`, `serve-reload`, `makemigrations`, `test`, `test-integration`, `test-cov`, `typecheck`, `precommit`, `ruff-report`, `spike-storage`. Note that `typecheck`/`precommit` (mypy's django-stubs plugin, `pyproject.toml:305-308,323`) and `spike-storage` (pytest's `--ds=config.settings.test` in `addopts`) **do** load `config.settings` — the superseded task list wrongly called them pure tooling.
-  - [ ] The operational commands in `[tasks]` — `manage`, `migrate`, `collectstatic`, `createsuperuser`, `serve` — get **nothing**. A developer invokes them as `pixi run -e dev <task>`; the release stage invokes them bare and correctly reads *deployed*.
-  - [ ] Do **not** create `dev-`prefixed twins of those tasks, and do **not** define a same-named task in both `[tasks]` and `[feature.dev.tasks]` — pixi rejects that as `the task '<name>' is ambiguous` (verified on 0.70.2, and the same failure `docs/development.md` already records for `ci`).
-  - [ ] Add a rationale comment above `[feature.dev.activation.env]`, in the file's existing commenting style, recording *why* the declaration lives in the environment rather than on the tasks: a task's `env` overrides the caller's environment, so a task-level `COMPONENT_RUNTIME=local` on `migrate` could not be overridden by the deployment platform's configmap and would make the release stage read *local*.
+- [x] Task 2: Declare `COMPONENT_RUNTIME=local` once, in the `dev` environment (AC: #1, #2)
+  - [x] In `pixi.toml`, add `COMPONENT_RUNTIME = "local"` to `[feature.dev.activation.env]`, beside the existing `DJANGO_DEBUG_APPS = "True"`.
+  - [x] Add **no** `env` table to any task. Do not put `COMPONENT_RUNTIME` in `[tasks]`, `[feature.dev.tasks]`, or `[activation.env]`. There is exactly one declaration site.
+  - [x] The developer paths inherit it because their tasks resolve to the `dev` environment: `runserver`, `serve-reload`, `makemigrations`, `test`, `test-integration`, `test-cov`, `typecheck`, `precommit`, `ruff-report`, `spike-storage`. Note that `typecheck`/`precommit` (mypy's django-stubs plugin, `pyproject.toml:305-308,323`) and `spike-storage` (pytest's `--ds=config.settings.test` in `addopts`) **do** load `config.settings` — the superseded task list wrongly called them pure tooling.
+  - [x] The operational commands in `[tasks]` — `manage`, `migrate`, `collectstatic`, `createsuperuser`, `serve` — get **nothing**. A developer invokes them as `pixi run -e dev <task>`; the release stage invokes them bare and correctly reads *deployed*.
+  - [x] Do **not** create `dev-`prefixed twins of those tasks, and do **not** define a same-named task in both `[tasks]` and `[feature.dev.tasks]` — pixi rejects that as `the task '<name>' is ambiguous` (verified on 0.70.2, and the same failure `docs/development.md` already records for `ci`).
+  - [x] Add a rationale comment above `[feature.dev.activation.env]`, in the file's existing commenting style, recording *why* the declaration lives in the environment rather than on the tasks: a task's `env` overrides the caller's environment, so a task-level `COMPONENT_RUNTIME=local` on `migrate` could not be overridden by the deployment platform's configmap and would make the release stage read *local*.
 
-- [ ] Task 3: Keep `COMPONENT_*` out of the `default` environment's activation env (AC: #3)
-  - [ ] Confirm `[activation.env]` in `pixi.toml` still contains only `COVERAGE_CORE = "ctrace"`. It must remain free of every `COMPONENT_*` key — this is the table the golden base evaluates in production.
-  - [ ] `COMPONENT_PROCESS` is forbidden in **every** activation env, feature-scoped included: placed there it would make every management command declare itself a serving process and deadlock the release stage on the migrations refusal. Only `COMPONENT_RUNTIME`, and only in `[feature.dev.activation.env]`, is permitted.
-  - [ ] Add a comment inside `[activation.env]` recording the prohibition and its consequence.
+- [x] Task 3: Keep `COMPONENT_*` out of the `default` environment's activation env (AC: #3)
+  - [x] Confirm `[activation.env]` in `pixi.toml` still contains only `COVERAGE_CORE = "ctrace"`. It must remain free of every `COMPONENT_*` key — this is the table the golden base evaluates in production.
+  - [x] `COMPONENT_PROCESS` is forbidden in **every** activation env, feature-scoped included: placed there it would make every management command declare itself a serving process and deadlock the release stage on the migrations refusal. Only `COMPONENT_RUNTIME`, and only in `[feature.dev.activation.env]`, is permitted.
+  - [x] Add a comment inside `[activation.env]` recording the prohibition and its consequence.
 
-- [ ] Task 4: Author the gate test over the materialized manifest (AC: #1, #3)
-  - [ ] Create `tests/unit/test_locality_declaration.py` (NEW), following the `tomllib` manifest-parsing pattern already established in `tests/unit/test_dependency_policy.py:11-23` (module-scoped `manifest` fixture, `Path(__file__).resolve().parents[2] / "pixi.toml"`).
-  - [ ] Enumerate activation tables **including platform-scoped ones**: `[activation.env]`, `[target.<platform>.activation.env]`, `[feature.<n>.activation.env]`, and `[feature.<n>.target.<platform>.activation.env]`. Verified on pixi 0.70.2 that platform-scoped activation env is honoured and reaches the process; a helper that scans only the unscoped tables leaves a hole through which `COMPONENT_RUNTIME = "local"` in `[target.linux-64.activation.env]` passes green and ships in the production image.
-  - [ ] `test_default_environment_activation_env_declares_no_component_variable`: assert no key starting with `COMPONENT_` appears in any activation table that the `default` environment resolves — the unscoped `[activation.env]`, its platform-scoped siblings, and the activation env of every feature the `default` environment includes.
-  - [ ] `test_component_process_absent_from_every_activation_env`: assert `COMPONENT_PROCESS` appears in **no** activation table anywhere in the manifest, feature-scoped and platform-scoped included. This one is absolute and does not depend on which environment resolves it.
-  - [ ] `test_dev_feature_declares_local_runtime`: assert `[feature.dev.activation.env]["COMPONENT_RUNTIME"] == "local"` — exactly that value, so a typo'd `"Local "`-style variant that `is_local()` would still accept, or a `"dev"` that it would not, both fail loudly here.
-  - [ ] `test_no_task_declares_component_runtime`: iterate every task in every task table (`[tasks]`, `[feature.<n>.tasks]`, platform-scoped variants); assert no task sets `COMPONENT_RUNTIME` in its `env` at all. The single declaration site is the environment; a task that re-declares it is the failure this catches, because a task `env` overrides the caller and would take the configmap out of the loop.
-  - [ ] `test_no_production_bound_environment_includes_the_dev_feature`: for every entry in `[environments]` other than the developer environments, assert its feature list does not contain `dev`. This is what keeps the narrowed prohibition honest once Epic 8's six-environment matrix lands; write it so it passes on today's `default`/`dev` pair.
-  - [ ] `test_serving_process_tasks_declare_no_runtime`: for any task named `web`, `worker` or `beat` that exists, assert it sets no `COMPONENT_RUNTIME`. These tasks arrive in Epic 5; write the assertion so it passes vacuously until then.
+- [x] Task 4: Author the gate test over the materialized manifest (AC: #1, #3)
+  - [x] Create `tests/unit/test_locality_declaration.py` (NEW), following the `tomllib` manifest-parsing pattern already established in `tests/unit/test_dependency_policy.py:11-23` (module-scoped `manifest` fixture, `Path(__file__).resolve().parents[2] / "pixi.toml"`).
+  - [x] Enumerate activation tables **including platform-scoped ones**: `[activation.env]`, `[target.<platform>.activation.env]`, `[feature.<n>.activation.env]`, and `[feature.<n>.target.<platform>.activation.env]`. Verified on pixi 0.70.2 that platform-scoped activation env is honoured and reaches the process; a helper that scans only the unscoped tables leaves a hole through which `COMPONENT_RUNTIME = "local"` in `[target.linux-64.activation.env]` passes green and ships in the production image.
+  - [x] `test_default_environment_activation_env_declares_no_component_variable`: assert no key starting with `COMPONENT_` appears in any activation table that the `default` environment resolves — the unscoped `[activation.env]`, its platform-scoped siblings, and the activation env of every feature the `default` environment includes.
+  - [x] `test_component_process_absent_from_every_activation_env`: assert `COMPONENT_PROCESS` appears in **no** activation table anywhere in the manifest, feature-scoped and platform-scoped included. This one is absolute and does not depend on which environment resolves it.
+  - [x] `test_dev_feature_declares_local_runtime`: assert `[feature.dev.activation.env]["COMPONENT_RUNTIME"] == "local"` — exactly that value, so a typo'd `"Local "`-style variant that `is_local()` would still accept, or a `"dev"` that it would not, both fail loudly here.
+  - [x] `test_no_task_declares_component_runtime`: iterate every task in every task table (`[tasks]`, `[feature.<n>.tasks]`, platform-scoped variants); assert no task sets `COMPONENT_RUNTIME` in its `env` at all. The single declaration site is the environment; a task that re-declares it is the failure this catches, because a task `env` overrides the caller and would take the configmap out of the loop.
+  - [x] `test_no_production_bound_environment_includes_the_dev_feature`: for every entry in `[environments]` other than the developer environments, assert its feature list does not contain `dev`. This is what keeps the narrowed prohibition honest once Epic 8's six-environment matrix lands; write it so it passes on today's `default`/`dev` pair.
+  - [x] `test_serving_process_tasks_declare_no_runtime`: for any task named `web`, `worker` or `beat` that exists, assert it sets no `COMPONENT_RUNTIME`. These tasks arrive in Epic 5; write the assertion so it passes vacuously until then.
 
-- [ ] Task 5: Unit-test the locality reader (AC: #4)
-  - [ ] Create `tests/unit/test_locality.py` (NEW). Use `monkeypatch.setenv` / `monkeypatch.delenv(..., raising=False)`; no reload machinery is needed because Task 1 reads at call time.
-  - [ ] Assert: `COMPONENT_RUNTIME` absent → `is_local()` is `False` and `is_deployed()` is `True`; `COMPONENT_RUNTIME=""` → deployed; `COMPONENT_RUNTIME="production"` → deployed; `COMPONENT_RUNTIME="dev"` → deployed; `COMPONENT_RUNTIME="local"` → local; `COMPONENT_RUNTIME="LOCAL"` → local.
-  - [ ] Assert: `COMPONENT_PROCESS` absent → `component_process()` is `None` and `is_serving_process()` is `False`; `COMPONENT_PROCESS="web"` → `"web"` and `True`; `COMPONENT_PROCESS="shell"` → `None` and `False`.
+- [x] Task 5: Unit-test the locality reader (AC: #4)
+  - [x] Create `tests/unit/test_locality.py` (NEW). Use `monkeypatch.setenv` / `monkeypatch.delenv(..., raising=False)`; no reload machinery is needed because Task 1 reads at call time.
+  - [x] Assert: `COMPONENT_RUNTIME` absent → `is_local()` is `False` and `is_deployed()` is `True`; `COMPONENT_RUNTIME=""` → deployed; `COMPONENT_RUNTIME="production"` → deployed; `COMPONENT_RUNTIME="dev"` → deployed; `COMPONENT_RUNTIME="local"` → local; `COMPONENT_RUNTIME="LOCAL"` → local.
+  - [x] Assert: `COMPONENT_PROCESS` absent → `component_process()` is `None` and `is_serving_process()` is `False`; `COMPONENT_PROCESS="web"` → `"web"` and `True`; `COMPONENT_PROCESS="shell"` → `None` and `False`.
 
-- [ ] Task 6: Document the declaration (AC: #1, #2, #4)
-  - [ ] In `docs/development.md`, under the existing `## Environment` section, add a short subsection stating: locality is declared by the pixi *environment*, `COMPONENT_RUNTIME=local` lives once in `[feature.dev.activation.env]`, the `default` environment declares nothing and reads *deployed*, and absent or unrecognized means deployed.
-  - [ ] State the developer consequence plainly, because it is the one behavioural change a reader will trip over: the operational commands in `[tasks]` are run as `pixi run -e dev migrate` (etc.) when you want them to behave locally. Bare `pixi run migrate` is the *deployed* invocation and is what the release stage uses.
-  - [ ] Update the existing sentence at `docs/development.md:54-56` ("Operational commands … run in `default`, because a deployment runs them too") to note that this partition is now what carries locality, so it is load-bearing rather than incidental.
+- [x] Task 6: Document the declaration (AC: #1, #2, #4)
+  - [x] In `docs/development.md`, under the existing `## Environment` section, add a short subsection stating: locality is declared by the pixi *environment*, `COMPONENT_RUNTIME=local` lives once in `[feature.dev.activation.env]`, the `default` environment declares nothing and reads *deployed*, and absent or unrecognized means deployed.
+  - [x] State the developer consequence plainly, because it is the one behavioural change a reader will trip over: the operational commands in `[tasks]` are run as `pixi run -e dev migrate` (etc.) when you want them to behave locally. Bare `pixi run migrate` is the *deployed* invocation and is what the release stage uses.
+  - [x] Update the existing sentence at `docs/development.md:54-56` ("Operational commands … run in `default`, because a deployment runs them too") to note that this partition is now what carries locality, so it is load-bearing rather than incidental.
 
 ## Dev Notes
 
@@ -165,24 +165,87 @@ Claude Opus 5 (1M context) — bmad-dev-auto, 2026-08-17.
 
 ### Debug Log References
 
-Implementation reached `pixi run ci` exit 0 (729 passed, coverage 95.82%) before review. The
-code was then reverted under the intent-gap branch. It is **not lost** — it is stashed on
-`feature/3-1-local-task-locality`:
+Re-derived against the amended AD-13, from the spec rather than from the stash. `stash@{0}`
+was read for reference only and left in place; nothing was applied from it. Its `pixi.toml`
+and `docs/development.md` hunks implement the superseded per-task-`env` design and were not
+reused at all; `src/config/locality.py` and `tests/unit/test_locality.py` were re-derived and
+both changed materially (module docstring re-anchored to the environment declaration, finding
+4's normalization pinned, finding 11's over-broad ownership claim narrowed).
+`tests/unit/test_locality_declaration.py` was rewritten from scratch — the amended design
+inverts what it asserts.
 
-```
-git stash list                 # "story-3.1 implementation, reverted on intent_gap ..."
-git stash apply stash@{0}      # restores all five files
-```
+Inner loop: `pixi run test` (549 passed) → `pixi run format` (no changes) → `pixi run lint`
+(one SIM300 yoda-condition fix in `tests/unit/test_locality.py:55`) → `pixi run typecheck`
+(clean, 49 files).
+
+**Final gate: `pixi run ci` exit 0 — 739 passed, 65 warnings, coverage 95.82% (floor 90%).**
+No pre-commit auto-fix occurred at gate time; the gate ran clean on the first attempt.
 
 ### Completion Notes List
 
-No tasks are complete. Every task checkbox was reset when the code was reverted.
+All six tasks and all 35 subtasks are complete. Nothing was traded away and no acceptance
+criterion is partially met.
+
+**What was built.** `src/config/locality.py` is the single reader; `pixi.toml` gains exactly
+one key — `COMPONENT_RUNTIME = "local"` in `[feature.dev.activation.env]` — plus rationale
+comment blocks above that table and inside `[activation.env]`. No task gained an `env`. Two
+new unit test files: 30 behavioural assertions over the reader, 11 gate assertions over the
+manifest.
+
+**Variances, recorded rather than silent.**
+
+1. *The spec's `pixi.toml` snapshot is one environment stale.* Dev Notes say "`[environments]`
+   declares only `default` and `dev`". It declares three: `default`, `dev`, and
+   `spike-storage`, which layers the **`dev` feature** (`pixi.toml:382`) and therefore
+   inherits the new declaration. `test_no_production_bound_environment_includes_the_dev_feature`
+   is written against a declared `DEVELOPER_ENVIRONMENTS = {"dev", "spike-storage"}` set with a
+   guard that every name in it still exists, rather than against a hardcoded `default`. This
+   is correct under AD-13 — `spike-storage` is a developer environment and its spike loads
+   Django — but it is a fact the spec did not state.
+2. *Two tests beyond the seven Task 4 enumerates*, both from patch findings (3 and 9 below),
+   plus one non-vacuity guard (`test_the_scanners_see_the_manifest_they_claim_to`) and one
+   in-force assertion (finding 5). Eleven tests in the file rather than seven.
+3. *`component_process()` keeps `.strip().lower()`* and the normalization is now pinned by
+   `test_a_declared_process_is_normalized_before_it_is_matched`. Task 1's wording ("returns the
+   `COMPONENT_PROCESS` value when it is a member of `SERVING_PROCESSES`") is literally
+   satisfiable without normalization; keeping it preserves symmetry with `is_local()`, and
+   finding 4's actual complaint was that it was *unpinned*, not that it was wrong.
+4. *Story 5.2's contradiction was flagged, not patched*, exactly as Dev Notes instruct. No
+   cross-story edit was made.
+
+**Patch findings 2–11, re-read against the amended Tasks 2–4.** (Finding 1 was already folded
+into Task 4 by the spec and is implemented in `_activation_tables`, which walks all four
+shapes including `[target.<platform>.activation.env]` and
+`[feature.<n>.target.<platform>.activation.env]` — `tests/unit/test_locality_declaration.py:125-150`.)
+
+| # | Sev | Disposition |
+| --- | --- | --- |
+| 2 | medium | **Applies. Fixed** at `tests/unit/test_locality_declaration.py:208-227`. `_tasks()` now returns a `list[tuple[table, name, definition]]` rather than a name-keyed mapping, so a task declared in two tables cannot overwrite its twin and every definition is asserted where it is declared. The docstring records why. |
+| 3 | medium | **Applies, re-aimed. Fixed** at `tests/unit/test_locality_declaration.py:412-433` (`test_only_serving_process_tasks_declare_a_process_type`). The finding's blanket "no `COMPONENT_` in task `env`" is wrong under the amended design — `web`/`worker`/`beat` are the legitimate producers of `COMPONENT_PROCESS` in their own `env` (AD-14). The hole it names is real and unchanged, though: `migrate` declaring `COMPONENT_PROCESS = "web"` is verbatim the release deadlock. The assertion confines the variable to the three serving-process task names and passes vacuously today. |
+| 4 | medium | **Applies. Fixed** at `tests/unit/test_locality.py:126-153`. Parametrized over `(" web ", "web")`, `("WORKER", "worker")`, `("\tBeat\n", "beat")`; deleting `.strip().lower()` from `component_process()` now fails three cases instead of none. |
+| 5 | medium | **Applies, re-aimed and weakened. Fixed** at `tests/unit/test_locality_declaration.py:504-522` (`test_the_declared_runtime_is_in_force_in_this_process`). The finding's premise ("per-task `env` is a mechanism this repo had never used") is moot — the mechanism is now feature activation env, which the repo already uses for `DJANGO_DEBUG_APPS` and `COVERAGE_CORE`. The *split* it asks for is still worth having: every other assertion in the file reads TOML and proves only what is declared. Follows the repo's own declared-vs-in-force precedent (`test_coverage_policy.py:417` + `test_coverage_measurement.py:109`). Verified green under `pixi run test`, `pixi run test-cov` and the full gate. |
+| 6 | medium | **Moot.** The claim it corrects — that `ci` cannot carry the declaration because pixi does not propagate a task `env` through `depends-on` — was prose attached to the per-task design. It appears nowhere in this implementation: no task carries an `env`, so no reasoning about `ci` is needed or written, in `pixi.toml`, in either test file or in `docs/development.md`. Confirmed by grep over the five touched files. |
+| 7 | medium | **Applies. Fixed** in three places. `tests/unit/test_locality_declaration.py:363-374` states plainly that the manifest assertion is *stricter than* `is_local()` and why (canonical spelling), instead of the false claim that `"Local"` reads as deployed; `tests/unit/test_locality.py:78-90` makes the same point from the reader's side and keeps `"Local"` in the positive parametrization; `docs/development.md` now says "`LOCAL`, `Local` and `\" local \"` all read as local" rather than "only the exact value `local` counts". |
+| 8 | medium | **Moot as written — the amendment inverts it. Addressed in docs anyway.** Under the superseded design `pixi run -e dev -- pytest` and `pixi shell` carried no task `env` and were therefore deployed. They now activate the `dev` feature's env and are *local*, which is the amendment's central benefit. `docs/development.md` states it explicitly in the new subsection ("the ad-hoc routes above — `pixi run -e dev -- <cmd>` and `pixi shell -e dev` — both activate the same env and are local too"), directly below the paragraph that recommends them. |
+| 9 | low | **Applies. Fixed** at `tests/unit/test_locality_declaration.py:153-178` and `:486-502` (`test_no_activation_script_offers_an_unchecked_export_route`). A script's contents live outside the manifest and cannot be parsed here, so the assertion is that none is declared — which keeps the env-table scan exhaustive and forces the check to be extended the day one is added, rather than being silently bypassed by an `export COMPONENT_RUNTIME=local`. Passes vacuously today. |
+| 10 | low | **Applies. Fixed** at `tests/unit/test_locality_declaration.py:275-284` (`_is_component_variable`, `name.upper().startswith(...)`) and applied at every use site, including the `COMPONENT_PROCESS` and `COMPONENT_RUNTIME` exact-name comparisons, which are also `.upper()`-normalized. Windows is a declared platform and its environment variables are case-insensitive, so a lower-case `component_runtime` would have resolved there while passing a case-sensitive scan. |
+| 11 | low | **Applies. Fixed** at `src/config/locality.py:30-40`. The module docstring now claims ownership of two names — `COMPONENT_RUNTIME` and `COMPONENT_PROCESS` — and their accepted values, and explicitly disclaims the wider `COMPONENT_*` convention, which the spine's Consistency Conventions define and a later component-level fact would not necessarily route through this module. |
+
+The **rejected** item (the non-vacuity guard's dependence on `COVERAGE_CORE` staying in
+`[activation.env]`) was not acted on. The equivalent guard in this implementation,
+`test_the_scanners_see_the_manifest_they_claim_to`, is deliberately of the same shape and for
+the same recorded reason.
 
 ### File List
 
-Reverted (stashed, not committed): `src/config/locality.py` (new),
-`tests/unit/test_locality.py` (new), `tests/unit/test_locality_declaration.py` (new),
-`pixi.toml`, `docs/development.md`.
+| Path | NEW / UPDATE |
+| --- | --- |
+| `src/config/locality.py` | NEW |
+| `tests/unit/test_locality.py` | NEW |
+| `tests/unit/test_locality_declaration.py` | NEW |
+| `pixi.toml` | UPDATE |
+| `docs/development.md` | UPDATE |
+| `_bmad-output/implementation-artifacts/3-1-local-pixi-tasks-declare-themselves-local.md` | UPDATE (this record) |
 
 ## Review Triage Log
 

@@ -70,7 +70,7 @@ development_status:
   2-8-the-static-token-credential-surface-is-removed-entirely: done
   epic-2-retrospective: optional
   epic-3: in-progress
-  3-1-local-pixi-tasks-declare-themselves-local: ready-for-dev
+  3-1-local-pixi-tasks-declare-themselves-local: done
   3-2-the-database-cache-and-task-substitutions-hold-locally: ready-for-dev
   3-3-personas-are-seeded-from-declared-claims: ready-for-dev
   3-4-local-sign-in-is-a-url-route-that-drives-the-real-mapper: ready-for-dev

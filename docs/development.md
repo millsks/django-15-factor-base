@@ -54,10 +54,65 @@ matrix is the same change six times over, so a new environment that carries the
 Operational commands — `manage`, `migrate`, `collectstatic`, `createsuperuser`,
 `serve` — run in `default`, because a deployment runs them too. Development-only
 commands — `runserver`, `serve-reload`, `makemigrations` — and the whole quality
-harness run in `dev`.
+harness run in `dev`. That partition is now **load-bearing rather than
+incidental**: it is what carries locality — see
+[Locality is declared by the environment](#locality-is-declared-by-the-environment)
+below.
 
 An *ad-hoc* command still needs the flag: `pixi run -- pytest` would use
 `default` and fail on the missing test dependencies. Use `pixi run -e dev --`.
+
+### Locality is declared by the environment
+
+A component is **deployed** unless it says otherwise. The declaration is
+`COMPONENT_RUNTIME=local`, and it lives exactly once — in
+`[feature.dev.activation.env]` in `pixi.toml`, beside `DJANGO_DEBUG_APPS`. It is
+committed, so a freshly cloned component is local from the first command and no
+untracked file has to be created to make it so. `src/config/locality.py` is the
+one place that reads it.
+
+**Every developer path inherits it, because every developer path runs in `dev`.**
+`runserver`, `serve-reload`, `makemigrations`, `test`, `test-integration`,
+`test-cov`, `typecheck`, `precommit`, `ruff-report` and `spike-storage` all
+resolve to a `dev`-carrying environment, and so do the ad-hoc routes above —
+`pixi run -e dev -- <cmd>` and `pixi shell -e dev` both activate the same env
+and are local too. There is no list of "local tasks" to maintain.
+
+**The `default` environment declares nothing and therefore reads *deployed*.**
+That is what the golden base runs, and it is what the release stage invokes:
+bare `pixi run migrate` and `pixi run collectstatic` resolve in `default` and
+correctly read deployed. It also leaves the deployment platform's own
+configuration — an OpenShift configmap or equivalent — in sole control of the
+variable, because nothing in `default` overrides it.
+
+**The one thing to know as a developer:** the operational commands in `[tasks]` —
+`manage`, `migrate`, `collectstatic`, `createsuperuser`, `serve` — live in
+`default`, so run them as `pixi run -e dev migrate` (and so on) when you want
+them to behave locally. Bare `pixi run migrate` is the *deployed* invocation,
+and that is deliberate: it is the one the release stage uses.
+
+**Absent or unrecognized means deployed.** Locality fails closed on purpose:
+local development is the exception that must declare itself, so a declaration
+lost anywhere between here and production leaves the refusals built on it armed
+rather than disarmed. The reader normalizes before it matches, so `LOCAL`,
+`Local` and `" local "` all read as local; `dev`, `1`, `true` and an empty value
+do not. The manifest is held to the single canonical spelling `local` by
+`tests/unit/test_locality_declaration.py`, which is stricter than the reader on
+purpose.
+
+**No task declares it, and it must never reach `[activation.env]`.** A task's
+`env` *overrides* the caller's environment, so a task-level
+`COMPONENT_RUNTIME=local` on `migrate` could not be corrected by the platform's
+configmap and would make the production release stage read *local*. The unscoped
+`[activation.env]` is worse still: the golden base runs pixi, so that table is
+evaluated in production. `COMPONENT_PROCESS` — which Epic 5's `web`, `worker`
+and `beat` tasks set in their own `env` — is banned from *every* activation env,
+feature-scoped ones included, because there it would make every management
+command declare itself a serving process and deadlock the release stage on the
+migrations refusal. `tests/unit/test_locality_declaration.py` asserts all of
+this over the parsed `pixi.toml`, platform-scoped tables included, and asserts
+that the declaration is in force in the running process rather than merely
+written down.
 
 ### Debug apps
 
