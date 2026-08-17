@@ -424,16 +424,23 @@ SOCIALACCOUNT_EMAIL_AUTHENTICATION = False
 # what keeps NFR-1's "startup makes no network call" true with this block
 # present. Nothing here, in an `AppConfig.ready()` or in a system check may
 # fetch the discovery document.
+#
+# `OIDC_ISSUER` and `OIDC_CLIENT_ID` are read into names of their own rather than
+# inline in the block below, because the Bearer path (Story 2.7) needs both and
+# reading `COMPONENT_OIDC_ISSUER` a second time is how a component acquires two
+# answers to "who signs these tokens". One read, one name, two consumers.
+OIDC_ISSUER = env.str("COMPONENT_OIDC_ISSUER", default="")
+OIDC_CLIENT_ID = env.str("COMPONENT_OIDC_CLIENT_ID", default="")
 SOCIALACCOUNT_PROVIDERS = {
     "openid_connect": {
         "APPS": [
             {
                 "provider_id": OIDC_PROVIDER_ID,
                 "name": env.str("COMPONENT_OIDC_PROVIDER_NAME", default=""),
-                "client_id": env.str("COMPONENT_OIDC_CLIENT_ID", default=""),
+                "client_id": OIDC_CLIENT_ID,
                 "secret": env.str("COMPONENT_OIDC_CLIENT_SECRET", default=""),
                 "settings": {
-                    "server_url": env.str("COMPONENT_OIDC_ISSUER", default=""),
+                    "server_url": OIDC_ISSUER,
                     # FR-4 specifies Authorization Code with PKCE. allauth reads
                     # exactly this key (`oauth2.provider.get_pkce_params`) and
                     # falls back to the provider default, which is False --
@@ -445,11 +452,75 @@ SOCIALACCOUNT_PROVIDERS = {
     },
 }
 
+# The Bearer credential (FR-5, AD-23). Every value below is read here so that
+# config/authorization/jwks.py and config/authorization/authentication.py take
+# their configuration from Django settings rather than from the environment
+# directly -- one `.env` read (FR-38), and a `settings` fixture can move any of
+# them inside a test.
+#
+# `COMPONENT_OIDC_JWKS_URL` is an override, not a second trust anchor: unset, the
+# location is derived from `OIDC_ISSUER` above. AD-23's startup refusal for a
+# location not derived from the issuer is Epic 4's, and it consumes
+# `config.authorization.jwks.jwks_url_derives_from_issuer`. That check is
+# syntactic and can be nothing else -- confirming a location against the issuer's
+# discovery document would mean fetching it at boot, which FR-23 forbids.
+OIDC_JWKS_URL = env.str("COMPONENT_OIDC_JWKS_URL", default="")
+# The audience every Bearer token must be minted for. Defaults to the OIDC client
+# id, which is what an IdP issuing tokens for this component's own client puts in
+# `aud`; a deployment whose IdP names a separate resource server sets the
+# variable. Never defaulted to "any": `aud` is a required claim on this path, so
+# an unconfigured audience refuses every token rather than accepting all of them.
+OIDC_AUDIENCE = env.str("COMPONENT_OIDC_AUDIENCE", default="") or OIDC_CLIENT_ID
+# The signature-algorithm allowlist. Never taken from the token's own `alg`
+# header -- that is the `alg=none` and algorithm-confusion family of attacks.
+OIDC_ALGORITHMS = env.list("COMPONENT_OIDC_ALGORITHMS", default=["RS256"])
+# Clock-skew tolerance for `exp`, `iat` and `nbf`, in seconds. **Zero by default,
+# which is the verification posture this component shipped with and is not
+# changed here** -- this adds the lever, not a new policy. It exists because a
+# few seconds of drift between the IdP's clock and this host's produces
+# intermittent 401s with no diagnosable cause, and the only alternative is
+# telling an operator to fix NTP on a machine they may not own. Raising it is a
+# deliberate widening of the credential window: a token is accepted for this many
+# seconds *past its own `exp`*, so the value is the amount of extra life every
+# token in the deployment gains. Keep it in single-digit seconds.
+OIDC_LEEWAY_SECONDS = max(0.0, env.float("COMPONENT_OIDC_LEEWAY_SECONDS", default=0.0))
+# The JWKS cache lifetime. Its only job is to notice a key *removed* at the IdP
+# (AD-23). Rotation is handled by the uncached-`kid` refetch below, so shortening
+# this does not catch a rotation faster, and it has no effect at all on R-2's
+# revocation window, which governs authorization rather than key material.
+#
+# Clamped to a floor rather than taken as given: at zero or below, every lookup
+# sees the cache as expired and each one attempts a fetch, so the JWKS document
+# is re-fetched as fast as the refetch window permits for the life of the
+# process. A minute is the shortest lifetime that still makes the cache a cache.
+JWKS_TTL_SECONDS = max(60.0, env.float("COMPONENT_JWKS_TTL_SECONDS", default=3600.0))
+# The shortest interval between two outbound JWKS fetches. The Bearer path is
+# unauthenticated at the moment a key is needed, so without this a caller sending
+# random `kid` values produces one fetch per request against the IdP's JWKS
+# endpoint. Lowering it towards zero is what re-arms that amplification.
+#
+# Clamped for that reason, and this floor is the load-bearing one: at zero or
+# below the comparison `now - last_attempt < window` is false for every caller,
+# which disables the rate limit outright and re-arms exactly the amplification
+# this module was written to prevent. A configuration mistake must not be able to
+# turn that off, so the floor is enforced here rather than documented as advice.
+JWKS_MIN_REFETCH_SECONDS = max(1.0, env.float("COMPONENT_JWKS_MIN_REFETCH_SECONDS", default=60.0))
+
 # django-rest-framework
 # -------------------------------------------------------------------------------
 # django-rest-framework - https://www.django-rest-framework.org/api-guide/settings/
 REST_FRAMEWORK = {
+    # The Bearer class is first deliberately: a request carrying both a session
+    # cookie and an `Authorization: Bearer` header is decided by the Bearer
+    # credential, because that is the one the caller chose to present. It returns
+    # None rather than raising when no Bearer header is there, so a
+    # session-authenticated request still falls through to the class below it.
+    #
+    # `TokenAuthentication` stays for now. Removing it is Story 2.8's, and the
+    # ordering is load-bearing: 2.6 and 2.7 precede 2.8 so the replacement
+    # credential paths exist before the old ones are deleted.
     "DEFAULT_AUTHENTICATION_CLASSES": (
+        "config.authorization.authentication.OIDCBearerAuthentication",
         "rest_framework.authentication.SessionAuthentication",
         "rest_framework.authentication.TokenAuthentication",
     ),

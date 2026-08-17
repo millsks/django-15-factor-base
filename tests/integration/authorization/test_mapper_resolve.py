@@ -603,3 +603,80 @@ def test_the_resolve_path_never_loads_groups(django_assert_num_queries: Any) -> 
     # Untouched by resolve, so the descriptor is still unevaluated and reading it
     # here costs its own query -- outside the assertion above, deliberately.
     assert resolved.groups.count() == 0
+
+
+# ---------------------------------------------------------------------------
+# AC #7 (Story 2.7) -- a resolved row must also be active to be returned.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_a_deactivated_user_is_refused_rather_than_returned() -> None:
+    """The refusal lives here, once, so all three entry points inherit it.
+
+    Placing it in each caller instead has already failed by omission once: Story
+    2.6 shipped with no explicit check and was safe only because allauth's
+    `perform_login` happens to gate inactive users after `pre_social_login`
+    returns. The Bearer path has no such backend in front of it at all.
+    """
+    UserFactory.create(idp_subject=SUBJECT_A, is_active=False)
+
+    with pytest.raises(ClaimsRejected) as refusal:
+        resolve_user(_claims(SUBJECT_A, **INTERACTIVE_CLAIMS))
+
+    assert refusal.value.reason == "resolved user is deactivated"
+
+
+@pytest.mark.django_db
+def test_the_deactivation_refusal_does_not_reuse_another_refusals_reason() -> None:
+    """A shared reason would send whoever reads the log to the IdP for an admin action.
+
+    A deactivated user's claims are perfectly valid. Reporting one of the claim
+    refusals here would describe an operator decision taken in this component as
+    a verdict about the token.
+    """
+    UserFactory.create(idp_subject=SUBJECT_A, is_active=False)
+
+    with pytest.raises(ClaimsRejected) as refusal:
+        resolve_user(_claims(SUBJECT_A, **INTERACTIVE_CLAIMS))
+
+    reason = refusal.value.reason
+    assert "deactivated" in reason
+    assert reason not in {
+        "identity key claim absent",
+        "identity key longer than the identity field",
+        "no username available for the identity key",
+        "group claim absent",
+        "token carries no jti",
+    }
+
+
+@pytest.mark.django_db
+def test_the_deactivation_refusal_is_reported() -> None:
+    """Handled and reported, never swallowed -- and `idp_subject` is what an operator has."""
+    UserFactory.create(idp_subject=SUBJECT_A, is_active=False)
+
+    with structlog.testing.capture_logs() as captured, pytest.raises(ClaimsRejected):
+        resolve_user(_claims(SUBJECT_A, **INTERACTIVE_CLAIMS))
+
+    events = _events(captured, "authorization.claims_rejected")
+    assert len(events) == 1
+    assert events[0]["log_level"] == "warning"
+    assert events[0]["reason"] == "resolved user is deactivated"
+    assert events[0]["idp_subject"] == SUBJECT_A
+
+
+@pytest.mark.django_db
+def test_an_active_user_is_returned_unchanged() -> None:
+    """The control: only `is_active` separates this from the refusal above."""
+    existing = UserFactory.create(idp_subject=SUBJECT_A, is_active=True)
+
+    assert resolve_user(_claims(SUBJECT_A, **INTERACTIVE_CLAIMS)) == existing
+
+
+@pytest.mark.django_db
+def test_a_user_created_on_a_miss_is_active_by_construction() -> None:
+    """A first sighting is never refused by the check: nothing has deactivated it yet."""
+    created = resolve_user(_claims(SUBJECT_B, **INTERACTIVE_CLAIMS))
+
+    assert created.is_active is True

@@ -151,6 +151,11 @@ _IDENTITY_KEY_ABSENT: Final = "identity key claim absent"
 _IDENTITY_KEY_TOO_LONG: Final = "identity key longer than the identity field"
 _USERNAME_UNAVAILABLE: Final = "no username available for the identity key"
 _GROUP_CLAIM_ABSENT: Final = "group claim absent"
+#: Its own reason, deliberately not shared with any other refusal. A deactivated
+#: user's claims are perfectly valid -- the refusal is an operator action taken
+#: in this component, not a verdict about the token -- so reporting one of the
+#: claim refusals here would send whoever reads the log to the wrong system.
+_USER_DEACTIVATED: Final = "resolved user is deactivated"
 _NO_JTI: Final = "token carries no jti"
 _JTI_TOO_LONG: Final = "jti longer than the epoch field"
 _JTI_REUSED: Final = "jti recorded for another identity"
@@ -188,9 +193,25 @@ def resolve_user(claims: Mapping[str, Any]) -> User:
     neither attributes nor groups -- because a resolve that writes is
     `auth_user_groups` amplification on every API call wearing a different name.
 
-    Resolution is by the identity key alone. `email` and `username` are never
-    consulted, so two identities whose emails collide resolve to two users and
-    one identity seen through two flows resolves to one user (AD-11).
+    Resolution is by the identity key alone, **and a resolved row must also be
+    active to be returned**. The first half is about which claim *identifies* the
+    user: `email` and `username` are never consulted, so two identities whose
+    emails collide resolve to two users and one identity seen through two flows
+    resolves to one user (AD-11). The second half is not a lookup at all -- it is
+    a refusal applied to the row the identity key already found, so it restates
+    the rule rather than reversing it.
+
+    The deactivation check lives here, once, and every caller inherits it. That
+    is a decision rather than a convenience: the Bearer path has no Django
+    authentication backend in front of it, so a mapper that returned a
+    deactivated user would authenticate a deactivated principal on every API
+    request; and per-caller placement has already failed by omission once, since
+    Story 2.6 shipped without an explicit check and was safe only because
+    allauth's `perform_login` happens to gate inactive users after
+    `pre_social_login` returns. The check costs no additional query -- the row is
+    loaded by the time it runs. What it does *not* license: `is_active` does not
+    become a general authorization input this mapper consults for anything else,
+    and no second local-state check joins it without its own decision.
 
     A miss creates the user: `idp_subject` set, an unusable password, and the
     attribute claims applied under AD-12's collision rule. A deployed component
@@ -208,7 +229,7 @@ def resolve_user(claims: Mapping[str, Any]) -> User:
         ClaimsRejected: The claims cannot be mapped onto a user. Every caller
             translates this into its own protocol's 401 (Stories 2.6 and 2.7),
             so the whole set is one outcome to them; `reason` distinguishes
-            them in the log. There are three:
+            them in the log. There are four:
 
             * `identity key claim absent` -- the configured identity-key claim
               is absent, blank, or is not a string or a non-boolean integer.
@@ -224,6 +245,12 @@ def resolve_user(claims: Mapping[str, Any]) -> User:
               another row. AD-12 forbids both overwriting the holder and
               letting the conflict reach the database as an `IntegrityError`,
               and a random suffix is forbidden by AC #2, which leaves refusal.
+            * `resolved user is deactivated` -- the identity key resolved to a
+              row whose `is_active` is False. Its own reason rather than a shared
+              one: the claims are valid and the refusal is an operator action
+              taken here, so a shared string would send whoever reads the log to
+              the IdP for something that was decided in the admin. A user created
+              on a miss is active by construction and is never affected.
 
     """
     subject = read_identity_key(claims, settings.CLAIMS_CONTRACT.identity_key_claim)
@@ -239,9 +266,39 @@ def resolve_user(claims: Mapping[str, Any]) -> User:
     # resolve does not (AD-10).
     user = user_model.objects.filter(idp_subject=subject).first()
     if user is not None:
+        _reject_a_deactivated_user(user)
         return user
 
     return _create_user(subject, claims)
+
+
+def _reject_a_deactivated_user(user: User) -> None:
+    """Refuse a resolved row that an operator has deactivated.
+
+    Checked against the row the lookup already returned, so it costs no
+    additional query even on the Bearer path that runs it per request. The
+    hot-path objection to putting this in the mapper was the main argument
+    against it and it does not survive contact with the code.
+
+    Args:
+        user: The user the identity key resolved to.
+
+    Raises:
+        ClaimsRejected: The row is deactivated.
+
+    """
+    if user.is_active:
+        return
+    # `idp_subject` is the correlation key an operator has, and it is already in
+    # every other event this module emits for this user, so withholding it here
+    # would make the one refusal an operator most needs to explain the only one
+    # they cannot attribute.
+    logger.warning(
+        "authorization.claims_rejected",
+        reason=_USER_DEACTIVATED,
+        idp_subject=user.idp_subject,
+    )
+    raise ClaimsRejected(_USER_DEACTIVATED)
 
 
 def _reject_an_unstorable_identity_key(subject: str) -> None:
