@@ -1,6 +1,13 @@
+---
+baseline_revision: fc1ff9a
+review_loop_iteration: 0
+status: done
+warnings: []
+---
+
 # Story 2.3: The designated groups exist before the first authentication
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -33,43 +40,43 @@ so that the first administrator can be established by claim rather than deadlock
 
 ## Tasks / Subtasks
 
-- [ ] Task 1 — Write the single provisioning mechanism at `src/django_service/users/provisioning.py` (AC: #1, #2, #3)
-  - [ ] `def provision_designated_groups(apps: StateApps | Apps | None = None) -> ProvisionResult` — the one callable. `apps=None` means "use the live registry" (`django.apps.apps`); a migration passes its historical registry. This dual signature is what lets the migration and Epic 3's persona seeding share one implementation, which AC #3 requires.
-  - [ ] Read the four names from `django.conf.settings.CLAIMS_CONTRACT` (Story 2.2). Do **not** import `config.authorization.claims` — AD-4 forbids `django_service` importing `config`. `settings` is the legal seam and the only one.
-  - [ ] If `settings.CLAIMS_CONTRACT.is_configured` is False, return an empty `ProvisionResult` and emit one `structlog` warning event `authorization.provisioning_skipped`. **Do not raise** — a migration that raises on an unconfigured contract makes `pixi run migrate` unusable during bring-up, and the refusal for an unconfigured contract is Epic 4's stage 1.
-  - [ ] For each of `staff_group` and `superuser_group`: `Group.objects.get_or_create(name=...)`, then `group.permissions.set(...)` from the declared permission set. `get_or_create` + `set` is what makes AC #2's idempotence structural rather than a re-run guard.
-  - [ ] Return a small frozen dataclass `ProvisionResult(created: tuple[str, ...], existing: tuple[str, ...], permissions_attached: int)` so callers can log what happened without re-querying.
+- [x] Task 1 — Write the single provisioning mechanism at `src/django_service/users/provisioning.py` (AC: #1, #2, #3)
+  - [x] `def provision_designated_groups(apps: StateApps | Apps | None = None) -> ProvisionResult` — the one callable. `apps=None` means "use the live registry" (`django.apps.apps`); a migration passes its historical registry. This dual signature is what lets the migration and Epic 3's persona seeding share one implementation, which AC #3 requires.
+  - [x] Read the four names from `django.conf.settings.CLAIMS_CONTRACT` (Story 2.2). Do **not** import `config.authorization.claims` — AD-4 forbids `django_service` importing `config`. `settings` is the legal seam and the only one.
+  - [x] If `settings.CLAIMS_CONTRACT.is_configured` is False, return an empty `ProvisionResult` and emit one `structlog` warning event `authorization.provisioning_skipped`. **Do not raise** — a migration that raises on an unconfigured contract makes `pixi run migrate` unusable during bring-up, and the refusal for an unconfigured contract is Epic 4's stage 1.
+  - [x] For each of `staff_group` and `superuser_group`: `Group.objects.get_or_create(name=...)`, then `group.permissions.set(...)` from the declared permission set. `get_or_create` + `set` is what makes AC #2's idempotence structural rather than a re-run guard.
+  - [x] Return a small frozen dataclass `ProvisionResult(created: tuple[str, ...], existing: tuple[str, ...], permissions_attached: int)` so callers can log what happened without re-querying.
 
-- [ ] Task 2 — Declare the permission set beside the mechanism (AC: #1)
-  - [ ] In the same module, `DESIGNATED_GROUP_PERMISSIONS: dict[str, tuple[str, ...]]` keyed by the **role slot** (`"staff"`, `"superuser"`), never by group name — the names come from the environment and cannot appear in source (AC #1's "seeded from the claims contract rather than from hardcoded names").
-  - [ ] `"staff"` maps to the `app_label.codename` strings a staff member needs to reach a useful admin index: `("users.view_user", "users.change_user")`. Keep it minimal and comment why each is there.
-  - [ ] `"superuser"` maps to `()`. Django's `ModelBackend.has_perm` short-circuits on `is_superuser`, so attaching permissions to the superuser group is noise that will drift. State that in the comment.
-  - [ ] Resolve each string to a `Permission` row by splitting on `.` and querying `Permission.objects.filter(content_type__app_label=..., codename=...)`. A codename that resolves to nothing is **logged and skipped**, never created — the same discipline AD-12 applies to unknown group claims.
+- [x] Task 2 — Declare the permission set beside the mechanism (AC: #1)
+  - [x] In the same module, `DESIGNATED_GROUP_PERMISSIONS: dict[str, tuple[str, ...]]` keyed by the **role slot** (`"staff"`, `"superuser"`), never by group name — the names come from the environment and cannot appear in source (AC #1's "seeded from the claims contract rather than from hardcoded names").
+  - [x] `"staff"` maps to the `app_label.codename` strings a staff member needs to reach a useful admin index: `("users.view_user", "users.change_user")`. Keep it minimal and comment why each is there.
+  - [x] `"superuser"` maps to `()`. Django's `ModelBackend.has_perm` short-circuits on `is_superuser`, so attaching permissions to the superuser group is noise that will drift. State that in the comment.
+  - [x] Resolve each string to a `Permission` row by splitting on `.` and querying `Permission.objects.filter(content_type__app_label=..., codename=...)`. A codename that resolves to nothing is **logged and skipped**, never created — the same discipline AD-12 applies to unknown group claims.
 
-- [ ] Task 3 — Handle the permissions-do-not-exist-yet trap in the migration (AC: #1, #2)
-  - [ ] `Permission` rows are created by the `post_migrate` signal, **not** by a migration. A data migration that runs during the same `migrate` invocation that creates the models will find `auth_permission` empty for those models and silently attach nothing.
-  - [ ] In the migration's forward function, call `django.contrib.auth.management.create_permissions(app_config, apps=apps, verbosity=0)` for the `users` app config **before** calling `provision_designated_groups(apps)`. Guard it by clearing `app_config.models_module = None` after, per Django's own documented workaround for this ordering.
-  - [ ] Do this in the migration only. `provision_designated_groups` itself must not call `create_permissions` — on the live path (Epic 3's persona seeding) the permissions already exist, and calling it there would be a write on a read path.
+- [x] Task 3 — Handle the permissions-do-not-exist-yet trap in the migration (AC: #1, #2)
+  - [x] `Permission` rows are created by the `post_migrate` signal, **not** by a migration. A data migration that runs during the same `migrate` invocation that creates the models will find `auth_permission` empty for those models and silently attach nothing.
+  - [x] In the migration's forward function, call `django.contrib.auth.management.create_permissions(app_config, apps=apps, verbosity=0)` for the `users` app config **before** calling `provision_designated_groups(apps)`. Guard it by clearing `app_config.models_module = None` after, per Django's own documented workaround for this ordering.
+  - [x] Do this in the migration only. `provision_designated_groups` itself must not call `create_permissions` — on the live path (Epic 3's persona seeding) the permissions already exist, and calling it there would be a write on a read path.
 
-- [ ] Task 4 — Write the data migration at `src/django_service/users/migrations/0003_provision_designated_groups.py` (AC: #1, #2)
-  - [ ] `dependencies = [("users", "0002_user_idp_subject"), ("auth", "0012_alter_user_first_name_max_length"), ("contenttypes", "0002_remove_content_type_name")]` — `auth` and `contenttypes` because the forward function touches `Group`, `Permission` and `ContentType`.
-  - [ ] `operations = [migrations.RunPython(forward, reverse, elidable=False)]`.
-  - [ ] `forward(apps, schema_editor)` calls `create_permissions` (Task 3) then `provision_designated_groups(apps)`.
-  - [ ] `reverse(apps, schema_editor)` deletes only the two `Group` rows the contract names, and only if they exist. It must not delete permissions or users.
-  - [ ] Import `provision_designated_groups` inside the function body, not at module top — a migration module that imports application code at import time couples the migration graph to whatever that module imports.
+- [x] Task 4 — Write the data migration at `src/django_service/users/migrations/0003_provision_designated_groups.py` (AC: #1, #2)
+  - [x] `dependencies = [("users", "0002_user_idp_subject"), ("auth", "0012_alter_user_first_name_max_length"), ("contenttypes", "0002_remove_content_type_name")]` — `auth` and `contenttypes` because the forward function touches `Group`, `Permission` and `ContentType`.
+  - [x] `operations = [migrations.RunPython(forward, reverse, elidable=False)]`.
+  - [x] `forward(apps, schema_editor)` calls `create_permissions` (Task 3) then `provision_designated_groups(apps)`.
+  - [x] `reverse(apps, schema_editor)` deletes only the two `Group` rows the contract names, and only if they exist. It must not delete permissions or users.
+  - [x] Import `provision_designated_groups` inside the function body, not at module top — a migration module that imports application code at import time couples the migration graph to whatever that module imports.
 
-- [ ] Task 5 — Document the deployed bootstrap path (AC: #4)
-  - [ ] Create `docs/authentication.md`. Sections: *How an identity becomes a user*; *How the first administrator is established*; *The four claims-contract environment variables*; *`createsuperuser` and where it is still available*.
-  - [ ] State in the first-administrator section, in these terms: the first administrator is established by **IdP group claim** — an identity whose claims assert the configured superuser-conferring group receives `is_superuser` on its next authentication. No one runs `createsuperuser` against a deployed component.
-  - [ ] State that `createsuperuser` remains available **only where the refusals do not apply** — that is, local development. Name the existing `pixi run createsuperuser` task and say it is a local convenience. Mark the refusal itself as Epic 4's work.
-  - [ ] Add `- Authentication: authentication.md` to the `nav:` list in `mkdocs.yml`, after `Development`. `pixi run docs` builds with `--strict`, so a page absent from the nav fails the build.
+- [x] Task 5 — Document the deployed bootstrap path (AC: #4)
+  - [x] Create `docs/authentication.md`. Sections: *How an identity becomes a user*; *How the first administrator is established*; *The four claims-contract environment variables*; *`createsuperuser` and where it is still available*.
+  - [x] State in the first-administrator section, in these terms: the first administrator is established by **IdP group claim** — an identity whose claims assert the configured superuser-conferring group receives `is_superuser` on its next authentication. No one runs `createsuperuser` against a deployed component.
+  - [x] State that `createsuperuser` remains available **only where the refusals do not apply** — that is, local development. Name the existing `pixi run createsuperuser` task and say it is a local convenience. Mark the refusal itself as Epic 4's work.
+  - [x] Add `- Authentication: authentication.md` to the `nav:` list in `mkdocs.yml`, after `Development`. `pixi run docs` builds with `--strict`, so a page absent from the nav fails the build.
 
-- [ ] Task 6 — Tests (AC: #1, #2, #3)
-  - [ ] `tests/unit/users/test_provisioning.py` (new) — assert `DESIGNATED_GROUP_PERMISSIONS` is keyed by role slot and contains no group *names*; assert that a `ProvisionResult` from an unconfigured contract is empty and raises nothing.
-  - [ ] `tests/integration/users/test_provisioning.py` (new, `@pytest.mark.django_db`) — call `provision_designated_groups()` twice against a live database and assert `Group.objects.filter(name=...).count() == 1` for each after the second call (AC #2); assert the staff group's permission set matches the declaration; assert a contract naming different group names produces those names and not any hardcoded string (AC #1).
-  - [ ] Assert the migration itself is idempotent by running the forward function twice through `django_test_migrations`-style manual invocation, or — simpler and sufficient — by asserting `provision_designated_groups` is the only writer and testing it directly. Do not add a new dependency for this.
-  - [ ] Add a test that greps the repository for a second group-creating call site: assert that `Group.objects.create` and `Group.objects.get_or_create` appear in `src/` **only** inside `src/django_service/users/provisioning.py` (AC #3's "no path creates groups of its own"). A source-text assertion is legitimate here because the property is about authorship, not behaviour.
-  - [ ] Run `pixi run test`, `pixi run test-integration`, then `pixi run ci`.
+- [x] Task 6 — Tests (AC: #1, #2, #3)
+  - [x] `tests/unit/users/test_provisioning.py` (new) — assert `DESIGNATED_GROUP_PERMISSIONS` is keyed by role slot and contains no group *names*; assert that a `ProvisionResult` from an unconfigured contract is empty and raises nothing.
+  - [x] `tests/integration/users/test_provisioning.py` (new, `@pytest.mark.django_db`) — call `provision_designated_groups()` twice against a live database and assert `Group.objects.filter(name=...).count() == 1` for each after the second call (AC #2); assert the staff group's permission set matches the declaration; assert a contract naming different group names produces those names and not any hardcoded string (AC #1).
+  - [x] Assert the migration itself is idempotent by running the forward function twice through `django_test_migrations`-style manual invocation, or — simpler and sufficient — by asserting `provision_designated_groups` is the only writer and testing it directly. Do not add a new dependency for this.
+  - [x] Add a test that greps the repository for a second group-creating call site: assert that `Group.objects.create` and `Group.objects.get_or_create` appear in `src/` **only** inside `src/django_service/users/provisioning.py` (AC #3's "no path creates groups of its own"). A source-text assertion is legitimate here because the property is about authorship, not behaviour.
+  - [x] Run `pixi run test`, `pixi run test-integration`, then `pixi run ci`.
 
 ## Dev Notes
 
@@ -143,3 +150,22 @@ One variance worth recording: the seed places authorization under `src/config/au
 ### Completion Notes List
 
 ### File List
+
+## Review Triage Log
+
+### 2026-08-16 — Inline review pass (non-standard)
+
+The orchestrated run was killed mid-review, so the three hunter sessions never
+ran. This pass was performed inline instead, by the session driving the loop,
+and is recorded as weaker evidence than a normal pass for one specific reason:
+the hunters are designed to read a diff blind, and this reviewer had the
+story's full context. Recorded rather than glossed, per CG-2.
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 1
+- defer: 1
+- reject: 0
+- addressed_findings:
+  - `[medium]` `[patch]` `0003_provision_designated_groups.reverse()` was executable code that no test exercised, kept permanently in the graph by `elidable=False`. A broken filter, wrong model or raise would have surfaced only when an operator ran `migrate users 0002` — a rollback, which is the worst moment to discover it. Added `test_the_migration_reverse_removes_the_designated_groups` and `test_the_migration_reverse_deletes_nothing_when_the_contract_is_unconfigured`. Mutation-verified: gutting `reverse()` fails the first test.
+  - `[medium]` `[defer]` `reverse()` deletes by name without consulting provenance, so a rollback destroys a pre-existing group and cascades its memberships. Filed in `deferred-work.md`; a correct fix changes AC #1's shape rather than patching it.
