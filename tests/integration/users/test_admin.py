@@ -90,6 +90,13 @@ class TestUserAdmin:
 
     @pytest.fixture
     def _force_allauth(self, settings):
+        """Re-apply the default, and reload the admin so the wrapper is installed.
+
+        `DJANGO_ADMIN_FORCE_ALLAUTH` defaults true since Story 2.6, so this no
+        longer *changes* anything -- it pins the value the test depends on, and
+        the reload is what re-wraps `admin.site.login` after another test's
+        reload may have replaced the module object.
+        """
         settings.DJANGO_ADMIN_FORCE_ALLAUTH = True
         # Reload the admin module to apply the setting change
         import django_service.users.admin as users_admin  # noqa: PLC0415
@@ -100,10 +107,31 @@ class TestUserAdmin:
     @pytest.mark.django_db
     @pytest.mark.usefixtures("_force_allauth")
     def test_allauth_login(self, rf, settings):
+        """AC #6: `/admin/` sign-in is the IdP redirect, through the existing wrapper."""
         request = rf.get("/fake-url")
         request.user = AnonymousUser()
         response = admin.site.login(request)
 
-        # The `admin` login view should redirect to the `allauth` login view
-        target_url = reverse(settings.LOGIN_URL) + "?next=" + request.path
+        # The `admin` login view should redirect to the `allauth` login view.
+        # `str`, not `reverse`: `LOGIN_URL` is the provider's resolved login
+        # route now rather than a URL name -- which is the whole of AC #6.
+        target_url = str(settings.LOGIN_URL) + "?next=" + request.path
         assertRedirects(response, target_url, fetch_redirect_response=False)
+        assert reverse("account_login") not in response.url
+
+    @pytest.mark.django_db
+    def test_the_admin_login_is_wrapped_without_any_variable_being_set(self, rf, settings):
+        """The default alone is what forces it: no fixture flips the flag here.
+
+        `test_allauth_login` above pins the value it needs, which means it would
+        keep passing if the default went back to false. This one does not, and
+        that is the point -- FR-7's guarantee is about the *default*.
+        """
+        assert settings.DJANGO_ADMIN_FORCE_ALLAUTH is True
+        request = rf.get("/fake-url")
+        request.user = AnonymousUser()
+
+        response = admin.site.login(request)
+
+        assert response.status_code == HTTPStatus.FOUND
+        assert response.url.startswith(str(settings.LOGIN_URL))

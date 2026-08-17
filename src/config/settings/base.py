@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import environ
+from django.urls import reverse_lazy
 
 from config.authorization.claims import load_claims_contract
 from config.observability.logging import build_logging_config
@@ -43,7 +44,20 @@ LANGUAGE_CODE = "en-us"
 #     ('pt-br', _('Portuguese')),
 # ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#site-id
+# Kept, and the `sites` app with it. allauth resolves a provider app through
+# `SocialApp.objects.on_site(request)` on every lookup, so the table has to
+# exist even though AD-31 forbids a row ever being the provider's source.
 SITE_ID = 1
+# The `Site` domain, environment-driven (AD-31). The data migration that used to
+# write it into the database is retired -- see
+# django_service/contrib/sites/migrations/0003_set_site_domain_and_name.py --
+# because a baked-in domain travels into every deployed component and decides
+# what callback URL it advertises. Nothing writes these values to the `Site`
+# row: NFR-1 keeps startup free of queries beyond migration state and AD-22
+# forbids a boot-time write, so these settings are the source of truth and the
+# table exists only for allauth's `on_site` lookup.
+SITE_DOMAIN = env.str("COMPONENT_SITE_DOMAIN", default="localhost")
+SITE_NAME = env.str("COMPONENT_SITE_NAME", default="localhost")
 # https://docs.djangoproject.com/en/dev/ref/settings/#use-i18n
 USE_I18N = True
 # https://docs.djangoproject.com/en/dev/ref/settings/#use-tz
@@ -108,6 +122,12 @@ THIRD_PARTY_APPS = [
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
+    # The OIDC provider that ships with the installed django-allauth
+    # distribution (AD-31, FR-4). No second OIDC framework is added, and this
+    # entry is never guarded behind an availability check -- AD-24 permits no
+    # conditional import, no settings-module inheritance and no
+    # `try`/`except ImportError` as a removal mechanism.
+    "allauth.socialaccount.providers.openid_connect",
     "django_celery_beat",
     "rest_framework",
     "rest_framework.authtoken",
@@ -139,8 +159,17 @@ AUTHENTICATION_BACKENDS = [
 AUTH_USER_MODEL = "users.User"
 # https://docs.djangoproject.com/en/dev/ref/settings/#login-redirect-url
 LOGIN_REDIRECT_URL = "users:redirect"
+# The id the OIDC app is registered under, read here rather than beside
+# `SOCIALACCOUNT_PROVIDERS` below because `LOGIN_URL` is built from it. One
+# variable, one meaning: the provider block reads this same name.
+OIDC_PROVIDER_ID = env.str("COMPONENT_OIDC_PROVIDER_ID", default="oidc")
 # https://docs.djangoproject.com/en/dev/ref/settings/#login-url
-LOGIN_URL = "account_login"
+# FR-4 / AC #1: an unauthenticated request to an authenticated page redirects to
+# the IdP, never to allauth's local credential form. `reverse_lazy` rather than
+# `reverse` because a module-level reverse in a settings file runs before the
+# URLconf is loaded. The local account routes are deliberately still installed
+# -- deleting them is Story 2.8's, and refusing them at startup is Epic 4's.
+LOGIN_URL = reverse_lazy("openid_connect_login", kwargs={"provider_id": OIDC_PROVIDER_ID})
 # The claims contract (FR-10, AD-11, AD-12): the identity-key claim, the group
 # claim, and the staff- and superuser-conferring groups, each read from a
 # COMPONENT_-prefixed variable with no default. Unset stays unset -- an empty
@@ -274,8 +303,14 @@ ADMINS = ['"Kevin Samuel Mills" <millsks@gmail.com>']
 # https://docs.djangoproject.com/en/dev/ref/settings/#managers
 MANAGERS = ADMINS
 # https://cookiecutter-django.readthedocs.io/en/latest/settings.html#other-environment-settings
-# Force the `admin` sign in process to go through the `django-allauth` workflow
-DJANGO_ADMIN_FORCE_ALLAUTH = env.bool("DJANGO_ADMIN_FORCE_ALLAUTH", default=False)
+# Force the `admin` sign in process to go through the `django-allauth` workflow.
+# FR-7: this defaults *true*. It arrived from cookiecutter-django defaulting
+# false, which left `/admin/` serving Django's own credential form through
+# `ModelBackend` with the IdP never involved. The mechanism is unchanged --
+# `django_service/users/admin.py` already wraps `admin.site.login` in allauth's
+# `secure_admin_login`, which redirects at `LOGIN_URL`; only the default was
+# wrong.
+DJANGO_ADMIN_FORCE_ALLAUTH = env.bool("DJANGO_ADMIN_FORCE_ALLAUTH", default=True)
 
 # LOGGING
 # ------------------------------------------------------------------------------
@@ -354,9 +389,61 @@ ACCOUNT_ADAPTER = "django_service.users.adapters.AccountAdapter"
 # https://docs.allauth.org/en/latest/account/forms.html
 ACCOUNT_FORMS = {"signup": "django_service.users.forms.UserSignupForm"}
 # https://docs.allauth.org/en/latest/socialaccount/configuration.html
-SOCIALACCOUNT_ADAPTER = "django_service.users.adapters.SocialAccountAdapter"
+# The adapter lives in `config.authorization` beside the mapper it calls. AD-4
+# permits `config` to import `django_service` and forbids the reverse, so an
+# adapter that has to reach the mapper cannot stay in `django_service`.
+SOCIALACCOUNT_ADAPTER = "config.authorization.adapters.OIDCSocialAccountAdapter"
 # https://docs.allauth.org/en/latest/socialaccount/configuration.html
 SOCIALACCOUNT_FORMS = {"signup": "django_service.users.forms.UserSocialSignupForm"}
+# https://docs.allauth.org/en/latest/socialaccount/configuration.html
+# Already allauth's default, and stated anyway: with it on, a provider asserting
+# a verified address that matches a local row signs that row's owner in. AD-11
+# makes `idp_subject` the sole identity key and forbids email standing in for
+# it, so this being explicit is what stops a later edit turning email into a
+# resolution key without anyone noticing the rule it broke.
+SOCIALACCOUNT_EMAIL_AUTHENTICATION = False
+# The OIDC provider, configured from the environment (AD-31, AC #4). Never from
+# database-resident `SocialApp` rows: a component forbidden to migrate itself
+# could not create one, and configuring the same provider in both places makes
+# allauth's `get_app` raise `MultipleObjectsReturned` at login. So nothing in
+# this repository creates such a row, and no fixture or instruction asks anyone
+# to.
+#
+# `server_url` is required -- allauth reads `app.settings["server_url"]` with a
+# bare subscript, so a missing one is a `KeyError` rather than a graceful
+# degradation. Every value is read with `default=""` all the same: an
+# unconfigured IdP is refused at startup by Epic 4's stage 1, not by a settings
+# module that cannot be imported to be inspected.
+#
+# `COMPONENT_OIDC_ISSUER` is the single trust anchor (AD-23). Story 2.7 derives
+# the JWKS location from this same variable -- there is no second issuer
+# setting, and adding one would give the component two answers to "who signs
+# these tokens".
+#
+# Discovery is a *request*-time fetch inside allauth (`openid_config`), which is
+# what keeps NFR-1's "startup makes no network call" true with this block
+# present. Nothing here, in an `AppConfig.ready()` or in a system check may
+# fetch the discovery document.
+SOCIALACCOUNT_PROVIDERS = {
+    "openid_connect": {
+        "APPS": [
+            {
+                "provider_id": OIDC_PROVIDER_ID,
+                "name": env.str("COMPONENT_OIDC_PROVIDER_NAME", default=""),
+                "client_id": env.str("COMPONENT_OIDC_CLIENT_ID", default=""),
+                "secret": env.str("COMPONENT_OIDC_CLIENT_SECRET", default=""),
+                "settings": {
+                    "server_url": env.str("COMPONENT_OIDC_ISSUER", default=""),
+                    # FR-4 specifies Authorization Code with PKCE. allauth reads
+                    # exactly this key (`oauth2.provider.get_pkce_params`) and
+                    # falls back to the provider default, which is False --
+                    # without the key there is no PKCE.
+                    "oauth_pkce_enabled": True,
+                },
+            },
+        ],
+    },
+}
 
 # django-rest-framework
 # -------------------------------------------------------------------------------

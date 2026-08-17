@@ -65,7 +65,7 @@ development_status:
   2-3-the-designated-groups-exist-before-the-first-authentication: done
   2-4-the-mapper-resolves-an-identity-to-a-user: done
   2-5-the-mapper-syncs-authorization-once-per-credential-epoch: done
-  2-6-a-person-authenticates-interactively-against-the-idp: ready-for-dev
+  2-6-a-person-authenticates-interactively-against-the-idp: done
   2-7-an-api-client-authenticates-programmatically-against-the-idp: ready-for-dev
   2-8-the-static-token-credential-surface-is-removed-entirely: ready-for-dev
   epic-2-retrospective: optional

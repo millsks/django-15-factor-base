@@ -97,11 +97,33 @@ class TestUserDetailView:
         assert response.status_code == HTTPStatus.OK
 
     def test_not_authenticated(self, user: User, rf: RequestFactory):
+        """AC #1: an unauthenticated request to an authenticated page goes to the IdP.
+
+        `str` rather than `reverse`: `LOGIN_URL` is the provider's login route
+        resolved lazily in the settings module, not a URL *name* to be reversed
+        again. That change is the assertion -- the target is the OIDC redirect,
+        never allauth's local credential form at `/accounts/login/`.
+        """
         request = rf.get("/fake-url/")
         request.user = AnonymousUser()
         response = user_detail_view(request, username=user.username)
-        login_url = reverse(settings.LOGIN_URL)
+        login_url = str(settings.LOGIN_URL)
 
         assert isinstance(response, HttpResponseRedirect)
         assert response.status_code == HTTPStatus.FOUND
         assert response.url == f"{login_url}?next=/fake-url/"
+        assert response.url.startswith(reverse("openid_connect_login", kwargs={"provider_id": "oidc"}))
+        assert not response.url.startswith(reverse("account_login"))
+
+    def test_not_authenticated_through_the_url_resolver(self, user: User, client):
+        """The same guarantee end to end, through the resolver and the middleware stack.
+
+        `test_not_authenticated` above calls the view directly, which proves the
+        mixin's behaviour but not the route's. This one is what AC #1 actually
+        says: a request to an authenticated page redirects to the IdP.
+        """
+        response = client.get(reverse("users:detail", kwargs={"username": user.username}))
+
+        assert response.status_code == HTTPStatus.FOUND
+        assert response.url.startswith(reverse("openid_connect_login", kwargs={"provider_id": "oidc"}))
+        assert not response.url.startswith(reverse("account_login"))

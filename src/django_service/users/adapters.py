@@ -3,14 +3,16 @@ from __future__ import annotations
 import typing
 
 from allauth.account.adapter import DefaultAccountAdapter
-from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.conf import settings
 
 if typing.TYPE_CHECKING:
-    from allauth.socialaccount.models import SocialLogin
     from django.http import HttpRequest
 
-    from django_service.users.models import User
+# The social adapter that used to sit beside this class is gone. It lives at
+# `config.authorization.adapters.OIDCSocialAccountAdapter` now, because AD-11
+# routes every interactive sign-in through the mapper and AD-4 forbids
+# `django_service` importing `config`. Its `populate_user` name derivation went
+# with it rather than moving: the mapper owns every claim-derived attribute.
 
 
 # django-allauth ships no `py.typed` marker and no stub package exists for it on
@@ -30,46 +32,3 @@ class AccountAdapter(DefaultAccountAdapter):  # type: ignore[misc]
 
         """
         return getattr(settings, "ACCOUNT_ALLOW_REGISTRATION", True)
-
-
-class SocialAccountAdapter(DefaultSocialAccountAdapter):  # type: ignore[misc]
-    def is_open_for_signup(
-        self,
-        request: HttpRequest,
-        sociallogin: SocialLogin,
-    ) -> bool:
-        """Report whether registration through a social provider is permitted.
-
-        Args:
-            request: The request asking to sign up.
-            sociallogin: The provider login being completed.
-
-        Returns:
-            The value of the ``ACCOUNT_ALLOW_REGISTRATION`` setting.
-
-        """
-        return getattr(settings, "ACCOUNT_ALLOW_REGISTRATION", True)
-
-    def populate_user(
-        self,
-        request: HttpRequest,
-        sociallogin: SocialLogin,
-        data: dict[str, typing.Any],
-    ) -> User:
-        """
-        Populates user information from social provider info.
-
-        See: https://docs.allauth.org/en/latest/socialaccount/advanced.html#creating-and-populating-user-instances
-        """
-        # Declared, not inferred: the untyped allauth base returns `Any`, and
-        # returning `Any` from a function annotated `-> User` is what
-        # `warn_return_any` exists to catch.
-        user: User = super().populate_user(request, sociallogin, data)
-        if not user.name:
-            if name := data.get("name"):
-                user.name = name
-            elif first_name := data.get("first_name"):
-                user.name = first_name
-                if last_name := data.get("last_name"):
-                    user.name += f" {last_name}"
-        return user
