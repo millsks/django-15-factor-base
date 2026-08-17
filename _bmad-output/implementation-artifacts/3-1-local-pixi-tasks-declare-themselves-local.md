@@ -12,26 +12,30 @@ Status: blocked
 ## Story
 
 As a developer working on a generated component,
-I want locality declared by the task I run rather than by a file in the source tree,
+I want locality declared by the pixi environment I run in rather than by a file in the source tree,
 so that a freshly cloned component runs with one command and the declaration is inert in deployment.
 
 ## Acceptance Criteria
 
 **Traceability:** AD-13 · supports FR-12 · SC-5
 
-1. **Given** each local pixi task
-   **When** it is declared
-   **Then** it sets `COMPONENT_RUNTIME=local` in its own `env`
+1. **Given** the `dev` pixi environment
+   **When** locality is declared
+   **Then** `[feature.dev.activation.env]` sets `COMPONENT_RUNTIME = "local"`
+   **And** no pixi task declares `COMPONENT_RUNTIME` in its own `env`
    **And** the declaration is committed, so a freshly cloned component runs with one command
 
-2. **Given** a container runs its server process directly and never invokes a local task
-   **When** a component is deployed
-   **Then** the local declaration is inert
+2. **Given** a deployed component — a container running its server process directly, or the release stage invoking `pixi run migrate` in the `default` environment
+   **When** locality is read
+   **Then** `COMPONENT_RUNTIME` is absent and the component reads *deployed*
+   **And** the deployment platform's own configuration (an OpenShift configmap or equivalent) remains in sole control of the variable, because nothing in `default` overrides it
 
-3. **Given** `[activation.env]` reaches production because the golden base runs pixi
+3. **Given** the `default` environment's activation env reaches production because the golden base runs pixi
    **When** the configuration is inspected
-   **Then** no `COMPONENT_*` variable appears in `[activation.env]`
-   **And** a test asserts this over the `pixi.toml`
+   **Then** no `COMPONENT_*` variable appears in the `default` environment's resolved activation env, platform-scoped tables included
+   **And** no `COMPONENT_PROCESS` appears in *any* activation env, feature-scoped included
+   **And** no production-bound environment includes the `dev` feature
+   **And** a test asserts all three over the `pixi.toml`
 
 4. **Given** the locality declaration
    **When** it is absent or unrecognized
@@ -48,23 +52,27 @@ so that a freshly cloned component runs with one command and the declaration is 
   - [ ] Read the environment inside the functions, never at import time, so a test's `monkeypatch.setenv` is observed without module reloading.
   - [ ] Full type hints, Google-style docstrings, no `print`, no stdlib `logging`.
 
-- [ ] Task 2: Declare `COMPONENT_RUNTIME=local` in the `env` of every local pixi task (AC: #1, #2)
-  - [ ] In `pixi.toml` `[tasks]`, add `env = { COMPONENT_RUNTIME = "local" }` to: `manage`, `migrate`, `collectstatic`, `createsuperuser`, `serve`.
-  - [ ] In `pixi.toml` `[feature.dev.tasks]`, add the same `env` to: `runserver`, `serve-reload`, `makemigrations`, `test`, `test-integration`, `test-cov`.
-  - [ ] Do **not** add it to `ci`. `ci` is a `depends-on` aggregator; pixi does not propagate a task's `env` to the tasks it depends on, so the declaration must sit on each leaf task that loads Django.
-  - [ ] Leave the pure-tooling tasks (`bootstrap`, `format`, `lint`, `typecheck`, `ruff-report`, `build`, `docs`, `docs-serve`, `changelog`, `precommit`) without the variable — they never import `config.settings`.
-  - [ ] Add a short rationale comment above the `[tasks]` block, in the file's existing commenting style, stating that locality is declared per task because activation env travels into production.
+- [ ] Task 2: Declare `COMPONENT_RUNTIME=local` once, in the `dev` environment (AC: #1, #2)
+  - [ ] In `pixi.toml`, add `COMPONENT_RUNTIME = "local"` to `[feature.dev.activation.env]`, beside the existing `DJANGO_DEBUG_APPS = "True"`.
+  - [ ] Add **no** `env` table to any task. Do not put `COMPONENT_RUNTIME` in `[tasks]`, `[feature.dev.tasks]`, or `[activation.env]`. There is exactly one declaration site.
+  - [ ] The developer paths inherit it because their tasks resolve to the `dev` environment: `runserver`, `serve-reload`, `makemigrations`, `test`, `test-integration`, `test-cov`, `typecheck`, `precommit`, `ruff-report`, `spike-storage`. Note that `typecheck`/`precommit` (mypy's django-stubs plugin, `pyproject.toml:305-308,323`) and `spike-storage` (pytest's `--ds=config.settings.test` in `addopts`) **do** load `config.settings` — the superseded task list wrongly called them pure tooling.
+  - [ ] The operational commands in `[tasks]` — `manage`, `migrate`, `collectstatic`, `createsuperuser`, `serve` — get **nothing**. A developer invokes them as `pixi run -e dev <task>`; the release stage invokes them bare and correctly reads *deployed*.
+  - [ ] Do **not** create `dev-`prefixed twins of those tasks, and do **not** define a same-named task in both `[tasks]` and `[feature.dev.tasks]` — pixi rejects that as `the task '<name>' is ambiguous` (verified on 0.70.2, and the same failure `docs/development.md` already records for `ci`).
+  - [ ] Add a rationale comment above `[feature.dev.activation.env]`, in the file's existing commenting style, recording *why* the declaration lives in the environment rather than on the tasks: a task's `env` overrides the caller's environment, so a task-level `COMPONENT_RUNTIME=local` on `migrate` could not be overridden by the deployment platform's configmap and would make the release stage read *local*.
 
-- [ ] Task 3: Keep every `COMPONENT_*` variable out of activation env (AC: #3)
-  - [ ] Confirm `[activation.env]` in `pixi.toml` still contains only `COVERAGE_CORE = "ctrace"` and `[feature.dev.activation.env]` only `DJANGO_DEBUG_APPS = "True"`. Both hold today; this story's job is to make that state enforced rather than incidental.
+- [ ] Task 3: Keep `COMPONENT_*` out of the `default` environment's activation env (AC: #3)
+  - [ ] Confirm `[activation.env]` in `pixi.toml` still contains only `COVERAGE_CORE = "ctrace"`. It must remain free of every `COMPONENT_*` key — this is the table the golden base evaluates in production.
+  - [ ] `COMPONENT_PROCESS` is forbidden in **every** activation env, feature-scoped included: placed there it would make every management command declare itself a serving process and deadlock the release stage on the migrations refusal. Only `COMPONENT_RUNTIME`, and only in `[feature.dev.activation.env]`, is permitted.
   - [ ] Add a comment inside `[activation.env]` recording the prohibition and its consequence.
 
 - [ ] Task 4: Author the gate test over the materialized manifest (AC: #1, #3)
   - [ ] Create `tests/unit/test_locality_declaration.py` (NEW), following the `tomllib` manifest-parsing pattern already established in `tests/unit/test_dependency_policy.py:11-23` (module-scoped `manifest` fixture, `Path(__file__).resolve().parents[2] / "pixi.toml"`).
-  - [ ] Declare the expected local-task set as data in the test module (`LOCAL_TASKS: frozenset[str]`), matching Task 2's list.
-  - [ ] `test_no_component_variable_in_activation_env`: assert no key starting with `COMPONENT_` appears in `[activation.env]` or in any `[feature.<name>.activation.env]` table.
-  - [ ] `test_every_local_task_declares_local_runtime`: for each name in `LOCAL_TASKS`, assert the task exists in `[tasks]` or `[feature.dev.tasks]` and that its `env["COMPONENT_RUNTIME"] == "local"`.
-  - [ ] `test_no_task_declares_an_unrecognized_runtime`: iterate every task in every task table; where a task sets `COMPONENT_RUNTIME` at all, assert the value is exactly `"local"`. This is the two-way half — it catches a task that declares a typo'd locality and silently becomes deployed.
+  - [ ] Enumerate activation tables **including platform-scoped ones**: `[activation.env]`, `[target.<platform>.activation.env]`, `[feature.<n>.activation.env]`, and `[feature.<n>.target.<platform>.activation.env]`. Verified on pixi 0.70.2 that platform-scoped activation env is honoured and reaches the process; a helper that scans only the unscoped tables leaves a hole through which `COMPONENT_RUNTIME = "local"` in `[target.linux-64.activation.env]` passes green and ships in the production image.
+  - [ ] `test_default_environment_activation_env_declares_no_component_variable`: assert no key starting with `COMPONENT_` appears in any activation table that the `default` environment resolves — the unscoped `[activation.env]`, its platform-scoped siblings, and the activation env of every feature the `default` environment includes.
+  - [ ] `test_component_process_absent_from_every_activation_env`: assert `COMPONENT_PROCESS` appears in **no** activation table anywhere in the manifest, feature-scoped and platform-scoped included. This one is absolute and does not depend on which environment resolves it.
+  - [ ] `test_dev_feature_declares_local_runtime`: assert `[feature.dev.activation.env]["COMPONENT_RUNTIME"] == "local"` — exactly that value, so a typo'd `"Local "`-style variant that `is_local()` would still accept, or a `"dev"` that it would not, both fail loudly here.
+  - [ ] `test_no_task_declares_component_runtime`: iterate every task in every task table (`[tasks]`, `[feature.<n>.tasks]`, platform-scoped variants); assert no task sets `COMPONENT_RUNTIME` in its `env` at all. The single declaration site is the environment; a task that re-declares it is the failure this catches, because a task `env` overrides the caller and would take the configmap out of the loop.
+  - [ ] `test_no_production_bound_environment_includes_the_dev_feature`: for every entry in `[environments]` other than the developer environments, assert its feature list does not contain `dev`. This is what keeps the narrowed prohibition honest once Epic 8's six-environment matrix lands; write it so it passes on today's `default`/`dev` pair.
   - [ ] `test_serving_process_tasks_declare_no_runtime`: for any task named `web`, `worker` or `beat` that exists, assert it sets no `COMPONENT_RUNTIME`. These tasks arrive in Epic 5; write the assertion so it passes vacuously until then.
 
 - [ ] Task 5: Unit-test the locality reader (AC: #4)
@@ -73,36 +81,42 @@ so that a freshly cloned component runs with one command and the declaration is 
   - [ ] Assert: `COMPONENT_PROCESS` absent → `component_process()` is `None` and `is_serving_process()` is `False`; `COMPONENT_PROCESS="web"` → `"web"` and `True`; `COMPONENT_PROCESS="shell"` → `None` and `False`.
 
 - [ ] Task 6: Document the declaration (AC: #1, #2, #4)
-  - [ ] In `docs/development.md`, under the existing `## Environment` section, add a short subsection stating: locality is declared by the pixi task, `COMPONENT_RUNTIME=local` lives in each local task's own `env`, a deployed container runs its server process directly and therefore never sets it, and absent or unrecognized means deployed.
+  - [ ] In `docs/development.md`, under the existing `## Environment` section, add a short subsection stating: locality is declared by the pixi *environment*, `COMPONENT_RUNTIME=local` lives once in `[feature.dev.activation.env]`, the `default` environment declares nothing and reads *deployed*, and absent or unrecognized means deployed.
+  - [ ] State the developer consequence plainly, because it is the one behavioural change a reader will trip over: the operational commands in `[tasks]` are run as `pixi run -e dev migrate` (etc.) when you want them to behave locally. Bare `pixi run migrate` is the *deployed* invocation and is what the release stage uses.
+  - [ ] Update the existing sentence at `docs/development.md:54-56` ("Operational commands … run in `default`, because a deployment runs them too") to note that this partition is now what carries locality, so it is load-bearing rather than incidental.
 
 ## Dev Notes
 
 ### Architecture Constraints
 
-**AD-13 — Locality and process type are declared per pixi task.** Binding rule, in the AD's own words:
+**AD-13 — Locality is declared by the dev environment; process type per pixi task.** Binding rule, in the AD's own words (amended 2026-08-17; the superseded per-task version is what this story was originally written against):
 
-> `COMPONENT_RUNTIME=local` is set in the `env` of each local pixi task. `web`, `worker` and `beat` set no runtime and inherit *deployed*; each sets `COMPONENT_PROCESS`. **No `COMPONENT_*` variable may appear in `[activation.env]`**, and a gate test asserts it over the materialized `pixi.toml` — the golden base runs pixi, so activation env reaches production, and `COMPONENT_PROCESS` placed there would make every management command declare itself a serving process and deadlock the release stage on the migrations refusal.
+> `COMPONENT_RUNTIME = "local"` is declared exactly once, in `[feature.dev.activation.env]`. Every developer path runs in the `dev` environment and inherits it; the `default` environment declares nothing and therefore reads *deployed* — which is what the golden base runs and what the release stage invokes (`pixi run migrate`, `pixi run collectstatic`). `web`, `worker` and `beat` set no runtime and inherit *deployed*; each sets `COMPONENT_PROCESS` in its own task `env`.
+> **No `COMPONENT_*` variable may appear in the `default` environment's resolved activation env; `COMPONENT_PROCESS` may not appear in *any* activation env**, feature-scoped included, because a `COMPONENT_PROCESS` there would make every management command declare itself a serving process and deadlock the release stage on the migrations refusal. **No production-bound environment may include the `dev` feature.** A gate test asserts all three over the materialized `pixi.toml`.
 > Locality fails closed: absent or unrecognized means deployed. Process type fails open: absent means not a serving process, because failing it closed would produce exactly that deadlock.
 
-*Prevents:* "the declaration travelling into the deployed image and inverting the fail-closed property; the entire test suite refusing to start on the day the refusal contract lands; `sys.argv` sniffing."
+*Prevents:* "the declaration travelling into the deployed image and inverting the fail-closed property; a release-stage task reading *local* and disarming every stage-1 refusal; the entire test suite refusing to start on the day the refusal contract lands; `sys.argv` sniffing."
+
+**Why the amendment happened, so it is not re-litigated.** The superseded rule put `COMPONENT_RUNTIME=local` on `migrate` and `collectstatic`, which `docs/development.md:54-56` and Story 5.5 both establish are **deployment-invoked** — so the production release stage would have read *local* and skipped all five stage-1 refusals. A task's `env` overrides the caller's environment (probed on 0.70.2), so the deployment platform's configmap could not have corrected it. Declaring nothing in `default` inverts that: the platform keeps sole control of the variable, and absence fails closed to *deployed*.
 
 Consequences the dev agent must not trade away:
 
-- **Never** put `COMPONENT_RUNTIME` or `COMPONENT_PROCESS` in `[activation.env]`, `[feature.dev.activation.env]`, `.env`, `pyproject.toml`, a settings module, or a committed dotfile. Activation env is evaluated by the golden base in production; a `COMPONENT_RUNTIME=local` that reaches production inverts the fail-closed property and disarms every refusal in Epic 4. A `COMPONENT_PROCESS` there makes `pixi run migrate` — a release-stage step — declare itself a serving process and refuse on the unapplied-migrations condition, deadlocking the release.
+- **Never** put `COMPONENT_RUNTIME` in `[activation.env]`, a task `env`, `.env`, `pyproject.toml`, a settings module, or a committed dotfile. `[feature.dev.activation.env]` is the **only** permitted site. Never put `COMPONENT_PROCESS` in any activation env at all — a `COMPONENT_PROCESS` there makes `pixi run migrate`, a release-stage step, declare itself a serving process and refuse on the unapplied-migrations condition, deadlocking the release.
+- **Mechanism facts, probed against pixi 0.70.2 on 2026-08-17 — do not re-derive them and do not assume otherwise:** a task's `env` overrides the caller's environment; `${VAR:-default}` is **not** expanded in a task `env` (the literal string is exported, which `is_local()` reads as *deployed*); `$VAR` in a task `env` *is* expanded from the caller; a task with no `env` passes the caller's value through untouched; platform-scoped `[target.<platform>.activation.env]` is honoured and reaches the process; a same-named task in both `[tasks]` and `[feature.dev.tasks]` is rejected with `the task '<name>' is ambiguous`; `env` on a `depends-on`-only task is a parse error; a dependency task keeps its own `env` when reached through `depends-on`.
 - **Never** infer locality from `sys.argv`, `DEBUG`, the settings module name, `DJANGO_ENV`, or a bare `ENV`. The spine's Consistency Conventions state it directly: `COMPONENT_`-prefixed variables carry component-level runtime facts, and "Never `DJANGO_ENV` or a bare `ENV` — the platform is likely to set a generic `ENV=dev` for a development *deployment*, and a deployed dev environment is still deployed."
 - The asymmetry is deliberate and must be preserved exactly: **locality fails closed** (absent or unrecognized ⇒ deployed, so local development is the exception that declares itself) while **process type fails open** (absent ⇒ not a serving process). Do not "tidy" them into the same default.
 - Accepted consequence, recorded so it is not treated as a bug: **R-5's sibling R-3** — "A serving process started outside `pixi run web` does not fire the migrations refusal. The price of AD-13's fail-open process type, taken because failing it closed deadlocks the release stage."
 
 **AD-1 / single declaration site.** `src/config/locality.py` is the only place the `COMPONENT_RUNTIME` and `COMPONENT_PROCESS` names and their accepted values are spelled. Epic 4's `src/config/startup/` imports this module rather than re-reading `os.environ`; Epic 5's `web`/`worker`/`beat` tasks are the producers of `COMPONENT_PROCESS`. Do not create a second reader.
 
-**Pixi capability.** Per-task `env` is confirmed available at the pinned floor: the spine's Stack table records `pixi ≥ 0.70.2` with "Per-task `env` confirmed available", and `pixi.toml` sets `requires-pixi = ">=0.70.2"`.
+**Pixi capability.** Feature-scoped `[feature.<n>.activation.env]` is confirmed available and correctly scoped at the pinned floor — probed on 0.70.2: a task defined in `[tasks]` and run as `pixi run -e dev <task>` inherits the dev feature's activation env, while the same task run bare in `default` does not see it at all. `pixi.toml` sets `requires-pixi = ">=0.70.2"`. The spine's Stack-table note "Per-task `env` confirmed available" remains true but is no longer the mechanism this AD relies on.
 
 ### Source Tree — files to touch
 
 | Path | NEW / UPDATE | What changes |
 | --- | --- | --- |
 | `src/config/locality.py` | NEW | The single locality/process-type reader: `RUNTIME_ENV_VAR`, `PROCESS_ENV_VAR`, `LOCAL`, `SERVING_PROCESSES`, `is_local()`, `is_deployed()`, `component_process()`, `is_serving_process()`. |
-| `pixi.toml` | UPDATE | Add `env = { COMPONENT_RUNTIME = "local" }` to the eleven Django-invoking tasks named in Task 2; add rationale comments. |
+| `pixi.toml` | UPDATE | Add `COMPONENT_RUNTIME = "local"` to `[feature.dev.activation.env]` — one key, one table. No task gains an `env`. Add rationale comments there and in `[activation.env]`. |
 | `tests/unit/test_locality_declaration.py` | NEW | Manifest assertions over `pixi.toml` (AC #1, #3). |
 | `tests/unit/test_locality.py` | NEW | Behavioural assertions over the reader (AC #4). |
 | `docs/development.md` | UPDATE | New subsection under `## Environment` describing the declaration. |
@@ -125,6 +139,8 @@ Consequences the dev agent must not trade away:
 The Structural Seed lists `src/config/{settings,observability,authorization,startup}/` as the composition root's contents. `src/config/locality.py` is a **module, not a package**, and is a deliberate addition: the spine's Consistency Conventions reserve `src/config/<concern>/` for "cross-cutting concerns with several independent consumers and no natural owner", and locality is a two-function environment read with no internal structure to justify a package. Its consumers are Epic 3 (this epic's URL gating and seeding refusal), Epic 4 (`src/config/startup/`) and Epic 5 (the process tasks). Recorded here as a variance from the seed's literal contents, not from its rule.
 
 **Known duplication, deliberate.** Epic 5 Story 5.2 also asserts the `[activation.env]` prohibition, in `tests/unit/test_process_model.py`, alongside its two-way process-model test. That is the same AD-13 clause asserted twice in two files. Leave this story's assertion where it is: it must exist before Epic 5 lands, and the two tests are cheap. If a later story consolidates them, `tests/unit/test_locality_declaration.py` is the home — it owns the locality half of AD-13, and `test_process_model.py` owns the process half.
+
+**Ripple from the AD-13 amendment — do not fix it here.** Story 5.2 is written against the superseded blanket prohibition ("no `COMPONENT_*` in `[activation.env]`") and its assertion will contradict this story's `[feature.dev.activation.env]` declaration. The `COMPONENT_PROCESS` half of 5.2's assertion is unaffected and still absolute. Story 5.2 has not been driven, so the correction belongs in its spec when it is next touched, not in a cross-story edit from here. Flagged rather than patched.
 
 Existing repository state relevant to placement: `src/config/` today contains `settings/`, `observability/`, `api_router.py`, `asgi.py`, `celery_app.py`, `urls.py`, `websocket.py`, `wsgi.py`. `src/config/authorization/` and `src/config/startup/` do not exist yet (Epics 2 and 4).
 
@@ -183,6 +199,16 @@ Reverted (stashed, not committed): `src/config/locality.py` (new),
 Per the cascading rule, the intent gap makes the eleven patch findings moot for this pass —
 none was applied, because the code they anchor to was reverted. They are recorded verbatim
 below so the re-derivation does not have to rediscover them.
+
+> **Resolved 2026-08-17 — read the findings against the amended design, not the original.**
+> The intent gap below was resolved by amending AD-13 in `ARCHITECTURE-SPINE.md`: locality is
+> now declared once in `[feature.dev.activation.env]` and no task carries `COMPONENT_RUNTIME`.
+> That dissolves both directions of the gap — the release stage's bare `pixi run migrate`
+> resolves in `default` and reads *deployed*, and the Django-loading tooling tasks
+> (`typecheck`, `precommit`, `spike-storage`) inherit *local* from the dev environment with no
+> list to maintain. **Findings anchored to per-task `env` no longer apply.** Finding 1
+> (platform-scoped activation tables are unscanned) *does* still apply and has been folded into
+> Task 4. Re-read the rest against the amended Tasks 2-4 before treating any as actionable.
 
 ### The intent gap
 
