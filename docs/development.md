@@ -413,11 +413,33 @@ provider, the instrumentors and the structlog pipeline run locally exactly as
 they run deployed — only the export step is absent, so spans are discarded when
 they end. See [Observability](observability.md).
 
-Each stand-in trades away something real. sqlite accepts schemas and queries
-PostgreSQL rejects; `LocMemCache` never evicts or shares state across
-processes; eager Celery never exercises delivery, retries, or argument
-serialization. Local success is not by itself evidence that a change works
-deployed.
+**The broker constraint is a statement about deployment only.** Elsewhere in
+this product you will read that background task processing requires a broker.
+That is a deployment requirement and nothing more: locally, *every* valid
+combination runs with no broker at all — including the combinations that
+selected background task processing. Nothing has to be started, and no
+combination is excluded from local development for want of a Redis. Calling
+`.delay()` on a task runs its body in the calling process and raises its
+exceptions into the caller, so the code path a background task takes is
+exercised locally even though no delivery happens. Deployed, the same absence is
+a misconfiguration the component refuses to start on, rather than a convenience.
+
+The fifth substitution is filesystem-backed object storage, and it is not here
+yet: it arrives with the storage feature in Epic 7. Until then a generated
+component has no local object-storage stand-in, and nothing in this section
+should be read as promising one.
+
+Each stand-in trades away something real, and the trade is knowing rather than
+accidental. sqlite accepts schemas and queries PostgreSQL rejects — a migration
+that applies cleanly here can be refused by the database you deploy against;
+`LocMemCache` never evicts or shares state across processes; eager Celery never
+exercises delivery, retries, or argument serialization, because there is no
+queue for a message to be serialized onto, lost on, or retried from. **Local
+success is not by itself evidence that a change works deployed.** When a change
+touches schema, cache eviction, or task delivery, run it against the real
+services before believing it — point `DATABASE_URL` at a PostgreSQL instance
+(see [The parity gap between local runs and the gate](#the-parity-gap-between-local-runs-and-the-gate))
+rather than treating a green local run as the answer.
 
 ## Database
 
