@@ -30,12 +30,16 @@ from django.db import IntegrityError
 from django.db import connection
 from django.db import transaction
 
+from django_service.users.models import CredentialEpoch
 from django_service.users.models import User
 
 pytestmark = pytest.mark.integration
 
 NAME_MAX_LENGTH = User._meta.get_field("name").max_length  # noqa: SLF001
 assert NAME_MAX_LENGTH is not None, "users.User.name must declare a max_length for this module to assert anything"
+
+JTI_MAX_LENGTH = CredentialEpoch._meta.get_field("jti").max_length  # noqa: SLF001
+assert JTI_MAX_LENGTH is not None, "users.CredentialEpoch.jti must declare a max_length for this module to assert"
 
 # Every URL scheme `django-environ` resolves to a PostgreSQL backend, read from
 # the library rather than listed here. `postgres://` and `postgresql://` are not
@@ -125,6 +129,28 @@ def test_the_column_is_declared_at_the_max_length_the_model_states() -> None:
     reported = next((column.display_size for column in columns if column.name == "name"), _MISSING)
     assert reported is not _MISSING, "users_user has no column named 'name'"
     assert reported == NAME_MAX_LENGTH, f"users_user.name is declared {reported} wide, model says {NAME_MAX_LENGTH}"
+
+
+@pytest.mark.django_db
+def test_the_epoch_jti_column_is_declared_at_the_max_length_the_model_states() -> None:
+    """The mapper reads its bound from the model; the migration is what built the column.
+
+    `config.authorization.mapper` refuses a `jti` longer than
+    `CredentialEpoch.jti` declares, and it asks the *model* how long that is.
+    The column the value actually goes into was written by the migration, so
+    the two can drift apart with no test noticing: a narrowed model would start
+    refusing credentials the database would have stored, and a widened one
+    would let a value through to a `DataError` on PostgreSQL in the middle of
+    an authentication. Read exactly as the `users_user.name` width above is,
+    for the same reasons.
+    """
+    with connection.cursor() as cursor:
+        columns = connection.introspection.get_table_description(cursor, "users_credentialepoch")
+    reported = next((column.display_size for column in columns if column.name == "jti"), _MISSING)
+    assert reported is not _MISSING, "users_credentialepoch has no column named 'jti'"
+    assert reported == JTI_MAX_LENGTH, (
+        f"users_credentialepoch.jti is declared {reported} wide, model says {JTI_MAX_LENGTH}"
+    )
 
 
 @pytest.mark.django_db
