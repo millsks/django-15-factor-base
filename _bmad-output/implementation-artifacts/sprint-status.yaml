@@ -63,7 +63,7 @@ development_status:
   2-1-the-user-model-carries-the-identity-key: done
   2-2-the-claims-contract-is-read-from-the-environment: done
   2-3-the-designated-groups-exist-before-the-first-authentication: done
-  2-4-the-mapper-resolves-an-identity-to-a-user: ready-for-dev
+  2-4-the-mapper-resolves-an-identity-to-a-user: done
   2-5-the-mapper-syncs-authorization-once-per-credential-epoch: ready-for-dev
   2-6-a-person-authenticates-interactively-against-the-idp: ready-for-dev
   2-7-an-api-client-authenticates-programmatically-against-the-idp: ready-for-dev
