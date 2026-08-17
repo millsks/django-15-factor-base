@@ -15,6 +15,25 @@ import sys
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
+# AD-23's declared windows, in seconds, and the values the environment-driven
+# case overrides them with. Named rather than written at the assertion so the
+# numbers read as the policy they are.
+DEFAULT_JWKS_TTL_SECONDS = 3600.0
+DEFAULT_JWKS_MIN_REFETCH_SECONDS = 60.0
+OVERRIDDEN_JWKS_TTL_SECONDS = 900.0
+OVERRIDDEN_JWKS_MIN_REFETCH_SECONDS = 30.0
+
+# The floors both windows are clamped to. A zero or negative refetch window makes
+# `now - last_attempt < window` false for every caller, which disables the rate
+# limit outright -- so the floor is enforced rather than documented as advice.
+FLOOR_JWKS_TTL_SECONDS = 60.0
+FLOOR_JWKS_MIN_REFETCH_SECONDS = 1.0
+
+# Clock-skew tolerance ships at zero: the lever is added, the posture is not
+# moved. Anything above zero accepts a token past its own `exp` by that much.
+DEFAULT_OIDC_LEEWAY_SECONDS = 0.0
+OVERRIDDEN_OIDC_LEEWAY_SECONDS = 5.0
+
 BASE = "config.settings.base"
 LOCAL = "config.settings.local"
 PRODUCTION = "config.settings.production"
@@ -57,6 +76,12 @@ def no_oidc_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "COMPONENT_OIDC_CLIENT_SECRET",
         "COMPONENT_OIDC_PROVIDER_ID",
         "COMPONENT_OIDC_PROVIDER_NAME",
+        "COMPONENT_OIDC_JWKS_URL",
+        "COMPONENT_OIDC_AUDIENCE",
+        "COMPONENT_OIDC_ALGORITHMS",
+        "COMPONENT_JWKS_TTL_SECONDS",
+        "COMPONENT_JWKS_MIN_REFETCH_SECONDS",
+        "COMPONENT_OIDC_LEEWAY_SECONDS",
         "COMPONENT_SITE_DOMAIN",
         "COMPONENT_SITE_NAME",
         "DJANGO_ADMIN_FORCE_ALLAUTH",
@@ -290,3 +315,170 @@ def test_production_accepts_a_real_database(monkeypatch: pytest.MonkeyPatch):
     production = importlib.import_module(PRODUCTION)
     assert production.DATABASES["default"]["ENGINE"].endswith("postgresql")
     assert production.DEBUG is False
+
+
+# ---------------------------------------------------------------------------
+# Story 2.7 -- the Bearer credential's wiring and its configuration.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_bearer_class_is_asked_before_the_session():
+    """AC #1 / Task 4: a request carrying both credentials is decided by the Bearer one.
+
+    Order is the assertion, not membership. The class returns None rather than
+    raising when no Bearer header is present, so placing it first costs a
+    session-authenticated request nothing -- while placing it *after*
+    `SessionAuthentication` would mean a stale session cookie decided a request
+    that presented a fresh token.
+    """
+    base = importlib.import_module(BASE)
+
+    classes = list(base.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"])
+
+    assert classes[0] == "config.authorization.authentication.OIDCBearerAuthentication"
+    assert classes.index("rest_framework.authentication.SessionAuthentication") > 0
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_old_token_credential_is_still_installed():
+    """Removing `TokenAuthentication` is Story 2.8's, deliberately after this one.
+
+    The readiness assessment records the ordering as load-bearing: 2.6 and 2.7
+    precede 2.8 so the replacement credential paths exist before the old ones
+    are deleted.
+    """
+    base = importlib.import_module(BASE)
+
+    assert "rest_framework.authentication.TokenAuthentication" in base.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"]
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_rest_framework_block_keeps_everything_else_it_declared():
+    """The permission default and the schema class are not this story's to move."""
+    base = importlib.import_module(BASE)
+
+    assert base.REST_FRAMEWORK["DEFAULT_PERMISSION_CLASSES"] == ("rest_framework.permissions.IsAuthenticated",)
+    assert base.REST_FRAMEWORK["DEFAULT_SCHEMA_CLASS"] == "drf_spectacular.openapi.AutoSchema"
+    assert base.CORS_URLS_REGEX == r"^/api/.*$"
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_bearer_configuration_defaults_are_the_declared_ones():
+    """AD-23's windows, and an algorithm allowlist that never comes from the token."""
+    base = importlib.import_module(BASE)
+
+    assert base.OIDC_ALGORITHMS == ["RS256"]
+    assert base.JWKS_TTL_SECONDS == DEFAULT_JWKS_TTL_SECONDS
+    assert base.JWKS_MIN_REFETCH_SECONDS == DEFAULT_JWKS_MIN_REFETCH_SECONDS
+    # The clock-skew lever ships pulled all the way back. A default above zero
+    # would be a change to the verification posture wearing a setting's clothes.
+    assert base.OIDC_LEEWAY_SECONDS == DEFAULT_OIDC_LEEWAY_SECONDS
+    # Unset means unconfigured, which refuses every token. It is never defaulted
+    # to a conventional issuer or to "any audience".
+    assert base.OIDC_ISSUER == ""
+    assert base.OIDC_AUDIENCE == ""
+    assert base.OIDC_JWKS_URL == ""
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_there_is_one_issuer_variable_and_both_consumers_read_it(monkeypatch: pytest.MonkeyPatch):
+    """AD-23: the trust anchor is single, so the provider and the Bearer path read one name."""
+    monkeypatch.setenv("COMPONENT_OIDC_ISSUER", "https://idp.example.test/realms/component")
+
+    base = importlib.import_module(BASE)
+
+    assert base.OIDC_ISSUER == "https://idp.example.test/realms/component"
+    assert _oidc_app(base)["settings"]["server_url"] == base.OIDC_ISSUER  # type: ignore[index]
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_the_audience_falls_back_to_the_client_id(monkeypatch: pytest.MonkeyPatch):
+    """An IdP issuing tokens for this component's own client puts the client id in `aud`."""
+    monkeypatch.delenv("COMPONENT_OIDC_AUDIENCE", raising=False)
+    monkeypatch.setenv("COMPONENT_OIDC_CLIENT_ID", "component-web")
+
+    base = importlib.import_module(BASE)
+
+    assert base.OIDC_AUDIENCE == "component-web"
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_an_explicit_audience_wins_over_the_client_id(monkeypatch: pytest.MonkeyPatch):
+    """A deployment whose IdP names a separate resource server sets the variable."""
+    monkeypatch.setenv("COMPONENT_OIDC_CLIENT_ID", "component-web")
+    monkeypatch.setenv("COMPONENT_OIDC_AUDIENCE", "component-api")
+
+    base = importlib.import_module(BASE)
+
+    assert base.OIDC_AUDIENCE == "component-api"
+
+
+@pytest.mark.usefixtures("no_database_env")
+def test_the_jwks_windows_are_environment_driven(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("COMPONENT_JWKS_TTL_SECONDS", "900")
+    monkeypatch.setenv("COMPONENT_JWKS_MIN_REFETCH_SECONDS", "30")
+    monkeypatch.setenv("COMPONENT_OIDC_ALGORITHMS", "RS256,ES256")
+
+    base = importlib.import_module(BASE)
+
+    assert base.JWKS_TTL_SECONDS == OVERRIDDEN_JWKS_TTL_SECONDS
+    assert base.JWKS_MIN_REFETCH_SECONDS == OVERRIDDEN_JWKS_MIN_REFETCH_SECONDS
+    assert base.OIDC_ALGORITHMS == ["RS256", "ES256"]
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+@pytest.mark.parametrize("configured", ["0", "-1", "-3600"])
+def test_a_zero_or_negative_refetch_window_is_clamped_rather_than_honoured(
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str,
+):
+    """A window at or below zero disables the rate limit outright.
+
+    `now - last_attempt < window` is false for every caller once the window is
+    zero or negative, so each unmatched `kid` produces an outbound fetch -- which
+    is precisely the amplification against the IdP's JWKS endpoint that AD-23
+    built this module to prevent, re-armed by one environment variable. It is
+    clamped rather than refused at startup because a running component with a
+    slightly-too-short window is strictly better than one that will not boot,
+    and clamped rather than trusted because the value arrives from a deployment
+    environment nobody reviews line by line.
+    """
+    monkeypatch.setenv("COMPONENT_JWKS_MIN_REFETCH_SECONDS", configured)
+
+    base = importlib.import_module(BASE)
+
+    assert base.JWKS_MIN_REFETCH_SECONDS == FLOOR_JWKS_MIN_REFETCH_SECONDS
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+@pytest.mark.parametrize("configured", ["0", "-1"])
+def test_a_zero_or_negative_cache_lifetime_is_clamped_rather_than_honoured(
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str,
+):
+    """At or below zero every lookup sees the cache as expired, so nothing is ever cached."""
+    monkeypatch.setenv("COMPONENT_JWKS_TTL_SECONDS", configured)
+
+    base = importlib.import_module(BASE)
+
+    assert base.JWKS_TTL_SECONDS == FLOOR_JWKS_TTL_SECONDS
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_the_clock_skew_tolerance_is_environment_driven(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("COMPONENT_OIDC_LEEWAY_SECONDS", "5")
+
+    base = importlib.import_module(BASE)
+
+    assert base.OIDC_LEEWAY_SECONDS == OVERRIDDEN_OIDC_LEEWAY_SECONDS
+
+
+@pytest.mark.usefixtures("no_database_env", "no_oidc_env")
+def test_a_negative_clock_skew_tolerance_is_clamped_to_zero(monkeypatch: pytest.MonkeyPatch):
+    """PyJWT takes `leeway` as a magnitude, so a negative value is a nonsense the reader owns."""
+    monkeypatch.setenv("COMPONENT_OIDC_LEEWAY_SECONDS", "-30")
+
+    base = importlib.import_module(BASE)
+
+    assert base.OIDC_LEEWAY_SECONDS == DEFAULT_OIDC_LEEWAY_SECONDS

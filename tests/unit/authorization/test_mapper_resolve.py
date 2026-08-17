@@ -27,6 +27,7 @@ from config.authorization.mapper import NAME_CLAIM
 from config.authorization.mapper import USERNAME_CLAIM
 from config.authorization.mapper import _attributes_from_claims
 from config.authorization.mapper import _derived_username
+from config.authorization.mapper import _reject_a_deactivated_user
 from config.authorization.mapper import _reject_an_unstorable_identity_key
 from config.authorization.mapper import _username_from_identity_key
 from config.authorization.mapper import resolve_user
@@ -331,3 +332,44 @@ def test_an_identity_key_with_nothing_usable_falls_through_to_the_digest() -> No
     rendered = _username_from_identity_key(subject)
 
     assert rendered == _derived_username(subject)
+
+
+# ---------------------------------------------------------------------------
+# AC #7 (Story 2.7) -- the deactivation refusal, without a database.
+# ---------------------------------------------------------------------------
+
+
+def test_a_deactivated_row_is_refused_with_its_own_reason() -> None:
+    """A resolved row must also be active to be returned.
+
+    The check is called directly rather than through `resolve_user`, which would
+    go on to the query and therefore to a database this suite does not have --
+    the same shape `test_an_identity_key_exactly_the_field_length_is_storable`
+    already uses. The database-backed half, that the refusal fires for a row the
+    identity key actually resolved to, lives in
+    `tests/integration/authorization/test_mapper_resolve.py`.
+    """
+    with pytest.raises(ClaimsRejected) as refusal:
+        _reject_a_deactivated_user(get_user_model()(username="retired", is_active=False))
+
+    assert refusal.value.reason == "resolved user is deactivated"
+    assert "deactivated" in refusal.value.reason
+
+
+def test_an_active_row_passes_the_check_untouched() -> None:
+    """The control: the check is one line and it must not refuse anybody else."""
+    _reject_a_deactivated_user(get_user_model()(username="still-here", is_active=True))
+
+
+def test_the_deactivation_reason_is_not_shared_with_any_claim_refusal() -> None:
+    """A deactivated user's claims are valid; naming a claim refusal would misreport it."""
+    with pytest.raises(ClaimsRejected) as refusal:
+        _reject_a_deactivated_user(get_user_model()(username="retired", is_active=False))
+
+    assert refusal.value.reason not in {
+        "identity key claim absent",
+        "identity key longer than the identity field",
+        "no username available for the identity key",
+        "group claim absent",
+        "token carries no jti",
+    }

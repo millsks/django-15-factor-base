@@ -132,3 +132,43 @@ def test_no_provider_row_is_created_in_the_database():
     from allauth.socialaccount.models import SocialApp  # noqa: PLC0415
 
     assert SocialApp.objects.count() == 0
+
+
+def test_a_deactivated_person_is_refused_by_the_mapper_rather_than_by_allauth(http_request):
+    """AC #7 (Story 2.7): the interactive path answers 403, and now for a stated reason.
+
+    This is a new assertion over Story 2.6's shipped behaviour and it is
+    deliberate. Until the mapper acquired the check, this path was gated only
+    because allauth's `perform_login` happens to test `is_active` *after*
+    `pre_social_login` returns -- an accidental gate that no test pinned and that
+    nothing would have noticed losing. The refusal now happens earlier, inside
+    `resolve_user`, and leaves through the adapter's own refusal response.
+
+    That it is refused *here* rather than downstream is what the assertions
+    below say: `pre_social_login` raises, so allauth never reaches the login, and
+    no `SocialAccount` row is written for the deactivated identity.
+    """
+    Group.objects.get_or_create(name="engineering")
+    User.objects.create(username="retired", idp_subject=SUBJECT, is_active=False)
+    login = _sociallogin({"sub": SUBJECT, "groups": ["engineering"], "preferred_username": "ada"})
+
+    with pytest.raises(ImmediateHttpResponse) as refusal:
+        OIDCSocialAccountAdapter().pre_social_login(http_request, login)
+
+    assert refusal.value.response.status_code == HTTPStatus.FORBIDDEN
+    assert SocialAccount.objects.count() == 0
+
+
+def test_reactivating_a_person_admits_them_again(http_request):
+    """The control: the refusal tracks `is_active` and nothing else about the row."""
+    Group.objects.get_or_create(name="engineering")
+    person = User.objects.create(username="retired", idp_subject=SUBJECT, is_active=False)
+    login = _sociallogin({"sub": SUBJECT, "groups": ["engineering"], "preferred_username": "ada"})
+    with pytest.raises(ImmediateHttpResponse):
+        OIDCSocialAccountAdapter().pre_social_login(http_request, login)
+
+    person.is_active = True
+    person.save(update_fields=["is_active"])
+    OIDCSocialAccountAdapter().pre_social_login(http_request, _sociallogin({"sub": SUBJECT, "groups": ["engineering"]}))
+
+    assert SocialAccount.objects.get(uid=SUBJECT).user == person
