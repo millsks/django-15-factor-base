@@ -41,6 +41,12 @@ so that API authentication is real verification rather than a local lookup.
    **When** it is configured
    **Then** it exists only as a backstop for key removal
 
+7. **Given** a token that verifies against an identity whose user is deactivated
+   **When** authentication is decided
+   **Then** `resolve_user` refuses it with `ClaimsRejected`
+   **And** the Bearer path answers 401
+   **And** the interactive path answers 403 through the adapter's existing refusal response
+
 ## Tasks / Subtasks
 
 - [ ] Task 1 — Build the key store at `src/config/authorization/jwks.py` (AC: #3, #4, #5, #6)
@@ -76,7 +82,14 @@ so that API authentication is real verification rather than a local lookup.
   - [ ] Leave `"rest_framework.authentication.TokenAuthentication"` in place in this story. Its removal is Story 2.8's, and the readiness assessment records the ordering as load-bearing: "2.6 and 2.7 precede 2.8 so the replacement credential paths exist before the old ones are deleted."
   - [ ] Add no new package to `pixi.toml`. `pyjwt`, `cryptography` and `requests` were declared in Story 2.6 Task 1 — confirm all three are present in `[dependencies]` and in `pixi.lock` before writing code against them.
 
-- [ ] Task 5 — Tests (AC: #1 through #6)
+- [ ] Task 5 — Refuse a deactivated user inside the mapper (AC: #7)
+  - [ ] In `src/config/authorization/mapper.py`, make `resolve_user` raise `ClaimsRejected` when the resolved user's `is_active` is False. Check the **resolved** row, after the lookup — the row is already loaded at that point, so this costs no additional query. A user created on a miss is active by construction and is unaffected.
+  - [ ] Reuse `ClaimsRejected` with its **own reason string** naming deactivation. Do not add an exception type: `exceptions.py` is written for one, Story 2.5 set the precedent by carrying its third refusal the same way, and AD-12 requires it. A shared reason would be actively wrong here — a deactivated user's claims are perfectly valid, and reporting "claims rejected" for what is an operator action sends whoever reads the log to the wrong system.
+  - [ ] Reword `resolve_user`'s docstring at `mapper.py:191-193`. "Resolution is by the identity key alone" is about which claim *identifies* the user — email and username are still never consulted — so it is restated, not reversed: resolution is by the identity key alone, **and a resolved row must also be active to be returned**. The deferred-work entry this closes asks specifically for the contract to be visible rather than inherited.
+  - [ ] Do **not** also check `is_active` in `OIDCBearerAuthentication` or in the allauth adapter. One home, as with the `jti` rule — a check written in each caller is a check one caller can be written without.
+  - [ ] Note the behaviour change to Story 2.6, which is intended and must be tested rather than absorbed: a deactivated user currently receives allauth's own inactive handling, because `perform_login` gates them after `pre_social_login` returns. After this task they are refused earlier, by the mapper, and receive the adapter's 403. That accidental gate is what AC #7's interactive case replaces with a real one.
+
+- [ ] Task 6 — Tests (AC: #1 through #7)
   - [ ] `tests/unit/authorization/test_jwks.py` (new) — the AC #5 tests that "belong to that code":
     - a first `get_signing_key` triggers exactly one fetch (assert against a stubbed fetch callable, not a real HTTP mock);
     - a second call for the same `kid` triggers none;
@@ -94,6 +107,10 @@ so that API authentication is real verification rather than a local lookup.
     - a token with no `jti` returns 401 (the Story 2.5 rule, observed through this surface);
     - no `Authorization` header falls through to session authentication rather than 401ing.
   - [ ] AC #3 — assert nothing fetches at import: import `config.authorization.jwks` and `config.authorization.authentication` with the fetch seam patched to raise, and assert no raise occurs. Then assert the first authenticated request does fetch.
+  - [ ] AC #7, three cases across the existing files, because the point of deciding this in the mapper is that one rule serves every surface:
+    - `tests/unit/authorization/test_mapper.py` — `resolve_user` raises `ClaimsRejected` for a deactivated user, and the reason names deactivation rather than reusing another refusal's string;
+    - `tests/integration/authorization/test_bearer_authentication.py` — a token that verifies cleanly against a deactivated user's identity returns **401**, not 200. Without the mapper check this is the case that authenticates a deactivated principal on every API request, so it is the one that must fail if the check is ever removed;
+    - `tests/integration/authorization/test_adapters.py` — the interactive login of a deactivated user returns the adapter's **403**. This is a new assertion over Story 2.6's shipped behaviour, and it is deliberate: today the path is gated only because allauth's `perform_login` happens to check `is_active`, and nothing pins that.
   - [ ] Run `pixi run test`, `pixi run test-integration`, then `pixi run ci`.
 
 ## Dev Notes
@@ -114,6 +131,18 @@ so that API authentication is real verification rather than a local lookup.
 - **AD-24 (what you must not do):** no conditional imports, no `try/except ImportError`, no settings-module inheritance. `pyjwt` and `cryptography` are unconditional `core` dependencies in all six combinations.
 - **Spine, Consistency Conventions → Runtime errors:** "Authentication failure is 401." Never bare `except:`; never `except X: pass`.
 - **Spine, Consistency Conventions → Logging:** structured JSON to stdout with `request_id`/`trace_id`/`span_id`. `structlog` only. Never `print()`, never stdlib `logging`, never the token.
+
+### Where a deactivated user is refused — decided 2026-08-17, not open
+
+Story 2.4's review deferred this and recorded that **this story must not be written before it is decided**. It is decided: the refusal lives inside `resolve_user`, raised as `ClaimsRejected`, and every caller inherits it. Task 5 implements it. Do not re-open the question mid-story; if the implementation turns out to conflict with something here, that is an escalation, not a judgement call.
+
+The reasoning, so it is not re-derived:
+
+- **The hot-path objection was the main argument against mapper placement, and it does not survive contact with the code.** `resolve_user` has already loaded the row by the time the check happens, so reading `user.is_active` costs zero additional queries even on the Bearer path that runs it per request. The concern was real in the abstract and empty in this specific case.
+- **FR-8's "protocol-free" constrains HTTP, not access decisions.** The mapper already refuses claims and already decides access in `sync_authorization`. `ClaimsRejected` is the vehicle each caller already translates — 403 on the interactive path, 401 here — so this adds a reason to an existing mechanism rather than bending the design.
+- **Per-caller placement fails by omission, and the omission has already happened once.** Story 2.6 shipped with no explicit check, safe only because allauth's `perform_login` gates inactive users after `pre_social_login` returns. No test pins that, and nothing would notice it being lost. Three copies of a security check needing all three to be right is the weaker position.
+
+What this does *not* license: `is_active` does not become a general authorization input the mapper consults for anything else, and no second local-state check joins it without its own decision. The rule is one line — a resolved row must be active — and its whole purpose is that the three entry points cannot disagree about it.
 
 ### Why this cache is process-local and the epoch record is not
 
@@ -137,8 +166,11 @@ SC-6 requires a real IdP identity authenticating through both flows. It is an **
 | `src/config/authorization/authentication.py` | NEW | `OIDCBearerAuthentication`. |
 | `src/config/authorization/exceptions.py` | UPDATE | Created by Story 2.4 with `ClaimsRejected`. Add `JWKSKeyUnavailable` here rather than in `jwks.py` if it needs to be caught outside — one exceptions module for the package. |
 | `src/config/settings/base.py` | UPDATE | Today: `REST_FRAMEWORK` at 357–364 with `SessionAuthentication` and `TokenAuthentication` in `DEFAULT_AUTHENTICATION_CLASSES`, `IsAuthenticated` default permission, `drf_spectacular.openapi.AutoSchema` schema class. Adds the Bearer class first in the tuple and the `COMPONENT_JWKS_*` / `COMPONENT_OIDC_ALGORITHMS` reads. **Preserve:** `DEFAULT_PERMISSION_CLASSES`, `DEFAULT_SCHEMA_CLASS`, `CORS_URLS_REGEX` and the annotated `SPECTACULAR_SETTINGS: dict[str, Any]` with its explanatory comment. |
+| `src/config/authorization/mapper.py` | UPDATE | Created by Story 2.4, extended by 2.5. Task 5 adds the `is_active` refusal to `resolve_user` with its own `ClaimsRejected` reason, and restates the docstring at 191–193. **Preserve:** everything else — `sync_authorization`, `sync_for_interactive`, `sync_once_per_epoch`, the epoch-race handling, and the identity-key resolution itself, none of which this story touches. |
 | `tests/unit/authorization/test_jwks.py` | NEW | The cache/refetch/rate-limit/TTL suite AC #5 requires. |
-| `tests/integration/authorization/test_bearer_authentication.py` | NEW | Real tokens, real DRF request cycle, four separate 401 cases. |
+| `tests/integration/authorization/test_bearer_authentication.py` | NEW | Real tokens, real DRF request cycle, four separate 401 cases, plus AC #7's deactivated-user 401. |
+| `tests/unit/authorization/test_mapper.py` | UPDATE | Exists from Story 2.4. Adds the AC #7 refusal case and its reason string. |
+| `tests/integration/authorization/test_adapters.py` | UPDATE | Exists from Story 2.6. Adds AC #7's interactive 403, replacing an accidental gate with a pinned one. |
 
 `pixi.toml` needs **no change** in this story: `pyjwt`, `cryptography` and `requests` were declared in Story 2.6.
 
@@ -172,6 +204,10 @@ Epic 3 Story 3.5 will mint a locally signed JWT that **this exact class** verifi
 - [Source: _bmad-output/planning-artifacts/implementation-readiness-report-2026-08-15.md:404] — "2.6 and 2.7 precede 2.8 so the replacement credential paths exist before the old ones are deleted"
 - [Source: src/config/settings/base.py:357-364] — the current `REST_FRAMEWORK` block
 - [Source: src/config/api_router.py:9-13] — `api:user-me` and the other routes available to drive Bearer requests against
+- [Source: _bmad-output/implementation-artifacts/deferred-work.md#Deferred from: review of 2-4-the-mapper-resolves-an-identity-to-a-user] — the `is_active` entry this story closes, with the decision recorded on it and the two rejected alternatives
+- [Source: src/config/authorization/mapper.py:183-203] — `resolve_user` and the docstring Task 5 restates
+- [Source: src/config/authorization/exceptions.py:22-37] — `ClaimsRejected` and the `reason` field the new refusal uses
+- [Source: src/config/authorization/adapters.py:155-165] — Story 2.6's `pre_social_login`, which inherits the refusal and turns it into the 403 AC #7 asserts
 
 ## Dev Agent Record
 
