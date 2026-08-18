@@ -87,11 +87,12 @@ variable, because nothing in `default` overrides it.
 
 **The one thing to know as a developer:** the operational commands in `[tasks]` —
 `manage`, `migrate`, `collectstatic`, `createsuperuser`, `serve`,
-`seed-personas` — live in `default`, so run them as `pixi run -e dev migrate`
-(and so on) when you want them to behave locally. Bare `pixi run migrate` is the
-*deployed* invocation, and that is deliberate: it is the one the release stage
-uses. `seed-personas` is the one that *refuses* rather than merely behaving
-differently — see [Local personas](#local-personas).
+`seed-personas`, `mint-token` — live in `default`, so run them as
+`pixi run -e dev migrate` (and so on) when you want them to behave locally. Bare
+`pixi run migrate` is the *deployed* invocation, and that is deliberate: it is
+the one the release stage uses. `seed-personas` and `mint-token` are the two that
+*refuse* rather than merely behaving differently — see
+[Local personas](#local-personas).
 
 **Absent or unrecognized means deployed.** Locality fails closed on purpose:
 local development is the exception that must declare itself, so a declaration
@@ -565,6 +566,72 @@ mapping and nothing below it. A persona signing in locally is evidence about thi
 component's authorization logic, never evidence that its identity provider
 integration works.
 
+### Minting a development token
+
+The browser path above signs a persona in. The programmatic path mints that same
+persona a **Bearer token the real authentication class genuinely verifies**:
+
+```sh
+pixi run -e dev mint-token staff
+```
+
+The `-e dev` is required, for the same reason it is required for
+`seed-personas`: locality is declared once in the `dev` feature's activation
+env, and a bare `pixi run mint-token` resolves in `default`, reads *deployed*,
+and is refused before a key is generated. Present the token as
+`Authorization: Bearer <token>` against any API route.
+
+**Nothing is stubbed.** There is no development authentication class, no
+`verify_signature=False` path, and no settings flag that relaxes audience
+checking. What makes the token acceptable is that it is correctly signed by a key
+the component's configured JWKS location publishes. `config/authorization/authentication.py`
+verifies its signature, `iss`, `aud` and `exp` exactly as it verifies a token
+issued by a real identity provider, and a tampered, expired, wrong-issuer,
+wrong-audience or unknown-`kid` token is refused with 401.
+
+Three pieces make that work, all of them in `config/settings/local.py`:
+
+| Setting | Local value | Why |
+| --- | --- | --- |
+| `OIDC_JWKS_URL` | a `file://` URL under `.local-dev-keys/` | there is no IdP running locally to serve a JWKS endpoint |
+| `OIDC_ISSUER` | a reserved `.invalid` URL | `base.py` defaults it to the empty string, and an empty issuer verifies nothing |
+| `OIDC_AUDIENCE` | a local audience name | PyJWT refuses a token whose `aud` is empty, so with this unset *every* minted token is rejected |
+
+All three fill only what the environment left unset, so pointing a local run at a
+real identity realm still works through the `COMPONENT_OIDC_*` variables.
+`config/authorization/jwks.py` accepts the `file://` scheme **only where locality
+is local**; deployed, the same location is refused there, and once the startup
+refusal contract lands it is refused again at boot by AD-23's trust-anchor
+condition.
+
+**The keypair is generated on demand and is never committed.** The first
+`mint-token` writes an RSA-2048 private key to `.local-dev-keys/signing-key.pem`
+at mode `0o600`, publishes its public half as `.local-dev-keys/jwks.json`, and
+reuses both from then on. The directory is gitignored, and
+`tests/unit/test_gitignore_covers_dev_keys.py` fails the gate if that entry is
+ever dropped.
+
+That guard matters more here than the same rule would in an ordinary repository.
+This tree is a template: a key committed to it would ship inside *every component
+generated from it*, so one published private key would be shared by every service
+the accelerator ever produces. Delete the directory to rotate; the next mint
+generates a fresh keypair.
+
+**Rotating against a running server costs up to a minute.** The new keypair
+publishes a new `kid`, and a running process holds its JWKS cache behind the same
+refetch rate limit a deployed component uses — `COMPONENT_JWKS_MIN_REFETCH_SECONDS`,
+sixty seconds by default. Until that window passes, requests carrying the new
+token are refused with `refetch refused by the rate limit`. Restart the server
+and it clears immediately. The rate limit is deliberately *not* relaxed for local
+runs: the point of this whole section is that what you exercise locally is what
+production does, and a local-only exemption would hide exactly the behaviour a
+rotation at the real IdP would show you.
+
+**R-5 applies to this path too, and is not softened by any of it.** The token is
+locally signed, so synthetic claims still never exercise JWKS retrieval over the
+network, discovery, or key rotation at the identity provider. What is proven
+locally is the *verification*; the *retrieval* is proven only against a real IdP.
+
 ## Database
 
 `config/settings/base.py` selects a backend in this order:
@@ -672,6 +739,7 @@ a different environment than the gate uses.
 | `pixi run makemigrations` | Generate migrations |
 | `pixi run createsuperuser` | Create an admin user |
 | `pixi run -e dev seed-personas` | Seed the local development personas — refused without `-e dev` |
+| `pixi run -e dev mint-token <persona>` | Mint a development JWT for a persona — refused without `-e dev` |
 | `pixi run collectstatic` | Collect static files into `staticfiles/` |
 | `pixi run format` | `ruff format` |
 | `pixi run lint` | `ruff check` |

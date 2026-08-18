@@ -474,6 +474,17 @@ serve = { cmd = "uvicorn config.asgi:application", default-environment = "defaul
 # COMPONENT_RUNTIME=local; bare `pixi run seed-personas` resolves in `default`,
 # reads *deployed*, and is correctly refused with ImproperlyConfigured.
 seed-personas = { cmd = "python -m config.local_dev.seed", default-environment = "default", description = "Seed the local development personas" }
+# The local programmatic credential (FR-20). Mints a JWT signed by the keypair
+# `src/config/local_dev/keys.py` generates on demand into the gitignored
+# `.local-dev-keys/`, which local settings point the JWKS location at, so the
+# real Bearer authentication class verifies it with nothing stubbed.
+#
+# Same placement and the same absent `env` as seed-personas above, for the same
+# two reasons. Invoke it as `pixi run -e dev mint-token <persona-key>`; the bare
+# form resolves in `default`, reads *deployed*, and is refused before a key is
+# generated -- which is the refusal being the guard rather than the task being
+# hidden.
+mint-token = { cmd = "python -m config.local_dev.mint", default-environment = "default", description = "Mint a development JWT for a local persona" }
 
 # ---- Development-only Django commands ----
 # The dev server, autoreload and migration authoring. These run with

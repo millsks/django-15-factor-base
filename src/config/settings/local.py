@@ -1,9 +1,14 @@
 from config.authorization.claims import ClaimsContract
+from config.local_dev.keys import DEV_KEY_DIR
+from config.local_dev.keys import JWKS_FILENAME
 
 from .base import *  # noqa: F403
 from .base import CLAIMS_CONTRACT
 from .base import INSTALLED_APPS
 from .base import MIDDLEWARE
+from .base import OIDC_AUDIENCE
+from .base import OIDC_ISSUER
+from .base import OIDC_JWKS_URL
 from .base import env
 
 # GENERAL
@@ -132,3 +137,61 @@ CLAIMS_CONTRACT = ClaimsContract(
 
 # Your stuff...
 # ------------------------------------------------------------------------------
+
+# THE LOCAL PROGRAMMATIC CREDENTIAL
+# ------------------------------------------------------------------------------
+# FR-20: the local programmatic flow validates for real. `pixi run -e dev
+# mint-token <persona>` signs a JWT with a keypair generated on this machine, and
+# the three values below are what let
+# `config/authorization/authentication.py` -- the real Bearer class, with nothing
+# stubbed and no local branch inside it -- verify that token's signature, `iss`,
+# `aud` and `exp`.
+#
+# The JWKS location is a `file://` URL because there is no IdP running locally to
+# serve one. `config/authorization/jwks.py` accepts that scheme only where
+# locality is local; deployed, the same location is refused there and, once Epic 4
+# lands, refused again at startup by AD-23's trust-anchor condition, which
+# `jwks_url_derives_from_issuer` already answers `False` for. Importing
+# `DEV_KEY_DIR` names the directory without creating anything: `keys.py` reads no
+# settings and generates no key at import (FR-23), and the first key is written
+# by the minting task rather than by boot.
+#
+# **The issuer half of the condition is what keeps a real realm reachable.**
+# `base.py` leaves this empty on purpose: `configured_jwks_url()` falls back to
+# `conventional_jwks_url(OIDC_ISSUER)`, so an unset location means *derived from
+# the issuer*, not *unconfigured*. Filling it unconditionally would destroy that
+# fallback -- a developer who exports only `COMPONENT_OIDC_ISSUER` to point a
+# local run at a real Keycloak would silently get this machine's own key as the
+# trust anchor, and every token that realm issued would be refused with
+# `no signing key published for the presented kid`. So the file location is the
+# fallback only when *neither* variable was declared, which is the fresh-clone
+# case it exists for. `OIDC_ISSUER` still carries the environment's value here:
+# the local fill below has not run yet, and the order is load-bearing for exactly
+# this reason.
+_DEV_JWKS_LOCATION = "" if OIDC_ISSUER.strip() else (DEV_KEY_DIR / JWKS_FILENAME).as_uri()
+OIDC_JWKS_URL = OIDC_JWKS_URL.strip() or _DEV_JWKS_LOCATION
+# Local development values, not defaults, filled the same way `CLAIMS_CONTRACT`
+# above is filled: only where the environment left them unset, so pointing a local
+# run at a real identity realm is still done with the `COMPONENT_*` variables and
+# this block re-spells none of their names.
+#
+# **Both are load-bearing rather than decorative.** `base.py` defaults each to the
+# empty string, and PyJWT refuses a token whose `aud` is empty with
+# `MissingRequiredClaimError` -- `_validate_aud` tests `not payload["aud"]`, not
+# merely its presence. With the audience unset, every locally minted token is
+# rejected and the flow FR-20 describes cannot work on a fresh clone. The issuer
+# is set alongside it so that the wrong-issuer rejection is a real rejection
+# rather than two empty strings comparing equal.
+#
+# **Stripped before the test, in all three.** A variable exported as `"   "` is
+# truthy, so an unstripped `or` treats whitespace as a declaration and skips the
+# fill -- and `authentication._audience()` strips before comparing, so the
+# component would then refuse every token while every setting looked configured.
+# The failure has no diagnostic: the value is present, non-empty and wrong.
+#
+# `.invalid` is reserved by RFC 2606 and resolves nowhere, which is the point:
+# these values are verified as strings and are never fetched. Nothing here reaches
+# `SOCIALACCOUNT_PROVIDERS`, which `base.py` already built from the issuer it read
+# there.
+OIDC_ISSUER = OIDC_ISSUER.strip() or "https://local-dev.invalid/realms/component"
+OIDC_AUDIENCE = OIDC_AUDIENCE.strip() or "local-dev-component-api"
