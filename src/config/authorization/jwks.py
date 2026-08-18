@@ -7,6 +7,16 @@ NFR-1's "startup makes no network call" both rest on it. So `KEY_STORE` below is
 constructed at import and fetches nothing; the first `get_signing_key` is the
 first request out.
 
+**Two forms of the location rule, and why.** `configured_jwks_url` reads
+`django.conf.settings`, so it is unusable at settings-import time -- and that is
+exactly when Epic 4's stage-1 trust-anchor refusal has to answer, because
+`django.conf.settings` is not populated while a settings module is still
+executing. `resolve_jwks_url` is the pure half: the same explicit-or-conventional
+fallback over two values the caller has already read. The refusal calls it with
+the names taken off the settings module being composed, so the check and the
+fetch cannot disagree about which location is in force. Do not re-derive the
+fallback in `config/startup/`; AD-1 gives it one declaration site and this is it.
+
 **Why `PyJWKClient` is not used.** Verified against PyJWT's own source rather than
 re-derived, because "the library already does this" is precisely the assumption
 AD-23 exists to prevent:
@@ -92,6 +102,7 @@ __all__ = [
     "conventional_jwks_url",
     "fetch_jwks_document",
     "jwks_url_derives_from_issuer",
+    "resolve_jwks_url",
 ]
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -231,6 +242,36 @@ def conventional_jwks_url(issuer: str) -> str:
     return f"{trimmed}{_CONVENTIONAL_JWKS_PATH}" if trimmed else ""
 
 
+def resolve_jwks_url(explicit: str, issuer: str) -> str:
+    """Apply the explicit-or-conventional fallback to two already-read values.
+
+    The pure form of `configured_jwks_url` below, and the reason it exists is
+    Epic 4: `configured_jwks_url` reads `django.conf.settings`, which is not yet
+    populated while a settings module is still executing, so stage 1 of the
+    refusal contract cannot call it. Stage 1 reads the two values off the
+    settings module being composed and hands them here instead.
+
+    Extracted rather than re-derived in `config/startup/`. The fallback -- unset
+    location means *derived from the issuer*, not *unconfigured* -- is a rule
+    `config/settings/local.py` is written against and that
+    `tests/unit/test_settings.py` pins; a second spelling of it inside the
+    refusal would let the startup check and the fetch disagree about which
+    location is in force, which is the failure AD-1 is about.
+
+    Args:
+        explicit: Whatever `COMPONENT_OIDC_JWKS_URL` supplied, possibly empty.
+        issuer: The configured OIDC issuer, possibly empty.
+
+    Returns:
+        The explicit location when one was supplied, the conventional derivation
+        from the issuer otherwise, and the empty string when neither is
+        configured. Whitespace is stripped before the test, so a variable
+        exported as spaces is read as unset rather than as a location.
+
+    """
+    return explicit.strip() or conventional_jwks_url(issuer)
+
+
 def configured_jwks_url() -> str:
     """Read the JWKS location in force, explicit or derived.
 
@@ -241,9 +282,12 @@ def configured_jwks_url() -> str:
         single trust anchor, and a component with two answers to "who signs these
         tokens" has none.
 
+        The rule itself lives in `resolve_jwks_url`; this function is the
+        settings-reading half of it and nothing else.
+
     """
     explicit: str = getattr(settings, "OIDC_JWKS_URL", "") or ""
-    return explicit.strip() or conventional_jwks_url(getattr(settings, "OIDC_ISSUER", "") or "")
+    return resolve_jwks_url(explicit, getattr(settings, "OIDC_ISSUER", "") or "")
 
 
 def jwks_url_derives_from_issuer(issuer: str, jwks_url: str) -> bool:

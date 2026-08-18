@@ -36,22 +36,44 @@ OTLP = "otlp"
 CONSOLE = "console"
 NONE = "none"
 
+#: The SDK's own kill switch, named once. It is spelled here rather than at each
+#: reader because two consumers now act on it -- the skip below, and Epic 4's
+#: stage-1 refusal -- and a refusal message naming a variable this module spells
+#: differently would send an operator to a variable that does nothing (AD-1).
+OTEL_SDK_DISABLED_ENV_VAR = "OTEL_SDK_DISABLED"
+
+#: The values this component reads as *disabled*. Wider than the literal `"true"`
+#: the specification names, and deliberately so: an operator who writes `1` or
+#: `yes` has expressed the same intent, and the reader below is what decides
+#: whether tracing is actually installed. `"0"` and `"false"` are not here.
+_DISABLED_VALUES = frozenset({"true", "1", "yes"})
+
 _configured = False
 
 
-def _is_disabled() -> bool:
-    """Report whether the OpenTelemetry SDK is disabled.
+def otel_sdk_is_disabled() -> bool:
+    """Report whether this component has opted out of the OpenTelemetry SDK.
+
+    Public rather than private because it now has two consumers, and they must
+    not disagree. `configure_telemetry` below reads it to decide whether to
+    install tracing at all; `config.startup.stage_one` reads the *same*
+    function for refusal condition 3, which refuses a deployed component that
+    has silently opted out of an immovable guarantee (FR-13).
+
+    That shared reading is the whole point. If the refusal recognized only
+    `"true"` while this reader also recognized `"1"` and `"yes"`, then
+    `OTEL_SDK_DISABLED=1` would disable tracing in a deployed component with
+    nothing refusing it -- the exact hole the refusal exists to close. One
+    reader, one answer, and this module is the one that owns it because it is
+    the module whose behaviour the variable actually changes.
 
     Returns:
-        True when `OTEL_SDK_DISABLED` is truthy, which the specification
-        defines as the standard kill switch.
+        True when `OTEL_SDK_DISABLED`, stripped and lower-cased, is one of
+        `true`, `1` or `yes`. `0` and `false` are not disabled, and neither is
+        an unset variable.
 
     """
-    return os.environ.get("OTEL_SDK_DISABLED", "").strip().lower() in {
-        "true",
-        "1",
-        "yes",
-    }
+    return os.environ.get(OTEL_SDK_DISABLED_ENV_VAR, "").strip().lower() in _DISABLED_VALUES
 
 
 def _has_otlp_endpoint() -> bool:
@@ -150,7 +172,7 @@ def configure_telemetry(service_version: str | None = None) -> bool:
 
     """
     global _configured  # noqa: PLW0603 - process-wide, deliberately idempotent
-    if _configured or _is_disabled():
+    if _configured or otel_sdk_is_disabled():
         return False
 
     provider = TracerProvider(resource=build_resource(service_version))

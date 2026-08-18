@@ -37,9 +37,11 @@ from django.core.exceptions import ImproperlyConfigured
 
 from config.locality import LOCAL
 from config.locality import RUNTIME_ENV_VAR
+from config.observability.telemetry import OTEL_SDK_DISABLED_ENV_VAR
 from config.startup import run_stage_one
 from config.startup.stage_one import LOCAL_SETTINGS_MODULE
 from config.startup.stage_one import PRODUCTION_SETTINGS_MODULE
+from tests.conftest import valid_deployed_settings_namespace
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -115,14 +117,20 @@ def test_a_deployed_component_importing_a_deployed_settings_module_is_accepted(
 ) -> None:
     """The condition is about which module loaded, not about being deployed.
 
-    Driven through `run_stage_one` against a bare namespace rather than by
+    Driven through `run_stage_one` against a constructed namespace rather than by
     importing `production.py`, which demands a real `DJANGO_SECRET_KEY` from the
     environment -- an unrelated refusal that would make this case pass for the
     wrong reason.
+
+    The namespace is the fully valid one rather than a bare `ModuleType`. Story
+    4.2 added five conditions after this one, and every one of them refuses an
+    empty namespace -- so a bare module would raise here and this case would fail
+    while saying nothing about the condition it is written for.
     """
     monkeypatch.delenv(RUNTIME_ENV_VAR, raising=False)
+    monkeypatch.delenv(OTEL_SDK_DISABLED_ENV_VAR, raising=False)
 
-    run_stage_one(ModuleType(PRODUCTION_SETTINGS_MODULE))
+    run_stage_one(valid_deployed_settings_namespace())
 
 
 def test_stage_one_returns_before_any_condition_when_the_component_is_local(

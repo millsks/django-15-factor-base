@@ -34,15 +34,19 @@ cannot swallow the refusal and report a clean run.
 
 from __future__ import annotations
 
-from types import ModuleType
+from typing import TYPE_CHECKING
 
 import pytest
 from django.db import connection
 
 from config.locality import RUNTIME_ENV_VAR
+from config.observability.telemetry import OTEL_SDK_DISABLED_ENV_VAR
 from config.startup import run_stage_one
 from config.startup import run_stage_two
-from config.startup.stage_one import PRODUCTION_SETTINGS_MODULE
+from tests.conftest import valid_deployed_settings_namespace
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 
 @pytest.fixture
@@ -53,12 +57,23 @@ def deployed_settings_namespace(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     so the local path would return before reaching any of them and the
     assertions below would hold over code that never ran.
 
+    **Valid means fully valid, not merely bare.** A bare `ModuleType` was enough
+    while stage 1 held one condition; it is not enough now. Every one of the six
+    would refuse it -- no `DATABASES`, no claims contract, no issuer -- and each
+    refusal would be raised *before* the socket or the cursor could be reached,
+    so both assertions below would pass over conditions that never ran. The
+    namespace is built by `tests/conftest.py`, which
+    `tests/integration/startup/test_no_queries.py` shares, and
+    `OTEL_SDK_DISABLED` is deleted here because condition 3 reads the
+    environment rather than the namespace.
+
     Returns:
-        A namespace no stage-1 condition in this story objects to.
+        A namespace no stage-1 condition objects to.
 
     """
     monkeypatch.delenv(RUNTIME_ENV_VAR, raising=False)
-    return ModuleType(PRODUCTION_SETTINGS_MODULE)
+    monkeypatch.delenv(OTEL_SDK_DISABLED_ENV_VAR, raising=False)
+    return valid_deployed_settings_namespace()
 
 
 def test_neither_stage_opens_a_socket(
