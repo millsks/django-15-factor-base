@@ -44,7 +44,7 @@ All standard OpenTelemetry variables apply. The ones that matter most:
 | `OTEL_TRACES_EXPORTER` | `otlp` when an endpoint is set, else `none` | `otlp`, `console` or `none`. |
 | `OTEL_SERVICE_NAME` | `django-15-factor-base` | `service.name` on the resource. |
 | `OTEL_SDK_DISABLED` | `false` | Turns tracing off entirely, per the OTel spec. |
-| `DJANGO_ENV` | `local` | Reported as `deployment.environment`. |
+| `COMPONENT_RUNTIME` | unset — the `dev` pixi environment sets `local`, so every `pixi run` path is local | Reported as `deployment.environment`, which takes exactly two values: `local` when this variable is `local` (after stripping and lowercasing), and `deployed` otherwise. This attribute previously mirrored `DJANGO_ENV` and could carry a tier name such as `staging`; a dashboard or alert keyed on those values needs updating. |
 | `DJANGO_LOG_LEVEL` | `INFO` | Root log level. |
 | `DJANGO_LOG_FORMAT` | `console` under DEBUG, else `json` | `json` or `console`. |
 
@@ -63,6 +63,25 @@ processor is attached **only** when an endpoint is configured:
 
 Instrumentation is installed either way, which is why `trace_id` appears in the
 sample above even with no collector running.
+
+**Instrumentation is unconditional, not merely "not skipped".** The Django,
+Celery, psycopg and redis instrumentors are installed on every run, in every
+environment, with no `if DEBUG`, no locality check and no endpoint check in
+front of them — `configure_telemetry` attaches a span processor conditionally
+and then instruments unconditionally. Nothing about the export decision reaches
+the instrumentors, so a local run exercises the same instrumentation code a
+deployed one does. Spans are created and ended locally exactly as they are
+deployed; with no processor attached they are simply discarded when they end,
+and their `SpanContext` is live for the whole span, which is what keeps
+`trace_id` and `span_id` on every log line a span is active for. The one
+condition that turns instrumentation off is `OTEL_SDK_DISABLED`, and nothing in
+this repository sets or defaults it.
+
+Setting `OTEL_TRACES_EXPORTER=otlp` explicitly is the one way to attach a batch
+processor without configuring an endpoint: the explicit choice is honoured, and
+the exporter then falls back to the SDK's own default endpoint. That is a
+deliberate opt-in, not a default anything reaches by accident — the *unset* case
+resolves to `none`.
 
 ## Seeing it work
 

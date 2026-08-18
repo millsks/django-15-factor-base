@@ -28,6 +28,8 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.export import ConsoleSpanExporter
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
+from config.locality import is_local
+
 DEFAULT_SERVICE_NAME = "django-15-factor-base"
 
 OTLP = "otlp"
@@ -67,6 +69,13 @@ def _has_otlp_endpoint() -> bool:
 def build_resource(service_version: str | None = None) -> Resource:
     """Describe this service to the tracing backend.
 
+    `deployment.environment` follows `config.locality.is_local()` (AD-13) rather
+    than a `DJANGO_ENV` read. That variable defaulted to `local`, so a deployed
+    component that never set it reported itself local -- the fail-open inversion
+    AD-13 exists to prevent. The trade is granularity: locality is boolean, so
+    every deployed tier now reports `deployed` rather than `staging` or
+    `production`.
+
     Args:
         service_version: Version to report, normally the package version.
 
@@ -76,7 +85,7 @@ def build_resource(service_version: str | None = None) -> Resource:
     """
     attributes: dict[str, str] = {
         "service.name": os.environ.get("OTEL_SERVICE_NAME") or DEFAULT_SERVICE_NAME,
-        "deployment.environment": os.environ.get("DJANGO_ENV", "local"),
+        "deployment.environment": "local" if is_local() else "deployed",
     }
     if service_version:
         attributes["service.version"] = service_version
@@ -98,6 +107,32 @@ def resolve_traces_exporter() -> str:
     if configured in {CONSOLE, NONE, OTLP}:
         return configured
     return OTLP if _has_otlp_endpoint() else NONE
+
+
+def has_span_processor(provider: TracerProvider) -> bool:
+    """Report whether any span processor is attached to `provider`.
+
+    The SDK exposes no public accessor for the processors a provider carries,
+    so this reaches into `_active_span_processor` -- the same private reach
+    `tests/integration/test_asgi_request_path.py` takes, and for the same
+    reason. It exists so that "no processor is attached" can be asserted over
+    the built object rather than by re-deriving the environment logic a second
+    time, which would prove nothing.
+
+    Args:
+        provider: The tracer provider to inspect.
+
+    Returns:
+        True when the provider has at least one span processor attached.
+
+    """
+    active = getattr(provider, "_active_span_processor", None)
+    if active is None:
+        # `trace.get_tracer_provider()` answers with a proxy before
+        # `configure_telemetry` runs and with a no-op one when the kill switch
+        # is set. Neither carries processors, which is the honest answer here.
+        return False
+    return bool(active._span_processors)  # noqa: SLF001 - no public accessor exists
 
 
 def configure_telemetry(service_version: str | None = None) -> bool:
@@ -125,6 +160,14 @@ def configure_telemetry(service_version: str | None = None) -> bool:
         provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
     elif exporter == CONSOLE:
         provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    # `none` attaches nothing at all, and that absence *is* how spans are
+    # discarded: they are still created, they still end, and their
+    # `SpanContext` is live for the whole span -- which is what keeps
+    # `trace_id` and `span_id` on every log line the request emits. Only the
+    # terminal export step is missing. Discarding by attaching a processor
+    # pointed at an endpoint that is not there would instead retry on every
+    # export cycle and flood stderr. Asserted by
+    # `has_span_processor` in `tests/unit/test_telemetry.py`.
 
     trace.set_tracer_provider(provider)
 
