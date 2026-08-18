@@ -35,6 +35,7 @@ import structlog
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import ImproperlyConfigured
+from django.db import connection
 
 from config.authorization.claims import ClaimsContract
 from config.authorization.mapper import resolve_user
@@ -300,6 +301,38 @@ def test_a_deployed_invocation_creates_no_account(
     assert user_model.objects.count() == before
     for persona in PERSONAS:
         assert not user_model.objects.filter(idp_subject=persona.subject).exists()
+
+
+def test_seeding_performs_no_network_call(db: None, no_network: None) -> None:
+    """FR-23 / AC #3: seeding is a database write, and reaches nothing else.
+
+    Neither a registry, nor the identity provider, nor a package index. The
+    personas are declared in `personas.py` and the groups come from AD-27's one
+    provisioning callable, so there is nothing for seeding to go and fetch --
+    which is a property of the design and therefore worth asserting rather than
+    assuming.
+
+    Order matters in the signature: `db` opens its connection before
+    `no_network` installs the guard, so the guard is never in the way of the
+    harness's own database connection -- asserted below rather than left to the
+    ordering, so a reordering of the two parameters fails loudly instead of
+    quietly asserting less.
+
+    The database is outside what this proves in any case. libpq does its socket
+    work inside a C extension and never touches Python's `socket` module, so a
+    PostgreSQL connection is invisible to the guard. What the case establishes is
+    the claim in the sentence above it: seeding reaches no identity provider, no
+    registry and no package index. The positive post-condition is the same one
+    `test_seeding_materializes_declared_personas` makes -- every declared
+    persona came back, and every one of them is a row -- because a negative
+    assertion over seeding that never ran would pass on its own.
+    """
+    assert connection.connection is not None, "the database connection was opened after the guard, not before it"
+
+    assert seed_personas() == [persona.key for persona in PERSONAS]
+
+    for persona in PERSONAS:
+        assert get_user_model().objects.filter(idp_subject=persona.subject).exists()
 
 
 def test_the_entry_point_seeds_and_reports(db: None) -> None:

@@ -10,3 +10,7 @@ class UsersConfig(AppConfig):
         """
         Override this method in subclasses to run code when Django starts.
         """
+        # Empty. Whatever goes here runs inside `django.setup()`, which is boot,
+        # so FR-23 and NFR-1 apply: no network call, and no query beyond
+        # migration state. `tests/unit/test_no_network_at_boot.py` enforces the
+        # network half, booting this component with every socket refused.

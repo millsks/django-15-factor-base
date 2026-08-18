@@ -461,6 +461,60 @@ services before believing it — point `DATABASE_URL` at a PostgreSQL instance
 (see [The parity gap between local runs and the gate](#the-parity-gap-between-local-runs-and-the-gate))
 rather than treating a green local run as the answer.
 
+### Nothing on the start path reaches the network
+
+The stand-ins above are why nothing has to be *running* alongside the
+application. This is the stronger statement beside them: **nothing on the local
+start path calls the identity provider, a registry or a package index at boot.**
+Importing the settings, `configure_observability()` and `django.setup()` are
+environment reads, computation and app loading — a component starts with no
+route to the identity provider and starts anyway. Configured datastores are the
+exception this deliberately excludes: a component reaches its database when it
+uses it, over TCP like any other client.
+
+The two calls that would otherwise break that are both lazy:
+
+- **OIDC discovery.** The provider is configured from `SOCIALACCOUNT_PROVIDERS`,
+  populated from `COMPONENT_OIDC_ISSUER` (`config/settings/base.py`). The issuer
+  arrives as a string and stays one; the discovery document is fetched by
+  allauth's request-time `openid_config`, so the first fetch is a sign-in, never
+  configuration.
+- **JWKS retrieval.** `KEY_STORE` is constructed at import and empty
+  (`config/authorization/jwks.py`). The first fetch is the first Bearer request
+  that needs a key, cached by `kid` thereafter. This is also why the
+  trust-anchor check is a string derivation over the configured issuer rather
+  than a comparison against the issuer's published `jwks_uri`: confirming a
+  location against a discovery document means fetching it, at boot.
+
+The two local operations this section is about are local in the same sense:
+generating the development keypair is computation, and seeding the personas is a
+database write. Neither reaches a registry, the identity provider, or a package
+index.
+
+**The claim begins once the environment exists.** Environment installation
+downloads packages by definition — `pixi install` is out of scope for it, and so
+is anything else that resolves or fetches a dependency.
+
+**One deliberate opt-in breaks it, and it is the one documented above:** setting
+`OTEL_TRACES_EXPORTER=otlp` by hand with no endpoint configured attaches a batch
+processor to an exporter that defaults to `http://localhost:4318`. The
+attachment is what happens at `configure_observability()` time; the outbound
+connection is made by the exporter's own background thread shortly after boot.
+That is a choice, not the default — see
+[Running with no external services](#running-with-no-external-services) above,
+where the same exception is stated as the reason nothing points a batch
+processor at a collector that is not there.
+
+`tests/unit/test_no_network_at_boot.py` is what holds this. It boots the
+component in a fresh interpreter with `socket.socket.connect`,
+`socket.socket.connect_ex`, `socket.create_connection`, `socket.getaddrinfo` and
+`socket.gethostbyname` all refusing, and asserts both that boot completed and
+that the key store is still empty afterwards.
+
+The guard covers Python's socket layer, which is where its blind spots are:
+connectionless UDP and any I/O performed inside a C extension — libpq above all —
+are outside what it can see.
+
 ## Local personas
 
 The fourth substitution is the identity provider. There is none locally, so
