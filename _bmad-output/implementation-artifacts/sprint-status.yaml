@@ -76,7 +76,7 @@ development_status:
   3-4-local-sign-in-is-a-url-route-that-drives-the-real-mapper: done
   3-5-the-local-programmatic-flow-validates-for-real: done
   3-6-observability-is-not-substituted-locally: done
-  3-7-nothing-on-the-local-start-path-reaches-the-network-at-boot: ready-for-dev
+  3-7-nothing-on-the-local-start-path-reaches-the-network-at-boot: done
   epic-3-retrospective: optional
   epic-4: in-progress
   4-1-the-refusal-contract-has-one-home-and-two-evaluation-stages: ready-for-dev
