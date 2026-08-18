@@ -30,6 +30,15 @@ non-`http(s)` URIs, which is what blocks a `jku`-header-driven local file read,
 and a fetch writes the cache **only on success**, so a transient IdP outage
 cannot evict a good JWKS.
 
+The one place this departs from PyJWT is a `file://` location accepted **where
+locality is local and nowhere else** (FR-20), so a developer's own keypair can be
+published to the component without an IdP running. That is a decision this
+module is entitled to take precisely because retrieval is its own code rather
+than PyJWT's, and it is not the `jku` hole PyJWT's constructor closes: the
+location comes from settings, never from a token header, so nothing a caller
+sends can steer the read. See `_LOCAL_FILE_SCHEME` for why the locality gate is
+load-bearing today rather than belt-and-braces.
+
 django-allauth also ships a JWKS-by-`kid` implementation
 (`allauth/socialaccount/internal/jwtkit.py`). AD-23 is *choosing* to build this
 rather than being forced to: the choice buys the rate limiting neither library
@@ -53,12 +62,14 @@ import threading
 from enum import Enum
 from enum import auto
 from math import inf
+from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
 from urllib.parse import SplitResult
 from urllib.parse import urlsplit
+from urllib.request import url2pathname
 
 import jwt
 import requests
@@ -68,6 +79,7 @@ from jwt import PyJWK
 from jwt.exceptions import PyJWKSetError
 
 from config.authorization.exceptions import JWKSKeyUnavailable
+from config.locality import is_local
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -84,10 +96,34 @@ __all__ = [
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
-#: The two schemes a JWKS location may use. PyJWT's own client rejects everything
-#: else, and this wrapper must not be weaker than the thing it replaces: a
-#: `file://` location turns a `jku`-header-driven fetch into a local file read.
+#: The two schemes a JWKS location may use *over the network*. PyJWT's own client
+#: rejects everything else, and this wrapper must not be weaker than the thing it
+#: replaces: a `file://` location turns a `jku`-header-driven fetch into a local
+#: file read.
 _PERMITTED_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
+
+#: The one further scheme this module accepts, and only where locality is local
+#: (FR-20). Local development mints tokens with a keypair generated on the
+#: developer's own machine, and the JWKS document publishing its public half is a
+#: file rather than an endpoint -- there is no IdP running to serve it. Because
+#: retrieval here is *this component's* code rather than PyJWT's, accepting the
+#: scheme is a decision this module gets to take (AD-23) rather than a bypass of
+#: one PyJWT took for it.
+#:
+#: **The locality gate below is load-bearing and is not defence in depth.**
+#: AD-23's stage-1 refusal of a JWKS location not derived from the issuer is
+#: Epic 4's, and `jwks_url_derives_from_issuer` has no consumer in `src/` yet. If
+#: this branch were reachable in a deployed component, that component would read
+#: its trust anchor off local disk with nothing refusing it. The gate is that
+#: obligation met by the module that owns the read; it does not discharge Epic 4
+#: from declaring the refusal, and `jwks_url_derives_from_issuer` still answers
+#: `False` for every `file://` location.
+_LOCAL_FILE_SCHEME: Final = "file"
+
+#: The hosts a `file://` location may name. A `file://` URL's authority is either
+#: empty or the local machine; anything else is a UNC path or a typo, and reading
+#: a trust anchor off a network share is the thing this scheme is not for.
+_PERMITTED_FILE_HOSTS: Final[frozenset[str]] = frozenset({"", "localhost"})
 
 #: The ports the two permitted schemes imply, so that `https://idp.example.com`
 #: and `https://idp.example.com:443` are one origin rather than two. Compared as
@@ -143,6 +179,11 @@ _JWKS_FETCH_FAILED: Final = "the JWKS document could not be fetched from the IdP
 _REFETCH_RATE_LIMITED: Final = "refetch refused by the rate limit"
 _NO_JWKS_LOCATION: Final = "no JWKS location is configured"
 _UNPERMITTED_SCHEME: Final = "JWKS location uses a scheme that is not http or https"
+_LOCAL_FILE_WHILE_DEPLOYED: Final = (
+    "a file JWKS location is permitted only where the component runtime declares itself local"
+)
+_UNPERMITTED_FILE_HOST: Final = "a file JWKS location may not name a host"
+_LOCAL_DOCUMENT_UNREADABLE: Final = "the file JWKS location could not be read"
 _NOT_A_JSON_OBJECT: Final = "the JWKS location did not answer with a JSON object"
 _DOCUMENT_TOO_LARGE: Final = "the JWKS location answered with a body above the accepted bound"
 _MALFORMED_KEY_SET: Final = "the JWKS document is not a usable JWK Set"
@@ -340,14 +381,15 @@ def fetch_jwks_document() -> Mapping[str, Any]:
         The parsed JWK Set document.
 
     Raises:
-        JWKSKeyUnavailable: The configured location is unusable -- unset, or
-            carrying a scheme outside `http`/`https` -- or the answer is
-            unusable: not JSON, not a JSON *object*, or larger than the accepted
-            bound. Every one of these is a problem with the *document* rather
-            than with the connection, and it is raised as this type rather than
-            as a `RequestException` so the failure event names the right system:
-            a payload-shape problem logged as a `RequestException` is
-            indistinguishable from the IdP being unreachable.
+        JWKSKeyUnavailable: The configured location is unusable -- unset, carrying
+            a scheme outside `http`/`https`, or naming a local file where locality
+            is not local -- or the answer is unusable: not JSON, not a JSON
+            *object*, or larger than the accepted bound. Every one of these is a
+            problem with the *document* rather than with the connection, and it is
+            raised as this type rather than as a `RequestException` so the failure
+            event names the right system: a payload-shape problem logged as a
+            `RequestException` is indistinguishable from the IdP being
+            unreachable.
         requests.RequestException: The IdP could not be reached or answered a
             non-2xx status. Caught by the store, which leaves the previously
             cached keys intact.
@@ -356,18 +398,13 @@ def fetch_jwks_document() -> Mapping[str, Any]:
     url = configured_jwks_url()
     if not url:
         raise JWKSKeyUnavailable(_NO_JWKS_LOCATION)
-    if urlsplit(url).scheme not in _PERMITTED_SCHEMES:
+    location = urlsplit(url)
+    if location.scheme == _LOCAL_FILE_SCHEME:
+        body = _local_document(location)
+    elif location.scheme in _PERMITTED_SCHEMES:
+        body = _fetched_document(url)
+    else:
         raise JWKSKeyUnavailable(_UNPERMITTED_SCHEME)
-    # `allow_redirects=False`: a 30x would otherwise move the signing-key fetch to
-    # a host `jwks_url_derives_from_issuer` never validated, which is the whole of
-    # what the origin pinning buys. `stream=True` so the body is read under the
-    # bound below rather than in one unbounded call.
-    response = requests.get(url, timeout=_FETCH_TIMEOUT, allow_redirects=False, stream=True)
-    try:
-        response.raise_for_status()
-        body = _bounded_body(response)
-    finally:
-        response.close()
     try:
         document: Any = json.loads(body)
     except json.JSONDecodeError as malformed:
@@ -378,6 +415,92 @@ def fetch_jwks_document() -> Mapping[str, Any]:
     if not isinstance(document, dict):
         raise JWKSKeyUnavailable(_NOT_A_JSON_OBJECT)
     return document
+
+
+def _fetched_document(url: str) -> bytes:
+    """Read the JWK Set over the network.
+
+    Args:
+        url: The location, already established as `http` or `https`.
+
+    Returns:
+        The response body, within the accepted bound.
+
+    Raises:
+        JWKSKeyUnavailable: The body exceeded the bound.
+        requests.RequestException: The IdP could not be reached or answered a
+            non-2xx status.
+
+    """
+    # `allow_redirects=False`: a 30x would otherwise move the signing-key fetch to
+    # a host `jwks_url_derives_from_issuer` never validated, which is the whole of
+    # what the origin pinning buys. `stream=True` so the body is read under the
+    # bound rather than in one unbounded call.
+    response = requests.get(url, timeout=_FETCH_TIMEOUT, allow_redirects=False, stream=True)
+    try:
+        response.raise_for_status()
+        return _bounded_body(response)
+    finally:
+        response.close()
+
+
+def _local_document(location: SplitResult) -> bytes:
+    """Read the JWK Set from a local file, where locality permits it (FR-20).
+
+    Args:
+        location: The already-split `file://` location.
+
+    Returns:
+        The file's contents, within the accepted bound.
+
+    Raises:
+        JWKSKeyUnavailable: The run is not local, the location names a host, the
+            location is not a regular file, the file could not be read, or its
+            contents exceed the bound. Every one of these is raised as this type
+            rather than propagating an `OSError`, so the store's failure path
+            treats an unreadable local document exactly as it treats an
+            unreachable IdP: refuse this request, keep whatever keys are already
+            cached.
+
+    """
+    # The gate, not a check. See `_LOCAL_FILE_SCHEME`: until Epic 4 declares the
+    # stage-1 trust-anchor refusal, this line is the only thing standing between a
+    # deployed component and a trust anchor read off local disk.
+    if not is_local():
+        raise JWKSKeyUnavailable(_LOCAL_FILE_WHILE_DEPLOYED)
+    if location.netloc.lower() not in _PERMITTED_FILE_HOSTS:
+        raise JWKSKeyUnavailable(_UNPERMITTED_FILE_HOST)
+    # `url2pathname` rather than taking `location.path` as written: on `win-64`,
+    # a declared platform, the path of `file:///C:/keys/jwks.json` is
+    # `/C:/keys/jwks.json`, which is not a path any filesystem call resolves.
+    path = Path(url2pathname(location.path))
+    # Insisted on before opening, because this branch has no counterpart to
+    # `_FETCH_TIMEOUT` and runs under the store's lock. A FIFO left by a stray
+    # `mkfifo`, an editor artefact, or a hung network mount blocks `read()`
+    # forever, and with the lock held every concurrent Bearer request in the
+    # process blocks behind it -- the dev server stops answering with no error,
+    # no timeout and no log line. `is_file()` follows symlinks and answers False
+    # for anything that is not a regular file, including a directory and a
+    # missing path, so the refusal below is what a caller sees instead.
+    if not path.is_file():
+        raise JWKSKeyUnavailable(_LOCAL_DOCUMENT_UNREADABLE)
+    try:
+        # One byte past the bound, so "too large" is decided by what was read
+        # rather than by a `stat` the file could have grown past afterwards.
+        with path.open("rb") as document:
+            body = document.read(_MAX_DOCUMENT_BYTES + 1)
+    # `ValueError` alongside `OSError`. A path carrying a percent-encoded NUL
+    # survives `url2pathname` and raises `ValueError: embedded null byte` out of
+    # `open` -- not an `OSError`, so it would escape the store's handler as a 500
+    # on a request that should be a 401. The `is_file()` guard above answers
+    # False for that path today and reaches it first; this catch is what keeps
+    # the guarantee if the file is replaced between the check and the open, which
+    # is a window `is_file()` cannot close.
+    except (OSError, ValueError) as unreadable:
+        raise JWKSKeyUnavailable(_LOCAL_DOCUMENT_UNREADABLE) from unreadable
+    if len(body) > _MAX_DOCUMENT_BYTES:
+        raise JWKSKeyUnavailable(_DOCUMENT_TOO_LARGE)
+    return body
 
 
 def _bounded_body(response: requests.Response) -> bytes:

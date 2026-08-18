@@ -1,3 +1,10 @@
+---
+baseline_revision: 2555897
+review_loop_iteration: 0
+status: done
+warnings: [oversized]
+---
+
 # Story 3.5: The local programmatic flow validates for real
 
 Status: ready-for-dev
@@ -33,53 +40,199 @@ so that API authorization is exercised locally rather than stubbed.
 
 ## Tasks / Subtasks
 
-- [ ] Task 0: Confirm the signing dependencies are declared (AC: #1)
-  - [ ] `pixi.toml` `[dependencies]` does **not** carry `pyjwt` or `cryptography` today. The spine's Stack table pins PyJWT 2.13 and cryptography 50.0 and marks both "new". Story 2.7 declares them; if they are still absent when this story runs, add `pyjwt = ">=2.13,<3"` and `cryptography = ">=50.0,<51"` to `[dependencies]` (conda-forge), never to `[pypi-dependencies]`.
-  - [ ] Both are imported directly by this story's code, so both are declared directly — the spine's supply-chain convention: "Transitive availability is not declaration: a package the code imports directly is declared directly, even when something else already pulls it in."
-  - [ ] `tests/unit/test_dependency_policy.py` asserts `[pypi-dependencies]` holds only the project's own editable install. Adding either package to that table fails the gate, and correctly so.
+> **Reconciled against the tree at `2555897` before implementation.** Every dependency named below
+> was re-read from the current files rather than taken from this story's 2026-08-15 Dev Notes.
+> Nine claims did not survive that reading; each correction is recorded in the **Spec Change Log**
+> at the end of this file and applied in place below.
 
-- [ ] Task 1: Generate the keypair on demand into a gitignored path (AC: #1, #4)
-  - [ ] Create `src/config/local_dev/keys.py` (NEW).
-  - [ ] Declare the location as a module constant, `DEV_KEY_DIR: Path = BASE_DIR / ".local-dev-keys"`, derived from the repository root the same way `src/config/observability/__init__.py:32` does (`Path(__file__).resolve().parents[3]`). One declaration site; nothing else spells the directory name.
-  - [ ] Implement `ensure_keypair() -> DevKeypair` (a frozen dataclass carrying `kid: str`, `private_key_path: Path`, `jwks_path: Path`): refuse when `config.locality.is_local()` is `False` (raise `ImproperlyConfigured`); create `DEV_KEY_DIR` with mode `0o700` if absent; if the private key file is absent, generate an RSA-2048 keypair with `cryptography` and write it as unencrypted PEM with file mode `0o600`; derive a stable `kid` from the public key (for example the base64url of its SHA-256 thumbprint) and write a JWKS document containing exactly that one public key to `jwks.json`. If the key already exists, load it and return — generation is on demand and idempotent, never on import.
-  - [ ] Never generate at import time and never from a settings module. `ensure_keypair()` is called by the minting entry point and by tests, and by nothing that runs at boot (FR-23).
-  - [ ] Add `.local-dev-keys/` to `.gitignore` (UPDATE), in the "Environments"/secrets area, with a comment: a key committed to a template ships inside every component generated from it, so one published private key would be shared by every service the accelerator ever produces.
-  - [ ] Do **not** add the key to `[tool.hatch.build.targets.sdist] include` or to any packaging manifest.
+- [x] Task 0: Confirm the signing dependencies are declared (AC: #1) — **already satisfied, verify only**
+  - [x] `pixi.toml` `[dependencies]` **does** carry `pyjwt = ">=2.13,<3"` (`pixi.toml:67`) and
+        `cryptography = ">=50.0,<51"` (`pixi.toml:72`), both with rationale comments, both declared by
+        Story 2.7. `[pypi-dependencies]` holds only the editable self-install. Nothing to add.
+  - [x] `tests/unit/test_dependency_policy.py::test_the_allauth_socialaccount_extra_is_declared_rather_than_inherited`
+        already asserts, for each of `requests`, `pyjwt` and `cryptography`, that the package is in
+        `[dependencies]` with a rationale. This story adds no dependency and must not touch either table.
+  - [x] `cryptography` is imported by `src/` for the first time in this story (today only `tests/jwt_keys.py`
+        imports it). That is a new *direct* import of an already-declared package, which the supply-chain
+        convention permits without a manifest change.
 
-- [ ] Task 2: Point the local JWKS location at the generated key (AC: #1, #2)
-  - [ ] Story 2.7 reads the JWKS location from `COMPONENT_OIDC_JWKS_URL`, defaulting to the conventional derivation from `COMPONENT_OIDC_ISSUER`, and holds the key material in `JWKSKeyStore` / the module-level `KEY_STORE` at `src/config/authorization/jwks.py`. Use those names; do not introduce a second location variable or a second store.
-  - [ ] Set the local value to `file://` + the absolute path of `DEV_KEY_DIR / "jwks.json"`. Set it in `src/config/settings/local.py` only — never in `base.py`, `test.py` or `production.py`.
-  - [ ] The component's JWKS retrieval is component code wrapping PyJWT (AD-23), so it — not PyJWT's `PyJWKClient` — decides which schemes it accepts. Extend `JWKSKeyStore`'s fetch seam in `src/config/authorization/jwks.py` to read a `file://` location from disk and parse it into the same `kid`-keyed cache the HTTP path populates. Change **nothing** about signature, `iss`, `aud`, `exp` or `alg` verification, and leave the rate limiter (`COMPONENT_JWKS_MIN_REFETCH_SECONDS`) and TTL (`COMPONENT_JWKS_TTL_SECONDS`) behaviour intact.
-  - [ ] This does not weaken the deployed trust anchor, and the guard is already in place: Story 2.7's `jwks_url_derives_from_issuer` explicitly **rejects** a `file://` URL, and the stage-1 trust-anchor refusal (AD-23, FR-13 condition 4, Epic 4) is what stops a `file://` location from reaching a deployed component. Do not relax that predicate to accommodate this story — the `file://` scheme is reachable locally precisely because the refusal does not apply where locality is local.
-  - [ ] Reading a local file is not a network call and does not violate FR-23: retrieval stays lazy, triggered by the first Bearer request whose `kid` is uncached (Story 3.7 asserts this).
+- [x] Task 1: Generate the keypair on demand into a gitignored path (AC: #1, #4)
+  - [x] Create `src/config/local_dev/keys.py` (NEW).
+  - [x] Declare the location as a module constant, `DEV_KEY_DIR: Final[Path] = BASE_DIR / ".local-dev-keys"`,
+        with `BASE_DIR = Path(__file__).resolve().parents[3]` — the idiom at
+        `src/config/observability/__init__.py:31-32`, and the same four-levels-up root
+        `src/config/settings/base.py:16-20` reaches by a `.parent` chain. One declaration site; nothing
+        else spells the directory name.
+  - [x] Implement `ensure_keypair() -> DevKeypair`, where `DevKeypair` is a frozen slotted dataclass
+        carrying `kid: str`, `private_key_path: Path` and `jwks_path: Path`:
+    - [x] Refuse when `config.locality.is_local()` is `False`, as the **first statement**, raising
+          `ImproperlyConfigured` with a module-level message constant — the `seeding.py:82-83` idiom
+          (operator-invoked code refuses with `ImproperlyConfigured`; only request-reachable code uses
+          `Http404`).
+    - [x] Create the directory with mode `0o700` if absent.
+    - [x] If the private key file is absent, generate RSA-2048 with `cryptography`
+          (`public_exponent=65537`, `key_size=2048`) and write unencrypted PKCS#8 PEM at mode `0o600`.
+    - [x] Derive a stable `kid` from the public key: the base64url (unpadded) of the SHA-256 RFC 7638
+          JWK thumbprint. Deterministic from the key, so a reload yields the same `kid`.
+    - [x] Write a JWKS document holding exactly that one public key to `jwks.json`, rendered with
+          `jwt.algorithms.RSAAlgorithm.to_jwk` plus `kid`, `alg: "RS256"` and `use: "sig"` — the same
+          shape `tests/jwt_keys.py:SigningKey.public_jwk` produces, because that is the shape
+          `jwt.PyJWKSet.from_dict` in `jwks.py:_index_by_kid` consumes.
+    - [x] If the key already exists, load it and return. Generation is on demand and idempotent, never
+          on import.
+  - [x] Expose `load_private_key(keypair: DevKeypair)` (or return the key object on `DevKeypair`) so
+        `tokens.py` signs with the same material without re-reading the PEM by path in a second place.
+  - [x] Never generate at import time and never from a settings module. `ensure_keypair()` is called by
+        the minting entry point and by tests, and by nothing that runs at boot (FR-23).
+  - [x] Add `.local-dev-keys/` to `.gitignore` (UPDATE), in the project-specific tail block before the
+        `# pixi environments` block, as its own commented block matching the
+        `# Collected static files (STATIC_ROOT)` style. The comment states the reason: a key committed to
+        a template ships inside every component generated from it, so one published private key would be
+        shared by every service the accelerator ever produces.
+  - [x] Do **not** add the key to any packaging manifest.
 
-- [ ] Task 3: Mint the token (AC: #1, #2, #3)
-  - [ ] Create `src/config/local_dev/tokens.py` (NEW) exposing `mint_token(persona_key: str, *, lifetime_seconds: int = 900, jti: str | None = None) -> str`.
-  - [ ] Refuse when not local, first statement, the same way Stories 3.3 and 3.4 do.
-  - [ ] Build the payload from `build_claims(get_persona(persona_key))` (Story 3.3 — the sole synthetic-claims constructor) and add the registered claims the Bearer class verifies: `iss` from `COMPONENT_OIDC_ISSUER` and `aud` from whatever audience setting Story 2.7's `OIDCBearerAuthentication` verifies against — read both from the same source that class reads, never from a literal — plus `exp` from `lifetime_seconds`, `iat`, and a `jti` (AD-10 rejects a token with no `jti` with 401).
-  - [ ] Sign with `PyJWT` using `RS256`, the private key from `ensure_keypair()`, and a `kid` header matching the JWKS entry. `RS256` must be a member of Story 2.7's `ALLOWED_ALGORITHMS` (`COMPONENT_OIDC_ALGORITHMS`, default `["RS256"]`); do not widen that allowlist, and never let the token's own header choose the algorithm. Rotation is what `kid` exists for; a token minted without one cannot be matched to a key.
-  - [ ] Do **not** add a verification bypass, a `verify_signature=False` path, a settings flag that relaxes audience checking, or a test-only authentication class. FR-20's whole point is that the real class verifies for real.
-  - [ ] Create `src/config/local_dev/mint.py` (NEW) as the `python -m config.local_dev.mint <persona-key>` entry point: `os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.local")`, `django.setup()`, parse the persona key from `sys.argv`, call `ensure_keypair()` then `mint_token()`, and emit the token as a structured `structlog` event — never `print`.
-  - [ ] Add to `pixi.toml` `[tasks]`: `mint-token = { cmd = "python -m config.local_dev.mint", default-environment = "default", description = "Mint a development JWT for a local persona" }`.
-  - [ ] **Declare no `env` on it.** AD-13 was amended on 2026-08-17 (spine commit `d40b684`, delivered by Story 3.1): locality is declared once in `[feature.dev.activation.env]` and no task declares `COMPONENT_RUNTIME`. `tests/unit/test_locality_declaration.py::test_no_task_declares_component_runtime` fails on any task that does.
-  - [ ] Nothing to register in `tests/unit/test_locality_declaration.py` — the `LOCAL_TASKS` data set named by the superseded spec does not exist in the delivered file. The invocation is `pixi run -e dev mint-token <persona-key>`; the bare form resolves in `default` and reads *deployed*.
+- [x] Task 2: Point the local JWKS location at the generated key (AC: #1, #2)
+  - [x] The names are Django **settings**, declared once in `src/config/settings/base.py:481-556`, and the
+        `COMPONENT_*` spellings are the environment variables behind them. `jwks.py` and
+        `authentication.py` read `settings.OIDC_JWKS_URL`, `settings.OIDC_ISSUER`, `settings.OIDC_AUDIENCE`,
+        `settings.OIDC_ALGORITHMS`, `settings.OIDC_LEEWAY_SECONDS`, `settings.JWKS_TTL_SECONDS` and
+        `settings.JWKS_MIN_REFETCH_SECONDS`. Use those names. Introduce no second location variable and no
+        second store — the store is `JWKSKeyStore` with the module-level instance `KEY_STORE`
+        (`src/config/authorization/jwks.py:407, 659`).
+  - [x] Extend the fetch seam. It is the **module-level function** `fetch_jwks_document() -> Mapping[str, Any]`
+        (`jwks.py:332`), taken as `JWKSKeyStore.__init__`'s `fetch` default — not a method. Today it refuses
+        any scheme outside `_PERMITTED_SCHEMES` (`{"http", "https"}`). Add a `file` branch that reads the
+        document from disk, bounded by the existing `_MAX_DOCUMENT_BYTES`, and parses it through the same
+        `json.loads` / "must be a JSON object" path the HTTP branch uses, so both feed the identical
+        `kid`-keyed cache.
+  - [x] **Gate the `file` branch on `config.locality.is_local()`**, refusing with `JWKSKeyUnavailable` and a
+        distinct message where locality is not local. AD-23's stage-1 trust-anchor refusal is Epic 4's and
+        **is not implemented yet** — every Epic 4 story is `ready-for-dev`, and `jwks_url_derives_from_issuer`
+        has no consumer in `src/` today. Without this gate, shipping the `file` branch would leave a deployed
+        component reading its trust anchor off local disk with nothing at all refusing it. The gate is that
+        refusal's obligation met by the module that owns the read, not a substitute for it.
+  - [x] Reject a `file://` URL carrying a host other than empty or `localhost`; resolve the path with
+        `urllib.request.url2pathname` over the split path so a Windows drive letter survives (`win-64` is a
+        declared platform).
+  - [x] Change **nothing** about signature, `iss`, `aud`, `exp` or `alg` verification, and leave the rate
+        limiter and TTL behaviour intact.
+  - [x] Do **not** relax `jwks_url_derives_from_issuer` — it already answers `False` for a `file://` location
+        and `tests/unit/authorization/test_jwks.py:515-516` freezes that. It stays untouched.
+  - [x] Set the local values in `src/config/settings/local.py` only — never in `base.py`, `test.py` or
+        `production.py` — appended after the existing `# Your stuff...` banner as its own commented block:
+    - [x] `OIDC_JWKS_URL` → `(DEV_KEY_DIR / "jwks.json").as_uri()`, importing `DEV_KEY_DIR` from
+          `config.local_dev.keys`. `as_uri()` rather than string concatenation so the URL is well-formed on
+          every declared platform. Importing the module is not generating a key: `keys.py` reads no settings
+          and generates nothing at import.
+    - [x] `OIDC_ISSUER` and `OIDC_AUDIENCE` → local development values, **only where the environment left
+          them unset**, following the `CLAIMS_CONTRACT` idiom already in `local.py:103-131`. This is not
+          optional decoration: `base.py` defaults both to `""`, and PyJWT's `_validate_aud` raises
+          `MissingRequiredClaimError("aud")` on a token whose `aud` is the empty string (`if "aud" not in
+          payload or not payload["aud"]`) — so with the audience unset, every locally minted token is
+          rejected and AC #2 cannot hold on a fresh clone. Verified against PyJWT 2.13.0 in this
+          environment.
+    - [x] Do not touch `SOCIALACCOUNT_PROVIDERS`. It is built in `base.py` from the `OIDC_ISSUER` value read
+          there; re-binding the name in `local.py` does not and must not reach back into it.
+  - [x] Reading a local file is not a network call and does not violate FR-23: retrieval stays lazy, triggered
+        by the first Bearer request whose `kid` is uncached.
 
-- [ ] Task 4: Document the flow and the never-commit rule (AC: #1, #4)
-  - [ ] Extend `docs/development.md`'s `## Local personas` section (Story 3.3) with a subsection on the programmatic flow: `pixi run -e dev mint-token <persona>` (the `-e dev` is required), the `file://` JWKS location, and the statement that the token is verified by the real Bearer authentication class with nothing stubbed.
-  - [ ] State the never-commit rule and its reason (NFR-7), and state R-5 plainly: synthetic claims never exercise JWKS retrieval over the network or key rotation at the IdP.
+- [x] Task 3: Mint the token (AC: #1, #2, #3)
+  - [x] Create `src/config/local_dev/tokens.py` (NEW) exposing
+        `mint_token(persona_key: str, *, lifetime_seconds: int = 900, jti: str | None = None) -> str`.
+  - [x] Refuse when not local, first statement, `ImproperlyConfigured` — the same way `seeding.py` does.
+  - [x] Build the payload from `build_claims(get_persona(persona_key))`
+        (`src/config/local_dev/personas.py:164, 211` — the sole synthetic-claims constructor) and add the
+        registered claims:
+    - [x] `iss` from `settings.OIDC_ISSUER` and `aud` from `settings.OIDC_AUDIENCE` — read from the same
+          settings the authentication class reads (`authentication.py:375, 389`), never from a literal.
+    - [x] `exp` from `lifetime_seconds`, plus `iat`.
+    - [x] `jti`, defaulting to a fresh `uuid4` hex. Required not by the authentication class — which checks
+          only `_REQUIRED_CLAIMS = ["exp", "iss", "aud"]` (`authentication.py:92`) — but by
+          `mapper.sync_once_per_epoch`, which raises `ClaimsRejected("token carries no jti")`;
+          `_authorized` converts that to the same 401 (AD-10's rejection, at a location this story's Dev
+          Notes originally misattributed to the authentication class).
+    - [x] `build_claims` already emits the identity-key claim and the **group claim**; do not drop either.
+          The mapper refuses `identity key claim absent` and `group claim absent` alike.
+  - [x] Sign with PyJWT using `RS256`, the private key from `ensure_keypair()`, and a `kid` header matching
+        the JWKS entry. `RS256` is the sole member of `_DEFAULT_ALGORITHMS` behind `settings.OIDC_ALGORITHMS`
+        (`authentication.py:85, 353`); do not widen it, and never let the token's own header choose the
+        algorithm. There is no `ALLOWED_ALGORITHMS` name in the tree.
+  - [x] Do **not** add a verification bypass, a `verify_signature=False` path, a settings flag that relaxes
+        audience checking, or a test-only authentication class.
+  - [x] Create `src/config/local_dev/mint.py` (NEW) as the `python -m config.local_dev.mint <persona-key>`
+        entry point, modelled line for line on `src/config/local_dev/seed.py`: module-level
+        `logger: structlog.stdlib.BoundLogger = structlog.get_logger("config.local_dev.mint")` with the
+        **explicit dotted name** (`__name__` is `"__main__"` under `python -m`);
+        `os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.local")`; `django.setup()`; the
+        deferred in-function import of `config.local_dev.tokens`; `sys.argv` parsing for the persona key;
+        `ensure_keypair()` then `mint_token()`; emit the token as a structured `structlog` event — never
+        `print`; `if __name__ == "__main__": main()`.
+  - [x] Refusals propagate as tracebacks, as `seed.py` does. No `argparse`, no `SystemExit` handling.
+  - [x] Add to `pixi.toml` `[tasks]` (the default-environment table, immediately after `seed-personas` at
+        `pixi.toml:476`):
+        `mint-token = { cmd = "python -m config.local_dev.mint", default-environment = "default", description = "Mint a development JWT for a local persona" }`.
+  - [x] **Declare no `env` on it.** `tests/unit/test_locality_declaration.py::test_no_task_declares_component_runtime`
+        fails on any task whose own `env` names `COMPONENT_RUNTIME`, at any value. The invocation is
+        `pixi run -e dev mint-token <persona-key>`; the bare form resolves in `default` and reads *deployed*,
+        which is what makes the refusal the guard.
+  - [x] Nothing to register in `tests/unit/test_locality_declaration.py` — there is no `LOCAL_TASKS` data set
+        in that file (verified).
 
-- [ ] Task 5: Tests (AC: #1, #2, #3, #4)
-  - [ ] Create `tests/unit/test_local_dev_keys.py` (NEW): assert `ensure_keypair()` refuses with `ImproperlyConfigured` when `COMPONENT_RUNTIME` is unset or unrecognized; assert the private key file and `jwks.json` are absent before and present after a first call, using `tmp_path` and monkeypatching `DEV_KEY_DIR`; assert a second call returns the same `kid` and does not rewrite the key; assert the private key file mode is `0o600` and the directory `0o700`; assert the JWKS document contains exactly one key whose `kid` matches. (Filesystem writes confined to `tmp_path` keep this test unit-scoped in the sense that matters — no database, no network — but if the project's unit-test rule is read strictly, place it in `tests/integration/` with the marker instead; do not skip it.)
-  - [ ] Create `tests/unit/test_gitignore_covers_dev_keys.py` (NEW) or add the assertion to an existing manifest test: read `.gitignore` and assert `.local-dev-keys/` is present. Also assert no file under `DEV_KEY_DIR`'s name is tracked. This is NFR-7's only automatic guard.
-  - [ ] Create `tests/integration/test_local_dev_bearer_flow.py` (NEW), every test `@pytest.mark.integration`:
-    - [ ] `test_minted_token_authenticates_through_the_real_class`: generate a keypair into `tmp_path`, point the JWKS setting at it, mint a token for the staff persona, present it as `Authorization: Bearer <jwt>` to an existing authenticated API endpoint (`src/django_service/users/api/views.py` is routed through `src/config/api_router.py`), and assert a 200 and that the authenticated user resolves to the persona's identity key.
-    - [ ] `test_tampered_signature_is_rejected`: flip a character in the signature segment; assert 401.
-    - [ ] `test_tampered_payload_is_rejected`: re-encode the payload with an added group claim, keeping the original signature; assert 401.
-    - [ ] `test_expired_token_is_rejected`: mint with a negative lifetime; assert 401.
-    - [ ] `test_wrong_issuer_is_rejected` and `test_wrong_audience_is_rejected`: mint with a deliberately wrong `iss` / `aud`; assert 401 for each. These are AC #2's "no verification step is stubbed or skipped" — without them, a class that decodes with `options={"verify_aud": False}` passes every other test here.
-    - [ ] `test_unknown_kid_is_rejected`: mint with a second, unrelated keypair; assert 401.
-    - [ ] `test_token_without_jti_is_rejected`: assert 401 (AD-10).
-  - [ ] Assertions are over the real authentication class's behaviour. Do not patch the class, do not patch PyJWT's `decode`, and do not mark any of these `xfail`.
+- [x] Task 4: Document the flow and the never-commit rule (AC: #1, #4)
+  - [x] Extend `docs/development.md`'s `## Local personas` section with a `### Minting a development token`
+        subsection: `pixi run -e dev mint-token <persona>` (the `-e dev` is required), the `file://` JWKS
+        location, the local issuer and audience defaults, and the statement that the token is verified by the
+        real Bearer authentication class with nothing stubbed.
+  - [x] State the never-commit rule and its reason (NFR-7), and state R-5 plainly: synthetic claims never
+        exercise JWKS retrieval over the network or key rotation at the IdP.
+  - [x] `pixi run -e dev docs` runs mkdocs `--strict`; a broken anchor fails the gate.
+
+- [x] Task 5: Tests (AC: #1, #2, #3, #4)
+  - [x] Create `tests/unit/test_local_dev_keys.py` (NEW). `tests/unit/test_observability_init.py` is the
+        precedent for a unit test that writes under `tmp_path` while touching no database and no network;
+        follow it, monkeypatching `keys.DEV_KEY_DIR`. Assert: `ensure_keypair()` raises `ImproperlyConfigured`
+        when `COMPONENT_RUNTIME` is deleted or unrecognized; the private key and `jwks.json` are absent before
+        and present after a first call; a second call returns the same `kid` and does not rewrite the key
+        file; the private key file mode is `0o600` and the directory `0o700`; the JWKS document holds exactly
+        one key whose `kid` matches and whose `kty`/`alg`/`use` are `RSA`/`RS256`/`sig`. Keep RSA generation
+        to as few calls as the assertions genuinely need — 2048-bit generation is the slowest thing in the
+        unit suite.
+  - [x] Create `tests/unit/test_gitignore_covers_dev_keys.py` (NEW): read `.gitignore` and assert
+        `.local-dev-keys/` is present; assert `git ls-files` tracks nothing under that name. This is NFR-7's
+        only automatic guard. Reading a repository manifest in a unit test is established here
+        (`test_dependency_policy.py`, `test_locality_declaration.py`).
+  - [x] Extend `tests/unit/authorization/test_jwks.py` (UPDATE). `test_the_default_fetch_refuses_a_scheme_outside_http`
+        at `:753` currently proves the refusal with `file:///etc/passwd` **and runs in the `dev` environment,
+        where locality is local** — so it changes meaning under Task 2 and must be updated, not deleted.
+        Split it into: a scheme genuinely outside the permitted set is still refused with the unchanged
+        message `"JWKS location uses a scheme that is not http or https"`; a `file://` location is refused
+        with the new local-only message when `COMPONENT_RUNTIME` is deleted; a `file://` location with a
+        foreign host is refused; and a `file://` location is read where locality is local.
+  - [x] Create `tests/integration/test_local_dev_bearer_flow.py` (NEW). Every test carries the integration
+        marker (`tests/integration/conftest.py` applies it automatically) and `pytest.mark.django_db`. Model
+        it on `tests/integration/authorization/test_bearer_authentication.py`, with one deliberate
+        difference: **the fetch seam is not stubbed**. The real `fetch_jwks_document` reads the real
+        `file://` location, because that path is what AC #1 and #2 are about. Reset `KEY_STORE` on both
+        sides of every test — it is module-level state and the 60-second refetch window otherwise leaks
+        between tests. Cases:
+    - [x] `test_minted_token_authenticates_through_the_real_class`: generate a keypair into `tmp_path`, point
+          `settings.OIDC_JWKS_URL` at its `jwks.json`, mint a token for the staff persona, present it as
+          `Authorization: Bearer <jwt>` to `api:user-me`, assert 200 and that the authenticated user resolves
+          to the persona's `idp_subject`.
+    - [x] `test_tampered_signature_is_rejected`: corrupt the signature segment; assert 401.
+    - [x] `test_tampered_payload_is_rejected`: re-encode the payload with an added group claim, keeping the
+          original signature; assert 401.
+    - [x] `test_expired_token_is_rejected`: mint with a negative lifetime; assert 401.
+    - [x] `test_wrong_issuer_is_rejected` and `test_wrong_audience_is_rejected`: assert 401 for each. These
+          are AC #2's "no verification step is stubbed or skipped" — without them, a class decoding with
+          `options={"verify_aud": False}` passes every other case here.
+    - [x] `test_unknown_kid_is_rejected`: sign with a second, unpublished keypair (`tests/jwt_keys.generate`)
+          under a `kid` the local JWKS does not carry; assert 401.
+    - [x] `test_token_without_jti_is_rejected`: assert 401 (AD-10, raised by the mapper).
+  - [x] Reuse `tests/jwt_keys.py` (`generate`, `jwks_document`, `SigningKey.sign`) for the impostor and
+        unknown-`kid` material rather than writing a second helper.
+  - [x] Assertions are over the real authentication class's behaviour. Do not patch the class, do not patch
+        PyJWT's `decode`, do not patch `KEY_STORE._fetch` in this file, and do not mark any of these `xfail`.
 
 ## Dev Notes
 
@@ -95,7 +248,11 @@ so that API authorization is exercised locally rather than stubbed.
 
 Two consequences for this story. First, because retrieval is component code, adding a `file://` scheme is a change to the component's own retrieval and is legitimate — it is not a bypass. Second, the local JWKS location is *deliberately* not derived from an issuer, which is exactly the state the deployed trust-anchor refusal forbids; it is permitted locally because locality is local, and Epic 4's stage-1 condition is what keeps it from reaching a deployed component. Never soften that refusal to accommodate this story. Third, because that refusal is **syntactic** — a string-derivation rule over the configured issuer, not a confirmation against a fetched discovery document — a `file://` location is caught by it reliably: no `file://` string derives from an `https://` issuer. What the syntactic check cannot catch is an issuer whose real `jwks_uri` differs from the derivation, and that surfaces on the first Bearer request rather than at boot. Do not add a discovery fetch to close that gap; it would be the boot-time network call FR-23 forbids.
 
-**AD-10 — a token with no `jti` is rejected with 401.** The minted token carries one; the negative test asserts the rejection.
+**AD-10 — a token with no `jti` is rejected with 401.** The minted token carries one; the negative test
+asserts the rejection. The check is **not** in the authentication class — its `_REQUIRED_CLAIMS` are
+`exp`, `iss`, `aud` only. `mapper.sync_once_per_epoch` raises `ClaimsRejected("token carries no jti")`
+and `OIDCBearerAuthentication._authorized` converts it to the same 401. The observable behaviour the
+test asserts is unchanged; the location is not where this story's Dev Notes originally put it.
 
 **AD-13 — locality fails closed.** Keypair generation and minting both refuse when `config.locality.is_local()` is `False`, before touching the filesystem.
 
@@ -107,17 +264,19 @@ Two consequences for this story. First, because retrieval is component code, add
 
 | Path | NEW / UPDATE | What changes |
 | --- | --- | --- |
-| `src/config/local_dev/keys.py` | NEW | `DEV_KEY_DIR`, `DevKeypair`, `ensure_keypair()` — on-demand RSA generation, PEM at `0o600`, single-key JWKS document, stable `kid`. |
+| `src/config/local_dev/keys.py` | NEW | `DEV_KEY_DIR`, `DevKeypair`, `ensure_keypair()` — on-demand RSA generation, PEM at `0o600`, single-key JWKS document, thumbprint `kid`. |
 | `src/config/local_dev/tokens.py` | NEW | `mint_token()` — RS256 over `build_claims` plus `iss`/`aud`/`exp`/`iat`/`jti`, `kid` header. |
 | `src/config/local_dev/mint.py` | NEW | `python -m config.local_dev.mint <persona-key>` entry point. |
-| `src/config/settings/local.py` | UPDATE | Point Story 2.7's JWKS-location setting at `file://` + `DEV_KEY_DIR / "jwks.json"`. |
-| `pixi.toml` | UPDATE | Add the `mint-token` task with **no** `env` (AD-13 as amended); invoked as `pixi run -e dev mint-token`; add `pyjwt` and `cryptography` to `[dependencies]` if Story 2.7 has not. |
+| `src/config/authorization/jwks.py` | UPDATE | A locality-gated `file` branch in `fetch_jwks_document()`, feeding the same parse and the same `kid`-keyed cache. Verification, TTL and rate limiting untouched. |
+| `src/config/settings/local.py` | UPDATE | `OIDC_JWKS_URL` at `file://` + `DEV_KEY_DIR / "jwks.json"`; local `OIDC_ISSUER` and `OIDC_AUDIENCE` defaults, filled only where unset. |
+| `pixi.toml` | UPDATE | Add the `mint-token` task with **no** `env`; invoked as `pixi run -e dev mint-token`. `[dependencies]` already carries `pyjwt` and `cryptography` — do not touch it. |
 | `.gitignore` | UPDATE | Add `.local-dev-keys/` with the reason. |
-| `tests/unit/test_locality_declaration.py` | UNCHANGED | Nothing to register; `LOCAL_TASKS` does not exist in the delivered file. |
-| `docs/development.md` | UPDATE | Programmatic-flow subsection under `## Local personas`. |
+| `tests/unit/test_locality_declaration.py` | UNCHANGED | Nothing to register; `LOCAL_TASKS` does not exist in the delivered file (verified). |
+| `docs/development.md` | UPDATE | `### Minting a development token` under `## Local personas`. |
 | `tests/unit/test_local_dev_keys.py` | NEW | Refusal, on-demand generation, idempotence, file modes, JWKS shape. |
-| `tests/unit/test_gitignore_covers_dev_keys.py` | NEW | `.gitignore` carries `.local-dev-keys/`. |
-| `tests/integration/test_local_dev_bearer_flow.py` | NEW | The real authentication class against minted, tampered, expired, wrong-`iss`, wrong-`aud`, unknown-`kid` and `jti`-less tokens. |
+| `tests/unit/test_gitignore_covers_dev_keys.py` | NEW | `.gitignore` carries `.local-dev-keys/`; nothing under it is tracked. |
+| `tests/unit/authorization/test_jwks.py` | UPDATE | The scheme-refusal case splits: unpermitted scheme, `file://` while deployed, `file://` with a foreign host, `file://` while local. |
+| `tests/integration/test_local_dev_bearer_flow.py` | NEW | The real authentication class against minted, tampered, expired, wrong-`iss`, wrong-`aud`, unknown-`kid` and `jti`-less tokens, over the real `file://` retrieval. |
 
 **`.gitignore` today (verified).** Already ignores `.env`, `.envrc`, `.venv`, `db.sqlite3`, `staticfiles/`, `.pixi/*` (with `!.pixi/config.toml`), `ruff-report.json`, and the `.envs/.local/*` / `.envs/.production/*` files. It does **not** mention any key directory. Add the entry; do not reorganize the file.
 
@@ -125,7 +284,39 @@ Two consequences for this story. First, because retrieval is component code, add
 
 **`src/config/observability/__init__.py:32`** shows the established root-derivation idiom: `BASE_DIR = Path(__file__).resolve().parents[3]`. `src/config/settings/base.py:15` uses `Path(__file__).resolve(strict=True).parent.parent.parent.parent` for the same root. Use one of these, not a new one.
 
-**Dependencies on earlier stories — concrete names, verified against those stories' files.** `src/config/authorization/jwks.py`: `JWKSKeyStore`, the module-level `KEY_STORE`, `jwks_url_derives_from_issuer`, `JWKSKeyUnavailable`, and the `COMPONENT_OIDC_JWKS_URL` / `COMPONENT_OIDC_ISSUER` / `COMPONENT_JWKS_TTL_SECONDS` / `COMPONENT_JWKS_MIN_REFETCH_SECONDS` reads (Story 2.7). `src/config/authorization/authentication.py`: `OIDCBearerAuthentication` and `ALLOWED_ALGORITHMS` from `COMPONENT_OIDC_ALGORITHMS` (Story 2.7), registered first in `REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"]`. `src/config/authorization/mapper.py`: `resolve_user`, `sync_once_per_epoch` — the Bearer path uses the epoch gate, which is why the minted token must carry a `jti` (Story 2.5). `config.local_dev.personas.build_claims` / `get_persona` (Story 3.3). `config.locality.is_local()` (Story 3.1). `src/config/authorization/` does not exist in the repository today.
+**Dependencies on earlier stories — re-verified against the current files at `2555897`, not against the stories that introduced them.**
+
+`src/config/authorization/` **exists**; Epic 2 built it. This story's original Dev Notes claimed it did not.
+
+- `src/config/authorization/jwks.py`: `JWKSKeyStore` (`:407`), the module-level `KEY_STORE` (`:659`),
+  `configured_jwks_url()` (`:193`), `conventional_jwks_url()` (`:174`), `fetch_jwks_document()` (`:332`, the
+  fetch seam — a module-level function, not a method), `jwks_url_derives_from_issuer()` (`:208`),
+  `_PERMITTED_SCHEMES` (`:92`), `_MAX_DOCUMENT_BYTES` (`:130`), `JWKSKeyStore.reset()` (`:496`), and the
+  `_index_by_kid` path (`:595`) that feeds `jwt.PyJWKSet.from_dict` and silently drops any JWK with no `kid`.
+- `src/config/authorization/authentication.py`: `OIDCBearerAuthentication` (`:147`), registered first in
+  `REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"]`. It decodes with
+  `algorithms=list(_algorithms())`, `issuer=_issuer()`, `audience=_audience()`, `leeway=_leeway()` and
+  `options={"require": _REQUIRED_CLAIMS}` where `_REQUIRED_CLAIMS = ["exp", "iss", "aud"]` (`:92`). The
+  `kid` is read from the unverified header and must be a non-blank string (`:199`). Every refusal becomes
+  `AuthenticationFailed`, rendered **401** because `authenticate_header` answers `"Bearer"`. There is **no**
+  `ALLOWED_ALGORITHMS` name — the reader is `_algorithms()` (`:353`) over `settings.OIDC_ALGORITHMS`, with
+  `_DEFAULT_ALGORITHMS = ("RS256",)` (`:85`).
+- `src/config/authorization/mapper.py`: `resolve_user` (`:188`) and `sync_once_per_epoch` (`:819`), which is
+  where the `jti` requirement actually lives — `ClaimsRejected("token carries no jti")`, converted to 401 by
+  `_authorized`. Refusal reasons a minted token can trip include `identity key claim absent`,
+  `group claim absent` and `resolved user is deactivated`.
+- `src/config/authorization/exceptions.py`: `ClaimsRejected(reason)`, `JWKSKeyUnavailable(reason)`.
+- `src/config/settings/base.py:481-556`: `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_JWKS_URL`, `OIDC_AUDIENCE`
+  (defaults to `OIDC_CLIENT_ID`), `OIDC_ALGORITHMS`, `OIDC_LEEWAY_SECONDS`, `JWKS_TTL_SECONDS`,
+  `JWKS_MIN_REFETCH_SECONDS` — the Django-setting names the two modules read. The `COMPONENT_*` spellings are
+  the environment variables behind them and appear nowhere in `jwks.py` or `authentication.py`.
+- `src/config/local_dev/personas.py`: `get_persona()` (`:164`), `build_claims()` (`:211`), `Persona` (`:90`),
+  `UnknownPersonaError` (`:79`), and the two declared personas `staff` and `reader` (`:132-149`).
+  `build_claims` emits `preferred_username`, `email`, `name`, the contract's identity-key claim and the
+  contract's group claim — deliberately no `iss`, `aud`, `exp` or `jti`.
+- `src/config/locality.py`: `is_local()` (`:84`), reading `COMPONENT_RUNTIME` at call time and failing closed.
+- `tests/jwt_keys.py`: `generate()`, `jwks_document()`, `SigningKey.public_jwk()` / `.sign()`, `StubFetch`,
+  `FakeClock`. It already exists and is the model for the JWK rendering `keys.py` must produce.
 
 **Existing API surface for the integration test.** `src/config/api_router.py` routes `src/django_service/users/api/views.py`; `src/config/urls.py:37` mounts it at `api/`. `tests/integration/users/test_api_views.py` already exercises those endpoints and is the model to follow for request construction.
 
@@ -157,6 +348,47 @@ Two consequences for this story. First, because retrieval is component code, add
 - [Source: pixi.toml] — `[dependencies]` carries no `pyjwt` and no `cryptography` today; `[pypi-dependencies]` holds only the editable self-install.
 - [Source: tests/unit/test_dependency_policy.py:31-46] — the assertion that fails if a signing package is added to `[pypi-dependencies]`.
 - [Source: .gitignore] · [Source: src/config/settings/local.py] · [Source: src/config/observability/__init__.py:32] · [Source: src/config/api_router.py] · [Source: tests/integration/users/test_api_views.py]
+
+## Spec Change Log
+
+Reconciliation pass against the tree at `2555897`, before any code was written. Nine claims in the
+2026-08-15 Dev Notes did not survive re-reading; each was corrected in place above.
+
+1. **Task 0 was already satisfied.** `pixi.toml:67,72` carry `pyjwt = ">=2.13,<3"` and
+   `cryptography = ">=50.0,<51"` in `[dependencies]`, with rationale comments, declared by Story 2.7.
+   `tests/unit/test_dependency_policy.py` already asserts exactly that for both. Task 0 is now a
+   verification step, not a change.
+2. **`src/config/authorization/` was said not to exist.** It does. Every name in the dependency list was
+   re-read from the current files with line numbers.
+3. **`COMPONENT_OIDC_JWKS_URL` and friends are environment variables, not the names the code reads.** The
+   two modules read Django settings — `OIDC_JWKS_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_ALGORITHMS`,
+   `JWKS_TTL_SECONDS`, `JWKS_MIN_REFETCH_SECONDS` — declared once in `base.py:481-556`.
+4. **`ALLOWED_ALGORITHMS` does not exist.** The reader is `_algorithms()` (`authentication.py:353`) over
+   `settings.OIDC_ALGORITHMS`, defaulting to `("RS256",)`.
+5. **The fetch seam is a module-level function, not a method on `JWKSKeyStore`.** `fetch_jwks_document()`
+   at `jwks.py:332`, passed as the store's `fetch` constructor default. "Extend `JWKSKeyStore`'s fetch seam"
+   now names the right object.
+6. **The `file` branch needs a locality gate of its own.** The spec rested the deployed guard entirely on
+   Epic 4's stage-1 trust-anchor refusal. Every Epic 4 story is still `ready-for-dev`, and
+   `jwks_url_derives_from_issuer` has no consumer in `src/` today, so that guard does not exist yet.
+   Gating on `config.locality.is_local()` inside the branch is the same refusal met by the module that owns
+   the read. `jwks_url_derives_from_issuer` is left untouched and still answers `False` for `file://`.
+7. **Local settings must default `OIDC_ISSUER` and `OIDC_AUDIENCE` too, not only the JWKS location.**
+   `base.py` defaults both to `""`, and PyJWT 2.13.0's `_validate_aud` refuses a token whose `aud` is the
+   empty string with `MissingRequiredClaimError("aud")` (`if "aud" not in payload or not payload["aud"]`).
+   With the audience unset, every locally minted token is rejected and AC #1's "mints a token" produces
+   something the real class can never accept. Verified by reading PyJWT's source in this environment.
+8. **The `jti` requirement is enforced by the mapper, not the authentication class.** Same 401, different
+   module. AC #3's `jti` case is unaffected; the Dev Notes' attribution was wrong.
+9. **`tests/unit/authorization/test_jwks.py:753` changes meaning and must be updated.**
+   `test_the_default_fetch_refuses_a_scheme_outside_http` proves the refusal with `file:///etc/passwd`, and
+   the whole suite runs in the `dev` environment where locality is local. Left as-is it would assert the
+   opposite of Task 2. It is split into four cases rather than deleted.
+
+Two further corrections of smaller weight, applied without a numbered entry: `tests/jwt_keys.py` already
+provides the JWK rendering and signing helpers this story would otherwise duplicate, and
+`tests/unit/test_observability_init.py` is the precedent that settles the unit-versus-integration question
+for `tmp_path` filesystem writes the original Task 5 left open.
 
 ## Dev Agent Record
 

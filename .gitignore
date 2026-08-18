@@ -231,6 +231,13 @@ src/.DS_Store
 # Collected static files (STATIC_ROOT)
 staticfiles/
 
+# Development signing keypair (NFR-7, FR-20). Generated on demand by
+# `pixi run -e dev mint-token`, never committed. This tree is a template: a key
+# committed here would ship inside every component generated from it, so one
+# published private key would be shared by every service the accelerator ever
+# produces.
+.local-dev-keys/
+
 # pixi environments
 .pixi/*
 !.pixi/config.toml

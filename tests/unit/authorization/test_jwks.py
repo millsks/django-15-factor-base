@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
@@ -37,6 +39,7 @@ from config.authorization.jwks import configured_jwks_url
 from config.authorization.jwks import conventional_jwks_url
 from config.authorization.jwks import fetch_jwks_document
 from config.authorization.jwks import jwks_url_derives_from_issuer
+from config.locality import RUNTIME_ENV_VAR
 from tests.jwt_keys import FakeClock
 from tests.jwt_keys import SigningKey
 from tests.jwt_keys import StubFetch
@@ -86,6 +89,13 @@ MAX_DOCUMENT_BYTES = 1_048_576
 # The probe below fails by *being called*, so the exception is built once and
 # raised rather than constructed at the raise site.
 _NETWORK_AT_IMPORT = AssertionError("importing the Bearer modules reached the network")
+
+
+#: How long the FIFO case waits before calling the fetch blocked. Generous
+#: enough that a loaded CI runner does not report a hang that is really a
+#: scheduling delay, short enough that a real hang is reported rather than
+#: waiting out the suite timeout.
+_FIFO_DEADLINE_SECONDS = 5.0
 
 
 @pytest.fixture(scope="module")
@@ -750,15 +760,209 @@ def test_the_default_fetch_refuses_an_unconfigured_location(settings: SettingsWr
     assert refusal.value.reason == "no JWKS location is configured"
 
 
-def test_the_default_fetch_refuses_a_scheme_outside_http(settings: SettingsWrapper) -> None:
+@pytest.mark.parametrize(
+    "location",
+    [
+        pytest.param("ftp://idp.example.com/certs", id="ftp"),
+        pytest.param("data:application/json,{}", id="data"),
+        pytest.param("gopher://idp.example.com/certs", id="gopher"),
+    ],
+)
+def test_the_default_fetch_refuses_a_scheme_outside_http(settings: SettingsWrapper, location: str) -> None:
     """PyJWT's own client rejects these to block a `jku`-driven local file read."""
     settings.OIDC_ISSUER = ISSUER
-    settings.OIDC_JWKS_URL = "file:///etc/passwd"
+    settings.OIDC_JWKS_URL = location
 
     with pytest.raises(JWKSKeyUnavailable) as refusal:
         fetch_jwks_document()
 
     assert refusal.value.reason == "JWKS location uses a scheme that is not http or https"
+
+
+# ---- The `file://` location (FR-20) ----
+# The scheme this module accepts where locality is local and nowhere else, so a
+# developer's own keypair can be published without an IdP running. These four
+# cases are one rule: *local* decides whether the branch exists at all, and the
+# host and the readability decide whether it answers.
+#
+# This suite runs in the `dev` environment, which declares
+# COMPONENT_RUNTIME=local, so the deployed case is reached by deleting the
+# variable rather than by setting it.
+
+
+def test_a_file_location_is_read_where_locality_is_local(settings: SettingsWrapper, tmp_path: Path) -> None:
+    """AC #1: local settings point the JWKS location at the generated key, and it resolves."""
+    key = generate(PUBLISHED_KID)
+    document = tmp_path / "jwks.json"
+    document.write_text(json.dumps(jwks_document(key)), encoding="utf-8")
+    settings.OIDC_ISSUER = ISSUER
+    settings.OIDC_JWKS_URL = document.as_uri()
+
+    fetched = fetch_jwks_document()
+
+    assert [published["kid"] for published in fetched["keys"]] == [PUBLISHED_KID]
+
+
+def test_a_file_location_is_refused_where_the_run_is_not_local(
+    settings: SettingsWrapper,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate, not a nicety.
+
+    AD-23's stage-1 trust-anchor refusal is Epic 4's and is not implemented yet,
+    so until it lands this is the only thing standing between a deployed
+    component and a trust anchor read off local disk.
+    """
+    document = tmp_path / "jwks.json"
+    document.write_text(json.dumps(jwks_document(generate(PUBLISHED_KID))), encoding="utf-8")
+    settings.OIDC_ISSUER = ISSUER
+    settings.OIDC_JWKS_URL = document.as_uri()
+    monkeypatch.delenv(RUNTIME_ENV_VAR, raising=False)
+
+    with pytest.raises(JWKSKeyUnavailable) as refusal:
+        fetch_jwks_document()
+
+    assert (
+        refusal.value.reason
+        == "a file JWKS location is permitted only where the component runtime declares itself local"
+    )
+
+
+@pytest.mark.parametrize(
+    "authority",
+    [
+        pytest.param("localhost", id="localhost"),
+        pytest.param("LOCALHOST", id="localhost-uppercased"),
+    ],
+)
+def test_a_file_location_may_name_the_local_machine(
+    settings: SettingsWrapper,
+    tmp_path: Path,
+    authority: str,
+) -> None:
+    """`file://localhost/...` is the same location as `file:///...`, in any case.
+
+    `Path.as_uri()` always renders an empty authority, so nothing else in this
+    file reaches either the `"localhost"` member of the permitted set or the
+    `.lower()` that normalizes the authority before the membership test. Without
+    these two cases, narrowing the set to `{""}` or dropping the normalization
+    would refuse a location RFC 8089 calls equivalent, and the whole suite would
+    stay green.
+    """
+    key = generate(PUBLISHED_KID)
+    document = tmp_path / "jwks.json"
+    document.write_text(json.dumps(jwks_document(key)), encoding="utf-8")
+    settings.OIDC_ISSUER = ISSUER
+    settings.OIDC_JWKS_URL = f"file://{authority}{document.as_uri().removeprefix('file://')}"
+
+    fetched = fetch_jwks_document()
+
+    assert [published["kid"] for published in fetched["keys"]] == [PUBLISHED_KID]
+
+
+def test_a_file_location_may_not_name_a_host(settings: SettingsWrapper) -> None:
+    """Reading a trust anchor off a network share is what this scheme is not for."""
+    settings.OIDC_ISSUER = ISSUER
+    settings.OIDC_JWKS_URL = "file://fileserver.example.com/keys/jwks.json"
+
+    with pytest.raises(JWKSKeyUnavailable) as refusal:
+        fetch_jwks_document()
+
+    assert refusal.value.reason == "a file JWKS location may not name a host"
+
+
+def test_a_directory_at_the_file_location_is_a_failed_fetch(
+    settings: SettingsWrapper,
+    tmp_path: Path,
+) -> None:
+    """A directory answers with the same refusal an absent file does.
+
+    This pins the *refusal*, not the guard: `open` on a directory raises
+    `IsADirectoryError`, which the handler below would catch anyway. The guard
+    itself is pinned by the FIFO case, which is the one that cannot pass without
+    it.
+    """
+    directory = tmp_path / "jwks.json"
+    directory.mkdir()
+    settings.OIDC_ISSUER = ISSUER
+    settings.OIDC_JWKS_URL = directory.as_uri()
+
+    with pytest.raises(JWKSKeyUnavailable) as refusal:
+        fetch_jwks_document()
+
+    assert refusal.value.reason == "the file JWKS location could not be read"
+
+
+def test_a_fifo_at_the_file_location_is_refused_without_blocking(
+    settings: SettingsWrapper,
+    tmp_path: Path,
+) -> None:
+    """The guard that keeps a FIFO from stalling every Bearer request in the process.
+
+    The file branch has no counterpart to `_FETCH_TIMEOUT` and runs under the
+    store's lock, so opening a FIFO with no writer blocks in `open` forever and
+    every concurrent Bearer request blocks behind it -- the server stops
+    answering with no error, no timeout and no log line.
+
+    Driven on a thread with a join deadline rather than called directly, because
+    the failure this guards against is a *hang*: a direct call would take the
+    whole suite down with it instead of reporting. `os.mkfifo` is POSIX-only, and
+    the branch is the same one `config/local_dev/keys.py` documents for the mode
+    bits -- `tests/unit/test_suite_policy.py` bans `skipif`.
+    """
+    if os.name != "posix":
+        return
+
+    fifo = tmp_path / "jwks.json"
+    os.mkfifo(fifo)
+    settings.OIDC_ISSUER = ISSUER
+    settings.OIDC_JWKS_URL = fifo.as_uri()
+    outcome: list[object] = []
+
+    def fetch() -> None:
+        try:
+            outcome.append(fetch_jwks_document())
+        except JWKSKeyUnavailable as refusal:
+            outcome.append(refusal)
+
+    worker = threading.Thread(target=fetch, daemon=True)
+    worker.start()
+    worker.join(timeout=_FIFO_DEADLINE_SECONDS)
+
+    assert not worker.is_alive(), "the fetch blocked on the FIFO instead of refusing it"
+    assert isinstance(outcome[0], JWKSKeyUnavailable)
+    assert outcome[0].reason == "the file JWKS location could not be read"
+
+
+def test_an_unreadable_file_location_is_a_failed_fetch_rather_than_an_oserror(
+    settings: SettingsWrapper,
+    tmp_path: Path,
+) -> None:
+    """The store's failure path handles this exactly as it handles an unreachable IdP."""
+    settings.OIDC_ISSUER = ISSUER
+    settings.OIDC_JWKS_URL = (tmp_path / "never-generated.json").as_uri()
+
+    with pytest.raises(JWKSKeyUnavailable) as refusal:
+        fetch_jwks_document()
+
+    assert refusal.value.reason == "the file JWKS location could not be read"
+
+
+def test_an_oversize_file_location_is_refused_at_the_same_bound(
+    settings: SettingsWrapper,
+    tmp_path: Path,
+) -> None:
+    """The bound is the document's, not the transport's -- both branches answer to it."""
+    document = tmp_path / "jwks.json"
+    document.write_bytes(b"x" * (jwks_module._MAX_DOCUMENT_BYTES + 1))  # noqa: SLF001 - the bound under test
+    settings.OIDC_ISSUER = ISSUER
+    settings.OIDC_JWKS_URL = document.as_uri()
+
+    with pytest.raises(JWKSKeyUnavailable) as refusal:
+        fetch_jwks_document()
+
+    assert refusal.value.reason == "the JWKS location answered with a body above the accepted bound"
 
 
 @pytest.mark.parametrize(

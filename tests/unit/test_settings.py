@@ -16,6 +16,7 @@ import pytest
 from django.core.exceptions import ImproperlyConfigured
 
 from config.authorization import claims
+from config.local_dev import keys
 
 # AD-23's declared windows, in seconds, and the values the environment-driven
 # case overrides them with. Named rather than written at the assertion so the
@@ -171,6 +172,129 @@ def test_local_does_not_override_a_declared_claims_contract(monkeypatch: pytest.
     assert local.CLAIMS_CONTRACT.identity_key_claim == "oid"
     assert local.CLAIMS_CONTRACT.group_claim == "realm_access.roles"
     assert local.CLAIMS_CONTRACT.staff_group == "platform-staff"
+
+
+def test_local_points_the_jwks_location_at_the_generated_keypair(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    """AC #1: local settings point the JWKS location at the key the minting task generates.
+
+    The directory is relocated into `tmp_path` first, so the second assertion is
+    a real one: naming the location must not *create* anything. FR-23 makes a
+    boot-time side effect a defect, and RSA generation from a settings import
+    would make every `pixi run manage` invocation pay for a keypair.
+    """
+    monkeypatch.delenv("COMPONENT_OIDC_JWKS_URL", raising=False)
+    # Also deleted: the file location is the fallback only when *neither*
+    # variable was declared -- see the case below, which is the other half.
+    monkeypatch.delenv("COMPONENT_OIDC_ISSUER", raising=False)
+    key_dir = tmp_path / ".local-dev-keys"
+    monkeypatch.setattr(keys, "DEV_KEY_DIR", key_dir)
+
+    local = importlib.import_module(LOCAL)
+
+    assert (key_dir / keys.JWKS_FILENAME).as_uri() == local.OIDC_JWKS_URL
+    assert local.OIDC_JWKS_URL.startswith("file://")
+    assert not key_dir.exists()
+
+
+def test_a_declared_issuer_leaves_the_jwks_location_derived(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    """Pointing a local run at a real realm must not silently retarget the trust anchor.
+
+    `base.py` leaves `OIDC_JWKS_URL` empty on purpose: `configured_jwks_url()`
+    falls back to `conventional_jwks_url(OIDC_ISSUER)`, so *unset* means derived
+    from the issuer rather than unconfigured. Filling it unconditionally would
+    destroy that -- a developer exporting only `COMPONENT_OIDC_ISSUER` would get
+    this machine's own keypair as the trust anchor and every token that realm
+    issued would be refused with `no signing key published for the presented
+    kid`, with the documentation telling them the issuer variable was enough.
+    """
+    monkeypatch.setenv("COMPONENT_OIDC_ISSUER", "https://keycloak.example/realms/main")
+    monkeypatch.delenv("COMPONENT_OIDC_JWKS_URL", raising=False)
+    monkeypatch.setattr(keys, "DEV_KEY_DIR", tmp_path / ".local-dev-keys")
+
+    local = importlib.import_module(LOCAL)
+
+    assert local.OIDC_JWKS_URL == ""
+    assert local.OIDC_ISSUER == "https://keycloak.example/realms/main"
+
+
+@pytest.mark.parametrize(
+    ("variable", "setting", "expected"),
+    [
+        pytest.param("COMPONENT_OIDC_ISSUER", "OIDC_ISSUER", "https://local-dev.invalid/realms/component", id="issuer"),
+        pytest.param("COMPONENT_OIDC_AUDIENCE", "OIDC_AUDIENCE", "local-dev-component-api", id="audience"),
+    ],
+)
+def test_a_whitespace_only_declaration_is_filled_rather_than_honoured(
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+    setting: str,
+    expected: str,
+):
+    """A variable exported as spaces is not a declaration.
+
+    Whitespace is truthy, so an unstripped `or` treats it as declared and skips
+    the fill -- and `authentication._audience()` strips before comparing, so the
+    component would then refuse every token while every setting looked
+    configured. The failure has no diagnostic: the value is present, non-empty
+    and wrong.
+    """
+    for name in ("COMPONENT_OIDC_ISSUER", "COMPONENT_OIDC_CLIENT_ID", "COMPONENT_OIDC_AUDIENCE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(variable, "   ")
+
+    local = importlib.import_module(LOCAL)
+
+    assert getattr(local, setting) == expected
+
+
+def test_local_supplies_an_issuer_and_an_audience_to_verify_against(monkeypatch: pytest.MonkeyPatch):
+    """Both are load-bearing, not decoration.
+
+    `base.py` defaults each to the empty string, and PyJWT refuses a token whose
+    `aud` is empty with `MissingRequiredClaimError` -- `_validate_aud` tests
+    `not payload["aud"]`, not merely its presence. With the audience unset, every
+    locally minted token is rejected and FR-20's flow cannot work on a fresh
+    clone.
+    """
+    for name in ("COMPONENT_OIDC_ISSUER", "COMPONENT_OIDC_CLIENT_ID", "COMPONENT_OIDC_AUDIENCE"):
+        monkeypatch.delenv(name, raising=False)
+
+    local = importlib.import_module(LOCAL)
+
+    assert local.OIDC_ISSUER
+    assert local.OIDC_AUDIENCE
+
+
+def test_local_does_not_override_a_declared_issuer_audience_or_jwks_location(monkeypatch: pytest.MonkeyPatch):
+    """Only unset values are filled; a local run pointed at a real realm still wins."""
+    monkeypatch.setenv("COMPONENT_OIDC_ISSUER", "https://idp.example.com/realms/main")
+    monkeypatch.setenv("COMPONENT_OIDC_AUDIENCE", "declared-api")
+    monkeypatch.setenv("COMPONENT_OIDC_JWKS_URL", "https://idp.example.com/realms/main/certs")
+
+    local = importlib.import_module(LOCAL)
+
+    assert local.OIDC_ISSUER == "https://idp.example.com/realms/main"
+    assert local.OIDC_AUDIENCE == "declared-api"
+    assert local.OIDC_JWKS_URL == "https://idp.example.com/realms/main/certs"
+
+
+@pytest.mark.usefixtures("production_env")
+def test_no_other_settings_module_points_at_a_local_file(monkeypatch: pytest.MonkeyPatch):
+    """The `file://` location is `local.py`'s alone.
+
+    `base.py` and `production.py` leave the location empty, so the trust anchor a
+    deployed component uses is derived from its issuer and from nothing else. A
+    default that reached either of them would put a `file://` location one missing
+    environment variable away from production.
+    """
+    monkeypatch.delenv("COMPONENT_OIDC_JWKS_URL", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pw@db:5432/app")
+
+    base = importlib.import_module(BASE)
+    production = importlib.import_module(PRODUCTION)
+
+    assert not base.OIDC_JWKS_URL
+    assert not production.OIDC_JWKS_URL
 
 
 def test_postgres_env_selects_postgres(monkeypatch: pytest.MonkeyPatch):
