@@ -3,12 +3,24 @@
 `no_network` lives here rather than in `tests/unit/conftest.py` because both
 halves of FR-23 need it: the boot assertions are unit tests and the persona
 seeding assertion is an integration test against a real database.
+
+`valid_deployed_settings_namespace` is here for the same reason. Three modules
+need a settings namespace that every stage-1 condition accepts --
+`tests/unit/startup/test_stage_one_conditions.py`,
+`tests/unit/startup/test_no_network_no_queries.py` and
+`tests/integration/startup/test_no_queries.py` -- and two of them are unit tests
+while the third is an integration test, so a `tests/unit/` home would have to be
+copied. One builder is what keeps "valid" meaning the same thing in all three:
+the moment Story 4.3 or 4.4 adds a condition, the namespace that satisfies it is
+edited once and every caller inherits the change rather than three fixtures
+drifting until two of them assert over a namespace that refuses.
 """
 
 from __future__ import annotations
 
 import socket
 from contextlib import contextmanager
+from types import ModuleType
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
@@ -16,6 +28,8 @@ from typing import NoReturn
 
 import pytest
 
+from config.authorization.claims import ClaimsContract
+from config.startup.stage_one import PRODUCTION_SETTINGS_MODULE
 from tests.factories import UserFactory
 
 if TYPE_CHECKING:
@@ -32,6 +46,86 @@ def _media_storage(settings, tmpdir) -> None:
 @pytest.fixture
 def user(db) -> User:
     return UserFactory.create()
+
+
+#: The issuer the valid namespace below is anchored to. `.invalid` is reserved by
+#: RFC 2606 and resolves nowhere, which is the point: stage 1's trust-anchor
+#: condition is syntactic (AD-23), so nothing ever fetches this and a value that
+#: could be fetched would only invite a test that did.
+DEPLOYED_OIDC_ISSUER: Final = "https://idp.example.invalid/realms/component"
+
+#: The one backend a deployed component keeps. It is a `ModelBackend` *subclass*,
+#: which is why refusal condition 2a compares identity rather than ancestry --
+#: see `config/startup/stage_one.py`, `_MODEL_BACKEND`.
+DEPLOYED_AUTHENTICATION_BACKEND: Final = "allauth.account.auth_backends.AuthenticationBackend"
+
+
+def valid_deployed_settings_namespace(name: str = PRODUCTION_SETTINGS_MODULE) -> ModuleType:
+    """Build a settings namespace that every stage-1 condition accepts.
+
+    A real `ModuleType` rather than a `SimpleNamespace`, because FR-12's escape
+    route reads `__name__` off the object that is executing and a namespace with
+    no `__name__` would pass that condition for the wrong reason.
+
+    What *valid* means here, condition by condition: the settings module is the
+    deployed one; every configured database names a real backend; no local
+    credential path is live -- allauth's backend alone, no declared login method,
+    the admin forced through allauth, and neither half of the static-token
+    surface; the issuer is set and the JWKS location derives from it, left unset
+    so the conventional derivation is what is exercised; and the claims contract
+    carries all four names.
+
+    One thing this cannot do for its caller: `OTEL_SDK_DISABLED` is an
+    environment variable rather than a setting, so a caller running with it set
+    is refused by condition 3 whatever this namespace holds. Every caller
+    deletes it with `monkeypatch.delenv(..., raising=False)`.
+
+    Args:
+        name: The settings module this namespace stands in for. Defaults to the
+            deployed one; the local one is what FR-12's escape route refuses.
+
+    Returns:
+        A module object carrying every name stage 1 reads, each set to a value
+        no condition objects to. Callers mutate one name at a time to construct
+        exactly one forbidden state.
+
+    """
+    namespace = ModuleType(name)
+    namespace.DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": "component",
+            "HOST": "postgres",
+            "PORT": "5432",
+        },
+    }
+    namespace.AUTHENTICATION_BACKENDS = [DEPLOYED_AUTHENTICATION_BACKEND]
+    namespace.ACCOUNT_LOGIN_METHODS = set()
+    namespace.DJANGO_ADMIN_FORCE_ALLAUTH = True
+    namespace.INSTALLED_APPS = [
+        "django.contrib.auth",
+        "allauth",
+        "allauth.account",
+        "allauth.socialaccount",
+        "allauth.socialaccount.providers.openid_connect",
+        "rest_framework",
+        "django_service.users",
+    ]
+    namespace.REST_FRAMEWORK = {
+        "DEFAULT_AUTHENTICATION_CLASSES": (
+            "config.authorization.authentication.OIDCBearerAuthentication",
+            "rest_framework.authentication.SessionAuthentication",
+        ),
+    }
+    namespace.OIDC_ISSUER = DEPLOYED_OIDC_ISSUER
+    namespace.OIDC_JWKS_URL = ""
+    namespace.CLAIMS_CONTRACT = ClaimsContract(
+        identity_key_claim="sub",
+        group_claim="groups",
+        staff_group="platform-staff",
+        superuser_group="platform-superuser",
+    )
+    return namespace
 
 
 class NetworkAccessAttempted(BaseException):

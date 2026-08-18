@@ -17,6 +17,8 @@ from django.core.exceptions import ImproperlyConfigured
 
 from config.authorization import claims
 from config.local_dev import keys
+from config.locality import LOCAL as LOCAL_RUNTIME
+from config.locality import RUNTIME_ENV_VAR
 
 # AD-23's declared windows, in seconds, and the values the environment-driven
 # case overrides them with. Named rather than written at the assertion so the
@@ -480,6 +482,84 @@ def test_production_accepts_a_real_database(monkeypatch: pytest.MonkeyPatch):
     production = importlib.import_module(PRODUCTION)
     assert production.DATABASES["default"]["ENGINE"].endswith("postgresql")
     assert production.DEBUG is False
+
+
+# ---------------------------------------------------------------------------
+# Story 4.2 -- stage 1 evaluated through a real settings import.
+#
+# `tests/unit/startup/test_stage_one_conditions.py` owns the per-condition
+# coverage and drives every case against a synthetic namespace. That is the
+# right shape for asserting what each condition refuses, and it is structurally
+# incapable of asserting the thing these two cases assert: that the call Story
+# 4.1 placed as the last statement of `production.py` actually reaches the
+# roster, with the values `base.py` and `production.py` composed onto the module
+# rather than values a test wrote by hand. Two cases, not a matrix -- the
+# condition-by-condition suite must not be duplicated here.
+# ---------------------------------------------------------------------------
+
+# State 2a of refusal condition 2, and the one that fires first on a real
+# deployed import today: `base.py` still lists it in `AUTHENTICATION_BACKENDS`.
+LIVE_FORBIDDEN_BACKEND = "django.contrib.auth.backends.ModelBackend"
+
+
+@pytest.mark.usefixtures("production_env")
+def test_a_deployed_production_import_is_refused_by_stage_one(monkeypatch: pytest.MonkeyPatch):
+    """The refusal fires through a genuine import, not through a hand-built namespace.
+
+    `DATABASE_URL` is set so the sqlite refusal at `production.py:26-28` cannot
+    fire first -- that one raises before the module's last statement is reached,
+    and a test that stopped there would say nothing about stage 1 at all.
+    `COMPONENT_RUNTIME` is deleted rather than set, because locality fails closed
+    (AD-13) and absent is how a deployment that lost the variable spells itself.
+
+    **Which condition this currently catches, and why that matters.** It is state
+    2a: `base.py:203-206` still lists `django.contrib.auth.backends.ModelBackend`
+    in `AUTHENTICATION_BACKENDS`, so condition 2 refuses before conditions 3, 4
+    and 5 are ever evaluated. Epic 2 Story 2.6/2.8 owns removing it. **When it
+    lands, this assertion will fail, and the fix is to move it forward rather
+    than to delete it:** the next live state is 2b, `ACCOUNT_LOGIN_METHODS =
+    {"username"}` at `base.py:431`, which the same story removes; after both,
+    the import reaches condition 4 and refuses on `OIDC_ISSUER` being unset,
+    which is a genuine deployment requirement rather than a leftover.
+
+    The assertion names the condition on purpose. A bare
+    `pytest.raises(ImproperlyConfigured)` here would stay green through every one
+    of those transitions and would read, to the next person, as proof that the
+    whole contract holds -- when it is only ever proof that the first live
+    condition holds.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pw@db:5432/app")
+    monkeypatch.delenv(RUNTIME_ENV_VAR, raising=False)
+
+    with pytest.raises(ImproperlyConfigured) as refused:
+        importlib.import_module(PRODUCTION)
+
+    message = str(refused.value)
+    assert "AUTHENTICATION_BACKENDS" in message
+    assert LIVE_FORBIDDEN_BACKEND in message
+
+
+@pytest.mark.usefixtures("production_env")
+def test_a_local_production_import_reaches_stage_one_and_is_accepted(monkeypatch: pytest.MonkeyPatch):
+    """The paired positive, and the reason the case above means anything.
+
+    Every stage-1 condition is deployed-only, so the whole stage returns before
+    any of them runs when locality is local. Without this, the refusal above
+    would pass just as well against a `run_stage_one` that raised
+    unconditionally -- which is the version that makes `pixi run manage`
+    impossible on a fresh clone.
+
+    Locality is declared explicitly rather than inherited from the pixi `dev`
+    feature's `COMPONENT_RUNTIME=local`, so the case states the condition it
+    depends on instead of relying on the environment the suite happens to run
+    in.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pw@db:5432/app")
+    monkeypatch.setenv(RUNTIME_ENV_VAR, LOCAL_RUNTIME)
+
+    production = importlib.import_module(PRODUCTION)
+
+    assert production.DATABASES["default"]["ENGINE"].endswith("postgresql")
 
 
 # ---------------------------------------------------------------------------
