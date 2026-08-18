@@ -2,8 +2,11 @@
 With these settings, tests run faster.
 """
 
+import sys
+
 from config.authorization.claims import ClaimsContract
 from config.observability.logging import build_logging_config
+from config.startup import run_stage_one
 
 from .base import *  # noqa: F403
 from .base import TEMPLATES
@@ -86,3 +89,10 @@ TEMPLATES[0]["OPTIONS"]["debug"] = True  # type: ignore[index]
 MEDIA_URL = "http://media.testserver/"
 # Your stuff...
 # ------------------------------------------------------------------------------
+
+# Stage 1 of the refusal contract (AD-26, FR-12). The last statement of this
+# module, deliberately: it runs after the AD-8 composition step by construction,
+# so every value a condition inspects is the composed one. `base.py` makes no
+# such call -- it is a fragment consumed through `from .base import *`, and a
+# call at its end would fire before this module had finished composing.
+run_stage_one(sys.modules[__name__])

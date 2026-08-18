@@ -79,7 +79,7 @@ development_status:
   3-7-nothing-on-the-local-start-path-reaches-the-network-at-boot: done
   epic-3-retrospective: optional
   epic-4: in-progress
-  4-1-the-refusal-contract-has-one-home-and-two-evaluation-stages: ready-for-dev
+  4-1-the-refusal-contract-has-one-home-and-two-evaluation-stages: done
   4-2-five-unconditional-refusals-evaluate-at-settings-import: ready-for-dev
   4-3-three-unconditional-refusals-evaluate-at-serving-process-startup: ready-for-dev
   4-4-two-feature-scoped-refusals-apply-only-where-their-feature-exists: ready-for-dev
