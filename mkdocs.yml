@@ -32,6 +32,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Technology Stack: technology-stack.md
   - Development: development.md
   - Observability: observability.md
   - Authentication: authentication.md
