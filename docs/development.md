@@ -414,7 +414,24 @@ that happens to work:
 Observability is the exception: it is not substituted at all. The tracer
 provider, the instrumentors and the structlog pipeline run locally exactly as
 they run deployed — only the export step is absent, so spans are discarded when
-they end. See [Observability](observability.md).
+they end. Three consequences follow, and each of them is tested:
+
+- **With no OTLP endpoint configured** — the ambient state of every local run
+  and every test run — the tracer provider is still installed and all four
+  instrumentors still instrument. Spans are still created and ended, and
+  `trace_id` and `span_id` still reach every log line emitted while a span is
+  active — every line a request or a task produces.
+- **Spans are discarded at the processor.** No endpoint means no span processor
+  is attached, and that absence is the discard. Nothing in the default
+  configuration points a batch processor at a collector that is not there, so no
+  retry cycle floods stderr through a test run. (Setting
+  `OTEL_TRACES_EXPORTER=otlp` by hand with no endpoint is the deliberate opt-in
+  that does attach one.)
+- **`OTEL_TRACES_EXPORTER=console` attaches a console exporter**, which prints
+  spans to stdout, and changes nothing else: the same instrumentors, the same
+  resource, the same log lines.
+
+See [Observability](observability.md).
 
 **The broker constraint is a statement about deployment only.** Elsewhere in
 this product you will read that background task processing requires a broker.
