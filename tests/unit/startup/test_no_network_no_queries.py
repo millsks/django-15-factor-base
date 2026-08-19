@@ -12,11 +12,29 @@ starts, including `pixi run migrate`.
 startup-time budget exists, so there is no threshold to assert against. The cost
 is bounded by asserting the two things that could make it unbounded.
 
-**Zero queries, not "the migration-state read".** This story delivers no
-condition that reads the database. The migration-state read arrives with Story
-4.3 and the designated-group existence read with it, and each will have to amend
-this assertion as it lands. Asserting zero now is what makes those two additions
-visible in a diff instead of absorbed into a pre-widened allowance.
+**Zero queries, and still zero after Story 4.3.** The migration-state read and
+the designated-group existence read both landed with that story, and the number
+here did not move -- deliberately, and it is worth stating why rather than
+leaving a reader to wonder whether the assertion went stale. Both conditions
+gate on `config.locality.is_serving_process()`, which reads `COMPONENT_PROCESS`,
+and no test process sets it (AD-13: absent means *not* a serving process, and
+the whole suite is not one). So the two database conditions return before they
+query, and zero is what a management command and a test run genuinely cost.
+`tests/integration/startup/test_stage_two_database_conditions.py` is where those
+two are driven with the variable set. Widening this number is therefore a claim
+that something queries on a path that is not a serving process, which nothing
+should.
+
+**Two URL configurations, because one of them is a stand-in.** Story 4.3's
+stage-2 conditions resolve the URLconf at boot, which makes the configuration in
+force part of what these assertions cover -- and this process built the *local*
+one, which mounts the persona sign-in route stage 2 exists to refuse. Most cases
+here therefore run against `deployed_url_patterns()`, a two-route stand-in. One
+case runs against `config/urls.py` itself, executed under a popped
+`COMPONENT_RUNTIME` so it takes its deployed branch: pointing a gate away from
+the tree it is guarding is how a gate stops guarding anything, and the shipped
+tree is where a DRF router, a schema generator or an identity provider's
+metadata fetch would actually live.
 
 The query half is asserted with `connection.execute_wrapper`, which installs a
 recorder without opening a connection -- so this stays a unit test, touching no
@@ -43,9 +61,13 @@ from config.locality import RUNTIME_ENV_VAR
 from config.observability.telemetry import OTEL_SDK_DISABLED_ENV_VAR
 from config.startup import run_stage_one
 from config.startup import run_stage_two
+from tests.conftest import deployed_component_urlconf
+from tests.conftest import deployed_url_patterns
+from tests.conftest import temporary_root_urlconf
 from tests.conftest import valid_deployed_settings_namespace
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from types import ModuleType
 
 
@@ -76,17 +98,68 @@ def deployed_settings_namespace(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return valid_deployed_settings_namespace()
 
 
+@pytest.fixture
+def deployed_urlconf() -> Iterator[str]:
+    """A root URL configuration a deployed component would actually serve.
+
+    Story 4.3 added two stage-2 conditions that resolve the URLconf, which makes
+    the configuration in force part of what "valid" means here -- and the one
+    this process holds is not it. The whole suite runs in the `dev` pixi
+    environment, which declares `COMPONENT_RUNTIME=local`, so `config/urls.py`
+    mounted the local persona sign-in route when it was imported and stage 2
+    correctly refuses it the moment a test declares the run deployed. Overriding
+    `ROOT_URLCONF` is what makes the deployed locality these tests assert under
+    consistent with the configuration they assert over; the conditions still walk
+    a real resolver, and the negative case they walk is
+    `tests/unit/startup/test_stage_two_urlconf.py`'s subject in its own right.
+
+    Yields:
+        The dotted name of the installed configuration.
+
+    """
+    with temporary_root_urlconf(*deployed_url_patterns()) as urlconf:
+        yield urlconf
+
+
 def test_neither_stage_opens_a_socket(
     no_network: None,
     deployed_settings_namespace: ModuleType,
+    deployed_urlconf: str,
 ) -> None:
     """AC #7, first half: no network call, with every chokepoint refusing."""
     run_stage_one(deployed_settings_namespace)
     run_stage_two()
 
 
+def test_the_shipped_url_configuration_opens_no_socket_either(
+    no_network: None,
+    deployed_settings_namespace: ModuleType,
+) -> None:
+    """The same claim over `config/urls.py`, not over the two-route stand-in.
+
+    The fixture above overrides `ROOT_URLCONF` for a reason that is sound -- this
+    process built the local configuration, which stage 2 refuses -- but it has a
+    cost this case pays back. Before Story 4.3 the stage-2 roster was empty and
+    no URL configuration was resolved at boot at all; the story *added* a
+    boot-time URLconf import and the gate was then pointed at a two-route
+    stand-in, so the tree that actually ships -- `config.api_router`'s DRF
+    router, drf-spectacular, `django_service.users.urls`, allauth, the admin --
+    was never materialized inside the socket-refusing context.
+
+    It is materialized here, and inside the guard rather than before it: the
+    module is executed within the `with` block, so the `include()` imports and
+    the resolver construction are both covered. A DRF router, a schema generator
+    or an allauth provider that reached the network while a URL configuration was
+    being built would be found by this and by nothing else.
+    """
+    with deployed_component_urlconf():
+        run_stage_one(deployed_settings_namespace)
+        run_stage_two()
+
+
 def test_neither_stage_reaches_the_database_cursor(
     deployed_settings_namespace: ModuleType,
+    deployed_urlconf: str,
 ) -> None:
     """AC #7, second half: zero queries, and no connection attempted either.
 

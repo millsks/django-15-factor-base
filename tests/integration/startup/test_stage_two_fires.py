@@ -45,28 +45,27 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import subprocess
 import sys
 from http import HTTPStatus
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from django.apps import apps
 from django.core.management import call_command
 
 from config.startup.stage_two import STAGE_TWO_OWNER_APP_LABEL
 from config.startup.stage_two import stage_two_has_run
+from tests.integration.startup.conftest import BOOT_PROBE_TIMEOUT_SECONDS
+from tests.integration.startup.conftest import REPO_ROOT
+from tests.integration.startup.conftest import subprocess_env
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # The module `config/asgi.py` defaults to when nothing names one. Asserted in the
 # report rather than assumed, because the probe deliberately does not set it and
 # a report about a differently configured component would prove nothing here.
 EXPECTED_SETTINGS_MODULE = "config.settings.local"
-
-# Generous rather than tight: a cold Django start pays for app loading and four
-# OpenTelemetry instrumentors, and overshooting costs nothing when boot is quick.
-BOOT_PROBE_TIMEOUT_SECONDS = 180.0
 
 # Boot this component the way a server does -- through `config.asgi` with no
 # `DJANGO_SETTINGS_MODULE` set -- then serve one request through the callable
@@ -163,33 +162,6 @@ Path(sys.argv[1]).write_text(json.dumps(report), encoding="utf-8")
 '''
 
 
-def _subprocess_env() -> dict[str, str]:
-    """Return an environment in which only the editable install can resolve `src/`.
-
-    `PYTHONSAFEPATH` keeps the interpreter from prepending the working directory
-    to `sys.path` for `-c`, and `PYTHONPATH` is dropped outright, so the child
-    resolves `config` the way a deployed process does.
-
-    `DJANGO_SETTINGS_MODULE` is dropped because it is the variable under test:
-    pytest-django set it to `config.settings.test` in this process from the
-    `--ds` in `addopts`, and a child that inherited it would never exercise the
-    `os.environ.setdefault` in `config/asgi.py` that a server process relies on.
-
-    `COMPONENT_RUNTIME` is inherited, so the child boots local exactly as a
-    developer's `pixi run web` would -- which is why the sentinel is written
-    before the locality check rather than after it.
-
-    Returns:
-        A copy of the current environment with those adjustments.
-
-    """
-    env = dict(os.environ)
-    env.pop("PYTHONPATH", None)
-    env.pop("DJANGO_SETTINGS_MODULE", None)
-    env["PYTHONSAFEPATH"] = "1"
-    return env
-
-
 def test_stage_two_fires_when_a_request_is_served_through_the_asgi_entrypoint(tmp_path: Path) -> None:
     """AC #3: the hook fires on the served path, and the request really was served.
 
@@ -202,7 +174,7 @@ def test_stage_two_fires_when_a_request_is_served_through_the_asgi_entrypoint(tm
     completed = subprocess.run(  # noqa: S603
         [sys.executable, "-c", _STAGE_TWO_PROBE_SOURCE, str(report_path)],
         cwd=REPO_ROOT,
-        env=_subprocess_env(),
+        env=subprocess_env(),
         capture_output=True,
         text=True,
         timeout=BOOT_PROBE_TIMEOUT_SECONDS,

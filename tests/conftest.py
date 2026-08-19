@@ -18,8 +18,14 @@ drifting until two of them assert over a namespace that refuses.
 
 from __future__ import annotations
 
+import os
 import socket
+import sys
 from contextlib import contextmanager
+from importlib.util import module_from_spec
+from importlib.util import spec_from_file_location
+from itertools import count
+from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING
 from typing import Any
@@ -27,13 +33,22 @@ from typing import Final
 from typing import NoReturn
 
 import pytest
+from django.contrib import admin
+from django.test import override_settings
+from django.urls import include
+from django.urls import path
 
+from config import urls as config_urls
 from config.authorization.claims import ClaimsContract
+from config.locality import RUNTIME_ENV_VAR
 from config.startup.stage_one import PRODUCTION_SETTINGS_MODULE
 from tests.factories import UserFactory
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from django.urls import URLPattern
+    from django.urls import URLResolver
 
     from django_service.users.models import User
 
@@ -126,6 +141,143 @@ def valid_deployed_settings_namespace(name: str = PRODUCTION_SETTINGS_MODULE) ->
         superuser_group="platform-superuser",
     )
     return namespace
+
+
+#: Makes every throwaway URL configuration a module name nothing has used
+#: before.
+#:
+#: **Not because a reused name would go stale.** `override_settings` sends
+#: `setting_changed`, and `django/test/signals.py`'s receiver calls
+#: `clear_url_caches()`, which empties `_get_cached_resolver` -- so a second
+#: configuration installed under a name an earlier block used would still be
+#: resolved freshly. The docstring below says exactly that, and a comment here
+#: claiming the opposite would leave two adjacent statements of the same
+#: mechanic disagreeing.
+#:
+#: What the serial buys is *identity*. The module is registered in `sys.modules`
+#: and unregistered again on the way out, so two installations that overlap --
+#: one nested inside another, or one leaked by a failed teardown -- would
+#: clobber each other's entry under a shared name, and the first to exit would
+#: unregister the other's configuration. A distinct name per use also makes a
+#: route tree attributable: a failure naming `tests._throwaway_urlconf_7` points
+#: at one block rather than at whichever block happened to run last.
+_URLCONF_SERIAL: Final = count()
+
+
+@contextmanager
+def temporary_root_urlconf(*patterns: URLPattern | URLResolver) -> Iterator[str]:
+    """Install a throwaway root URL configuration for the duration of a block.
+
+    A real module object registered in `sys.modules`, because that is what
+    `ROOT_URLCONF` names and what `include()` resolves; a list of patterns
+    handed to a resolver directly would not exercise the import Django performs.
+
+    `override_settings` is what makes it live: it sends `setting_changed`, whose
+    receiver clears Django's URL caches on the way in and again on the way out,
+    so neither the block nor anything after it sees a resolver built from the
+    other configuration.
+
+    Args:
+        *patterns: The `urlpatterns` of the configuration to install.
+
+    Yields:
+        The dotted name the configuration is registered under, for a caller that
+        wants to pass it explicitly rather than rely on `ROOT_URLCONF`.
+
+    """
+    name = f"tests._throwaway_urlconf_{next(_URLCONF_SERIAL)}"
+    module = ModuleType(name)
+    module.urlpatterns = list(patterns)
+    sys.modules[name] = module
+    try:
+        with override_settings(ROOT_URLCONF=name):
+            yield name
+    finally:
+        # `pop(..., None)` rather than `del`: the block under test may itself
+        # remove or replace the entry, and a `KeyError` raised out of teardown
+        # would replace the case's real result with a failure about cleanup.
+        sys.modules.pop(name, None)
+
+
+def deployed_url_patterns() -> list[URLPattern | URLResolver]:
+    """Build the routes a correctly configured deployed component serves.
+
+    The admin and the identity provider's own sign-in flow, and nothing else.
+    Both stage-2 URLconf conditions have to pass over this: without a
+    configuration they accept, a predicate that refused every route would satisfy
+    every refusal assertion in the suite and nobody would notice.
+
+    `accounts/` is deliberately the real allauth mount rather than a stand-in.
+    AD-21's worked evasion is a local sign-in route hidden under that prefix, so
+    a negative case that did not actually route allauth there would not be the
+    negative case the evasion tests are measured against.
+
+    Returns:
+        A fresh list on every call, safe to extend with the route a caller is
+        constructing a forbidden state out of.
+
+    """
+    return [
+        path("admin/", admin.site.urls),
+        path("accounts/", include("allauth.urls")),
+    ]
+
+
+@contextmanager
+def deployed_component_urlconf() -> Iterator[str]:
+    """Install this component's **own** `config/urls.py`, as a deployed run builds it.
+
+    `deployed_url_patterns` above is a two-route stand-in, and a stand-in cannot
+    answer the question a refusal contract most needs answered: does the URL
+    configuration that actually ships pass its own conditions? The real tree
+    routes `config.api_router`'s DRF router, drf-spectacular's schema and Swagger
+    views, `django_service.users.urls`, allauth and the admin -- several hundred
+    view candidates, none of which any synthetic configuration exercises. A
+    forbidden route added under `api/` would be caught by nothing in the suite
+    without this.
+
+    **Why `config/urls.py` is executed again rather than installed as it stands.**
+    The whole suite runs in the `dev` pixi environment, which declares
+    `COMPONENT_RUNTIME=local`, so the `config.urls` this process imported at
+    startup has the local persona sign-in route mounted -- and stage 2 refuses
+    that route, correctly, the moment a case declares the run deployed. What is
+    wanted is the same file's *deployed* branch. Re-executing the module source
+    under a popped `COMPONENT_RUNTIME` produces exactly that: every `include()`
+    is by dotted string and resolves through `sys.modules`, so only
+    `config/urls.py` itself runs again and every configuration it includes is the
+    real, already-imported one.
+
+    `importlib.reload` is what this deliberately is not. Reloading would rebind
+    the attributes of the shared `config.urls` module object that every later
+    test in the session resolves through -- the mutation `config/urls.py`'s own
+    `local_signin_urlpatterns` docstring exists to avoid.
+
+    Yields:
+        The dotted name the deployed-shaped configuration is registered under,
+        live as `ROOT_URLCONF` for the duration of the block.
+
+    """
+    name = f"tests._deployed_component_urlconf_{next(_URLCONF_SERIAL)}"
+    source = Path(str(config_urls.__file__))
+    spec = spec_from_file_location(name, source)
+    if spec is None or spec.loader is None:  # pragma: no cover - a source file Python cannot load
+        message = f"config/urls.py could not be loaded from {source}"
+        raise RuntimeError(message)
+    module = module_from_spec(spec)
+
+    declared = os.environ.pop(RUNTIME_ENV_VAR, None)
+    try:
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    finally:
+        if declared is not None:
+            os.environ[RUNTIME_ENV_VAR] = declared
+
+    try:
+        with override_settings(ROOT_URLCONF=name):
+            yield name
+    finally:
+        sys.modules.pop(name, None)
 
 
 class NetworkAccessAttempted(BaseException):
