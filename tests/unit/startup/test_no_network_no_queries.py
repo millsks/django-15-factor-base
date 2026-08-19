@@ -70,6 +70,11 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from types import ModuleType
 
+#: The cache backend `config/settings/production.py` hardcodes. Named here so
+#: that the one third-party import stage 1 performs happens inside the guards
+#: below rather than being skipped -- see `deployed_settings_namespace`.
+DEPLOYED_CACHE_BACKEND = "django_redis.cache.RedisCache"
+
 
 @pytest.fixture
 def deployed_settings_namespace(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
@@ -89,13 +94,37 @@ def deployed_settings_namespace(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     `OTEL_SDK_DISABLED` is deleted here because condition 3 reads the
     environment rather than the namespace.
 
+    **Why a cache alias is set here and nowhere else in this file.** Stage 1 has
+    exactly one line that runs code this component did not write: condition 8
+    resolves a `CACHES` alias's `BACKEND` with `import_string`, which imports a
+    third-party module. The shared factory declares no `CACHES` -- deliberately,
+    because it is a core fixture and feature-scoped keys do not belong in it -- so
+    the condition returns at its first `isinstance` check and that import never
+    happens. Both assertions below would then hold over the one line most capable
+    of opening a socket. Naming the backend `production.py` actually configures is
+    what puts the import inside the `no_network` guard and inside the cursor
+    recorder, which is what NFR-1 claims about it.
+
+    What that does *not* prove, recorded rather than left to be assumed: whether
+    `django_redis` opens a socket the first time Python executes its module body.
+    `tests/unit/startup/test_feature_scoped_refusals.py` sorts before this file
+    and resolves the same dotted path, so in a full-suite run the module is
+    already in `sys.modules` and the import here resolves from the cache. What is
+    covered either way is the resolution stage 1 itself performs -- the import
+    call, the `issubclass` test and everything the condition does around them --
+    which is the code this contract owns. A dependency that reached the network at
+    import time is `tests/unit/test_no_network_at_boot.py`'s subject, and it boots
+    a process rather than reusing this one's imports.
+
     Returns:
         A namespace no stage-1 condition objects to.
 
     """
     monkeypatch.delenv(RUNTIME_ENV_VAR, raising=False)
     monkeypatch.delenv(OTEL_SDK_DISABLED_ENV_VAR, raising=False)
-    return valid_deployed_settings_namespace()
+    namespace = valid_deployed_settings_namespace()
+    namespace.CACHES = {"default": {"BACKEND": DEPLOYED_CACHE_BACKEND, "LOCATION": "redis://redis:6379/0"}}
+    return namespace
 
 
 @pytest.fixture
