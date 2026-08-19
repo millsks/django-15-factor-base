@@ -17,12 +17,87 @@ else. Never `warnings.warn`, never a log-and-continue branch: CG-3 exists
 because a refusal softened into a warning makes deployment smoother and puts
 local credentials into production.
 
-Six conditions live here: FR-12's settings-module escape route, and conditions 1
-to 5 of the refusal table -- the sqlite backend over *every* configured alias
-(AD-9), the four local credential paths, the OpenTelemetry kill switch, the JWKS
-trust anchor, and the unconfigured claims contract. That is eight of the
-fourteen forbidden states; conditions 6 and 7 and the stage-2 half of 5 are
-`stage_two.py`, and the two feature-scoped conditions are Story 4.4's.
+Eight conditions live here. Six are unconditional: FR-12's settings-module
+escape route, and conditions 1 to 5 of the refusal table -- the sqlite backend
+over *every* configured alias (AD-9), the four local credential paths, the
+OpenTelemetry kill switch, the JWKS trust anchor, and the unconfigured claims
+contract. Two are feature-scoped: conditions 8 and 9, an in-process cache
+backend where the Redis feature is selected and eager task execution where
+background task processing is selected. That is ten of the fourteen forbidden
+states; conditions 6 and 7 and the stage-2 half of 5 are `stage_two.py`.
+
+The two feature-scoped conditions are the only code in this module that is not
+present in every combination, and the *only* mechanism that removes them is
+AD-24's paired line comments. There is no runtime "is the feature selected?"
+branch and there must never be one: AD-3 makes materialization subtractive, so a
+combination without the feature does not contain the condition at all, and a
+flag would leave the condition in the file with a second thing to keep in step.
+
+**Region declarations, until Epic 7 moves them (AD-24, AD-1).** `accelerator.toml`
+is the single declarative catalogue and it does not exist yet -- Epic 7 authors
+it and moves these declarations into it without changing what any one of them
+means. Until then this is their declaration site, and it is read as one:
+`tests/unit/startup/test_feature_scoped_refusals.py` parses the bullets below
+and reconciles them against the markers actually present in each path it names,
+in both directions. Only the opening of each bullet is parsed -- the word "path"
+and the repository-relative path in backticks, then the word "feature" and the
+feature name in backticks, in that order. Everything after that is prose
+describing what the region holds, and rewriting it breaks nothing.
+
+* path `src/config/startup/stage_one.py`, feature `redis`, delimited by
+  `feature:redis` / `/feature:redis`. It contains condition 8,
+  `_refuse_in_process_cache`, the tuple of backends it refuses, and the
+  condition's entry in the `_STAGE_ONE` roster. That is **two** marker pairs in
+  this file, not one: a definition and its call site are not adjacent, and a
+  region is a contiguous run of lines.
+* path `src/config/startup/stage_one.py`, feature `celery`, delimited by
+  `feature:celery` / `/feature:celery`. It contains condition 9,
+  `_refuse_eager_tasks`, and the condition's entry in the `_STAGE_ONE` roster --
+  likewise two pairs, for the same reason.
+* path `tests/unit/startup/test_stage_one_conditions.py`, feature `redis`. It
+  contains `_refuse_in_process_cache`'s name in `EXPECTED_EVALUATION_ORDER`,
+  which pins the roster by name and order: in a combination that did not select
+  Redis the roster loses that entry, so an expectation naming it would fail on a
+  tree that is correct.
+* path `tests/unit/startup/test_stage_one_conditions.py`, feature `celery`. It
+  contains `_refuse_eager_tasks`'s name in the same tuple, for the same reason.
+* path `tests/unit/startup/test_feature_scoped_refusals.py`, feature `redis`. It
+  contains the cache dotted paths and the `LocMemCache` subclass condition 8 is
+  driven with, the `CACHES` builder, the `redis` entry in that module's
+  feature-to-condition mapping, and the whole test class for condition 8. The
+  spine's Test-location convention is what puts them here: a feature's tests
+  carry that feature's disposition and are pruned with it.
+* path `tests/unit/startup/test_feature_scoped_refusals.py`, feature `celery`.
+  It contains the `celery` entry in the same mapping and the whole test class
+  for condition 9.
+
+**Where the blank lines go is part of each region.** Every closing marker sits
+directly beneath the blank lines that separate its region from whatever follows,
+so removing the region takes that separation with it. The alternative -- markers
+flush against the code with blank lines outside the pair on both sides -- leaves
+six consecutive blank lines behind in a combination that dropped the region, and
+`ruff format --check` then fails a materialized tree that is otherwise correct.
+That was probed on a stripped copy rather than reasoned about.
+
+The feature names are the ones the `[environments]` matrix will use (Epic 8):
+`redis` and `celery`.
+
+Nothing above says how many region-bearing paths this tree has, deliberately.
+The set is open and the carrier declares it as an open array; an earlier
+revision of AD-24 named three paths and was wrong, so a count written here would
+be a claim about the whole tree maintained from inside one file of it.
+
+One thing these declarations do **not** cover, recorded rather than hidden. The
+three Django-core names condition 8 resolves its backends through -- `DummyCache`,
+`LocMemCache` and `import_string` -- sit unmarked in the sorted import block
+below. A marker pair inside that block does not survive `ruff`'s isort, which
+reorders imports across it and carries the markers with whichever import they
+attach to; that was probed rather than assumed. All three are Django's own, so
+they resolve in every combination whether or not `redis` was selected, and what
+removing the region leaves behind is an unused import rather than an
+`ImportError`. Pruning it is the materializer's general orphan problem (Epic 8),
+which AD-24's own worked example -- `CeleryInstrumentor` in a combination with no
+instrumentor -- already puts on that epic.
 
 **Nothing here re-declares what another module already owns (AD-1).** The
 OpenTelemetry kill switch is read through `config.observability.telemetry`,
@@ -41,7 +116,10 @@ from typing import TYPE_CHECKING
 from typing import Final
 from urllib.parse import urlsplit
 
+from django.core.cache.backends.dummy import DummyCache
+from django.core.cache.backends.locmem import LocMemCache
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.module_loading import import_string
 
 from config.authorization.claims import CLAIMS_ENVIRONMENT_VARIABLES
 from config.authorization.claims import ClaimsContract
@@ -728,6 +806,194 @@ def _refuse_unconfigured_claims_contract(settings_module: ModuleType) -> None:
     raise ImproperlyConfigured(message)
 
 
+# feature:redis
+#: The cache backends condition 8 refuses, as **objects rather than dotted
+#: paths**. AD-26's rule -- predicates resolve objects, never strings -- applies
+#: here and does not apply to condition 2, and the difference is worth stating
+#: because the two conditions sit in the same file doing visibly different things.
+#:
+#: Condition 2 compares dotted paths because it cannot resolve them: importing an
+#: authentication backend during stage 1 raises `AppRegistryNotReady`, and
+#: `issubclass` would refuse allauth's backend, which is the one that has to stay.
+#: Neither obstacle exists here. A cache backend class imports no model -- Django's
+#: own `django.core.cache.backends.*` are `BaseCache` subclasses over a dict and a
+#: no-op -- and no correct in-process subclass exists that a deployment needs to
+#: keep, so ancestry is exactly the right predicate.
+#:
+#: `DummyCache` is here alongside `LocMemCache` for the same reason `spatialite`
+#: is beside `sqlite3` above: it is the same forbidden state in the spelling that
+#: does not look like it. A component that selected Redis and then configured the
+#: cache away entirely has a cache that stores nothing, which is worse than a
+#: per-worker one and reads as deliberate.
+_IN_PROCESS_CACHE_BACKENDS: Final[tuple[type[object], ...]] = (LocMemCache, DummyCache)
+
+
+def _refuse_in_process_cache(settings_module: ModuleType) -> None:
+    """Refuse an in-process cache backend where the Redis feature is selected (AC #1).
+
+    Condition 8, and one of the two conditions in the whole contract that is not
+    unconditional. It is scoped because `config/settings/production.py` hardcodes
+    `django_redis.cache.RedisCache` with no feature branch: a component that did
+    *not* select Redis legitimately falls back to Django's in-process cache in a
+    deployment, so an unconditional refusal here would reject two of the six valid
+    combinations for having exactly the cache they were built with.
+
+    Every configured alias is iterated rather than only `default`, on AD-9's
+    reasoning applied to a second mapping: a second alias is where this hides, and
+    a `sessions` alias left on the in-process backend beside a Redis `default` is
+    the likeliest shape it takes.
+
+    **Resolution is by object, not by string.** `import_string` resolves the
+    dotted `BACKEND` and `issubclass` tests the result, so a subclass re-exported
+    under another name -- `myapp.cache.FastCache(LocMemCache)` -- is refused too.
+    That is the evasion this closes, and a string comparison would not close it.
+
+    Five inputs are skipped rather than refused, and each is skipped for the same
+    reason: it is not the state this condition's message describes. `CACHES` that
+    is not a mapping at all; an alias whose configuration is not a mapping; a
+    `BACKEND` that is not a string; a `BACKEND` that cannot be loaded; and one
+    that loads to something which is not a class. Django owns all five and refuses
+    each of them itself, at the first cache access, with the message that names
+    what is actually wrong.
+
+    Args:
+        settings_module: The settings module currently being composed.
+
+    Raises:
+        ImproperlyConfigured: When any configured alias resolves to `LocMemCache`,
+            to `DummyCache`, or to a subclass of either. The message names the
+            alias, the configured path and the Redis feature, because which half
+            of the pair is wrong -- the cache or the selection -- is something
+            only the reader knows.
+
+    """
+    caches: object = getattr(settings_module, "CACHES", _ABSENT)
+    if not isinstance(caches, dict):
+        return
+
+    for alias, configuration in caches.items():
+        if not isinstance(configuration, dict):
+            continue
+        dotted_path = configuration.get("BACKEND")
+        if not isinstance(dotted_path, str):
+            continue
+
+        try:
+            resolved = import_string(dotted_path)
+        except Exception:  # noqa: BLE001, S112 - see below: any failure to *load* a backend is Django's defect
+            # Skipped, and deliberately not converted into a refusal. This
+            # condition's message describes *an in-process backend in a component
+            # that selected Redis*, which is not what a backend that will not load
+            # is; refusing here would add a fifteenth forbidden state to a count
+            # the architecture settled at fourteen, under a message that would
+            # send the reader to the wrong line. Django already owns the defect
+            # and raises `InvalidCacheBackendError` -- itself an
+            # `ImproperlyConfigured` -- at the first cache access.
+            #
+            # **Why the guard is `Exception` and not `ImportError`.**
+            # `import_string` executes third-party module code: it imports the
+            # module named by the dotted path, and that module's top level can
+            # raise anything at all. `AppRegistryNotReady` is the one a Django
+            # package plausibly raises here, because stage 1 runs while
+            # `apps.populate` is still going; a module whose import-time work
+            # fails raises whatever it raises. Both were reproduced escaping a
+            # narrow `except ImportError`. An escaping exception breaks the one
+            # promise this module makes (CG-3, and the `Raises:` section above):
+            # `ImproperlyConfigured` and nothing else comes out of a condition.
+            # `BaseException` is deliberately *not* caught -- `KeyboardInterrupt`,
+            # `SystemExit` and the test suite's own network guard have to pass
+            # through a settings import untouched.
+            #
+            # **This is error handling, not feature detection.** AD-24 forbids
+            # `try`/`except ImportError` as a *removal mechanism* -- a way of
+            # asking whether a feature is present. Nothing is asked here: the
+            # dotted path came from the settings module rather than from this
+            # file, the resolution is attempted unconditionally, and the condition
+            # either side of the guard is the same in every combination that
+            # contains this region at all. Widening the guard does not change
+            # that: it is still one already-resolved settings value being loaded,
+            # and no branch anywhere behaves differently for a feature's presence.
+            continue
+
+        # `issubclass` raises `TypeError` when handed something that is not a
+        # class, and a `BACKEND` naming a function or a constant is a plausible
+        # typo. A condition that raised `TypeError` out of a settings import
+        # would break the one promise CG-3 makes about this module.
+        if not isinstance(resolved, type):
+            continue
+
+        forbidden = next((backend for backend in _IN_PROCESS_CACHE_BACKENDS if issubclass(resolved, backend)), None)
+        if forbidden is None:
+            continue
+
+        message = (
+            f"CACHES[{alias!r}] configures {dotted_path} in a deployed component, which resolves to a "
+            f"{forbidden.__name__} -- Django's in-process cache. This component selected the Redis "
+            "cache feature, so a shared cache is the one it was built to have: an in-process cache is "
+            "per-worker and per-container, so a value written by one gunicorn worker is invisible to "
+            "the next request and gone at the next restart. "
+            "Point BACKEND at django_redis.cache.RedisCache."
+        )
+        raise ImproperlyConfigured(message)
+
+
+# /feature:redis
+# feature:celery
+def _refuse_eager_tasks(settings_module: ModuleType) -> None:
+    """Refuse eager task execution where background task processing is selected (AC #2).
+
+    Condition 9, the second and last of the feature-scoped pair. Scoped for the
+    mirror of condition 8's reason: eager execution is meaningless in a component
+    with no background task processing, so an unconditional refusal would refuse
+    combinations for a setting that does nothing in them.
+
+    `config/settings/local.py:103` sets `CELERY_TASK_ALWAYS_EAGER = True`, which
+    is correct there and is exactly the value that must not survive into a
+    deployment: eager execution runs the task inline, on the web request's own
+    thread and inside its transaction, so every queued job becomes latency the
+    caller pays and the worker processes have nothing to do.
+
+    **`CELERY_TASK_EAGER_PROPAGATES` is deliberately not refused.** `local.py:110`
+    sets it beside the flag above, and it is inert without it -- it decides only
+    whether an eagerly executed task re-raises. Refusing on it would create a
+    second forbidden state where the architecture settled on one, and would refuse
+    a deployed component whose tasks are queued normally.
+
+    Absence is neutral and is the ordinary case: `config/settings/base.py`
+    declares neither flag, so a deployed component that never mentions eager
+    execution is a component that does not use it.
+
+    Args:
+        settings_module: The settings module currently being composed.
+
+    Raises:
+        ImproperlyConfigured: When `CELERY_TASK_ALWAYS_EAGER` is truthy. Truthy
+            rather than `is True`, because this one is read as a switch by Celery
+            itself -- unlike `DJANGO_ADMIN_FORCE_ALLAUTH`, where anything other
+            than `True` is the forbidden state and identity is therefore the test.
+            The value that makes the difference concrete is the string `"false"`,
+            which is what an environment-driven settings module produces from a
+            variable nobody parsed: Celery reads it as on, and an `is True` rule
+            would read it as off and let it through.
+            `tests/unit/startup/test_feature_scoped_refusals.py` drives that exact
+            value, so the choice cannot be reverted by an edit that still passes.
+
+    """
+    if not getattr(settings_module, "CELERY_TASK_ALWAYS_EAGER", False):
+        return
+
+    message = (
+        "CELERY_TASK_ALWAYS_EAGER is enabled in a deployed component. This component selected "
+        "background task processing, so a task is queued for a worker rather than run inline: "
+        "eager execution runs it in the web request that called it, on that request's thread and "
+        "inside its transaction, which turns every queued job into latency the caller pays and "
+        "every worker into a process with nothing to do. "
+        "Unset and False are both correct here; config/settings/local.py is the only module that enables it."
+    )
+    raise ImproperlyConfigured(message)
+
+
+# /feature:celery
 #: The stage-1 conditions, in evaluation order, and the order is part of the
 #: contract rather than an accident of how they were written: AD-26 requires "one
 #: location, one owner, and a fixed order", and
@@ -739,9 +1005,16 @@ def _refuse_unconfigured_claims_contract(settings_module: ModuleType) -> None:
 #: The five that follow are conditions 1 to 5 of the refusal table, in the
 #: table's own order.
 #:
-#: Story 4.4 appends its two feature-scoped conditions here rather than adding a
-#: call into `run_stage_one`, so that the dispatch has one shape and the roster
-#: has one declaration site (AD-1).
+#: The two feature-scoped conditions are appended here rather than reached by a
+#: second call inside `run_stage_one`, so that the dispatch has one shape and the
+#: roster has one declaration site (AD-1). They are last because they are the
+#: conditional ones: a component meets every refusal it shares with every other
+#: combination before it meets one that depends on what it selected.
+#:
+#: Each entry carries its own marker pair, and that is not tidiness. The
+#: materializer removes a region's lines, so a call site left outside the pair
+#: would survive into a combination whose definition had gone -- a `NameError`
+#: at settings import, which is the failure AD-24's worked example is about.
 _STAGE_ONE: Final[tuple[Callable[[ModuleType], None], ...]] = (
     _refuse_the_local_settings_module,
     _refuse_sqlite,
@@ -749,6 +1022,12 @@ _STAGE_ONE: Final[tuple[Callable[[ModuleType], None], ...]] = (
     _refuse_otel_disabled,
     _refuse_untrusted_jwks_anchor,
     _refuse_unconfigured_claims_contract,
+    # feature:redis
+    _refuse_in_process_cache,
+    # /feature:redis
+    # feature:celery
+    _refuse_eager_tasks,
+    # /feature:celery
 )
 
 

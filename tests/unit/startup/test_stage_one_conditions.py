@@ -2,9 +2,15 @@
 
 One test per forbidden state, each asserting the exception *type* and a
 distinguishing substring of its message -- the setting or the environment
-variable -- so that no two conditions can pass each other's test. Fourteen
-forbidden states exist in total; this module covers the eight Story 4.2 owns,
-and Story 4.5 audits that the full fourteen are covered somewhere.
+variable -- so that no two conditions can pass each other's test. This module
+covers the eight unconditional stage-1 states and nothing else; the two
+feature-scoped ones are `test_feature_scoped_refusals.py`, and the stage-2 ones
+are split -- `test_stage_two_urlconf.py` holds the two URLconf states, and
+`tests/integration/startup/test_stage_two_database_conditions.py` holds the ones
+that need a real connection, the designated group and the migration state. Story
+4.5 audits that every state is covered somewhere. No total is asserted here on
+purpose -- a count maintained in a module docstring goes stale without anything
+failing.
 
 Every case drives the public `run_stage_one`, never a condition function
 directly. What is under test is the refusal a deployed component actually meets,
@@ -58,6 +64,14 @@ if TYPE_CHECKING:
 
 # The evaluation order AD-26 requires be fixed, spelled here so a reordering is a
 # failing test rather than a silent change of which refusal an operator sees.
+#
+# The last two entries carry AD-24 marker pairs, and this is the one place in the
+# core suite that needs them. `_refuse_in_process_cache` and `_refuse_eager_tasks`
+# are feature-owned regions in `stage_one.py`, so in a combination that selected
+# neither Redis nor background task processing the materializer removes both
+# definitions *and* their roster entries -- and an assertion here naming a
+# function that is no longer in the roster would fail on a tree that is correct.
+# The markers make this tuple shrink in step with the roster it mirrors.
 EXPECTED_EVALUATION_ORDER = (
     "_refuse_the_local_settings_module",
     "_refuse_sqlite",
@@ -65,6 +79,12 @@ EXPECTED_EVALUATION_ORDER = (
     "_refuse_otel_disabled",
     "_refuse_untrusted_jwks_anchor",
     "_refuse_unconfigured_claims_contract",
+    # feature:redis
+    "_refuse_in_process_cache",
+    # /feature:redis
+    # feature:celery
+    "_refuse_eager_tasks",
+    # /feature:celery
 )
 
 SQLITE_ENGINE = "django.db.backends.sqlite3"

@@ -4,16 +4,20 @@
 halves of FR-23 need it: the boot assertions are unit tests and the persona
 seeding assertion is an integration test against a real database.
 
-`valid_deployed_settings_namespace` is here for the same reason. Three modules
-need a settings namespace that every stage-1 condition accepts --
-`tests/unit/startup/test_stage_one_conditions.py`,
-`tests/unit/startup/test_no_network_no_queries.py` and
-`tests/integration/startup/test_no_queries.py` -- and two of them are unit tests
-while the third is an integration test, so a `tests/unit/` home would have to be
-copied. One builder is what keeps "valid" meaning the same thing in all three:
-the moment Story 4.3 or 4.4 adds a condition, the namespace that satisfies it is
-edited once and every caller inherits the change rather than three fixtures
-drifting until two of them assert over a namespace that refuses.
+`valid_deployed_settings_namespace` is here for the same reason. Every module
+that constructs a stage-1 or stage-2 case needs a settings namespace that every
+condition accepts, and they are split across both suites -- `tests/unit/startup/`
+holds most of them and `tests/integration/startup/` holds the ones that need a
+real connection -- so a `tests/unit/` home would have to be copied. One builder
+is what keeps "valid" meaning the same thing everywhere: the moment a story adds
+a condition, the namespace that satisfies it is edited once and every caller
+inherits the change rather than a fixture per module drifting until some of them
+assert over a namespace that refuses.
+
+The callers are deliberately not listed here. A roster in a docstring goes stale
+without anything failing -- this one already had, naming three modules when there
+were seven -- and `grep valid_deployed_settings_namespace` answers the question
+accurately at the moment it is asked.
 """
 
 from __future__ import annotations

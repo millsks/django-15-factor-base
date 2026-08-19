@@ -123,6 +123,25 @@ lint.ignore = [
 ]
 lint.isort.force-single-line = true
 lint.isort.known-first-party = [ "config", "django_service", "tests" ]
+# Ruff's default is [ "TODO", "FIXME", "XXX" ] and setting this key *replaces*
+# the default rather than extending it, so all three are respelled here; a
+# four-element list that dropped them would silently switch off TODO/FIXME/XXX
+# handling tree-wide.
+#
+# "feature" is the fourth, and it is not a to-do marker. AD-24 delimits a
+# feature-owned region with paired line comments spelled exactly
+# `# feature:<name>` and `# /feature:<name>` -- see
+# src/config/startup/stage_one.py, which carries the first two. ERA001 reads the
+# *opening* marker as commented-out code (the closing one escapes it on the
+# leading slash), so `pixi run ci` fails on an unmodified AD-24 marker without
+# this line. Declaring the tag says `feature:` is a recognized annotation, which
+# is what it is.
+#
+# The alternative, `# noqa: ERA001` on every opening marker, was rejected: it
+# changes the marker's own line text, and Story 8.3's stripper has to match that
+# line. Cost of this spelling: any comment beginning `feature` is exempt from
+# ERA001 tree-wide. FIX and TD are not selected, so nothing else reads task-tags.
+lint.task-tags = [ "TODO", "FIXME", "XXX", "feature" ]
 
 # ==== pyproject-fmt ====
 [tool.pyproject-fmt]
