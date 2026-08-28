@@ -1,12 +1,12 @@
 ---
-status: in-review
+status: done
 baseline_revision: 30eaa16b05bb4c9150e44a3a04d2cd815fadc29f
 review_loop_iteration: 0
 ---
 
 # Story 4.5: Every refusal is tested as a refusal
 
-Status: in-review
+Status: done
 
 ## Story
 
