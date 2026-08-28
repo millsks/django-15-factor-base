@@ -36,3 +36,4 @@ nav:
   - Development: development.md
   - Observability: observability.md
   - Authentication: authentication.md
+  - Deployment: deployment.md

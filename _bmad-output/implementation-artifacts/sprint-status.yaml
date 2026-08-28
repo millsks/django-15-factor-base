@@ -87,7 +87,7 @@ development_status:
   4-6-the-authentication-surface-matches-an-allowlist-exactly: done
   epic-4-retrospective: optional
   epic-5: in-progress
-  5-1-the-component-declares-itself-in-component-toml: ready-for-dev
+  5-1-the-component-declares-itself-in-component-toml: done
   5-2-the-process-model-is-declared-as-pixi-tasks-with-its-constraints-as-data: ready-for-dev
   5-3-two-asymmetric-health-endpoints: ready-for-dev
   5-4-shutdown-drains-in-a-defined-order: ready-for-dev
