@@ -51,9 +51,13 @@ which made `ci` visible from two environments and aborted `pixi run ci` with
 matrix is the same change six times over, so a new environment that carries the
 `dev` toolchain must not also carry `gate`.
 
-Operational commands — `manage`, `migrate`, `collectstatic`, `createsuperuser`,
-`serve` — run in `default`, because a deployment runs them too. Development-only
-commands — `runserver`, `serve-reload`, `makemigrations` — and the whole quality
+Operational commands — `manage`, `migrate`, `collectstatic`, `createsuperuser` —
+run in `default`, because a deployment runs them too. `serve` is **not** among
+them: a deployment runs `pixi run web`, and `serve` is the developer's
+cross-platform ASGI server — see
+[Process model](deployment.md#process-model) for what a deployment actually
+invokes. Development-only commands — `runserver`, `serve-reload`,
+`makemigrations` — and the whole quality
 harness run in `dev`. That partition is now **load-bearing rather than
 incidental**: it is what carries locality — see
 [Locality is declared by the environment](#locality-is-declared-by-the-environment)
@@ -804,7 +808,7 @@ a different environment than the gate uses.
 | Task | What it does |
 | --- | --- |
 | `pixi run runserver` | Django development server |
-| `pixi run serve` | Production-like ASGI server (uvicorn, all platforms) |
+| `pixi run -e dev serve` | Local ASGI server (uvicorn, all platforms) — a deployment runs `web` |
 | `pixi run serve-reload` | The same with autoreload |
 | `pixi run migrate` | Apply migrations |
 | `pixi run makemigrations` | Generate migrations |
@@ -902,9 +906,14 @@ Shared fixtures live in `tests/conftest.py`; `UserFactory` lives in
 
 ## Serving the application
 
-`runserver` is Django's development server. `pixi run serve` runs uvicorn
-against `config.asgi:application`, which is closer to production and works on
-Linux, macOS and Windows alike.
+`runserver` is Django's development server. `pixi run -e dev serve` runs uvicorn
+against `config.asgi:application`, which is closer to the deployed ASGI stack and
+works on Linux, macOS and Windows alike. It is still a *local* server: bare
+`pixi run serve` resolves in `default`, reads *deployed*, and is refused at
+settings import because `config/asgi.py`'s fallback loads `config.settings.local`.
+
+A deployment runs `pixi run web`, not `serve` — see
+[Process model](deployment.md#process-model).
 
 Production uses gunicorn with the uvicorn worker class. gunicorn is POSIX-only
 and has no conda-forge win-64 build, so `gunicorn` and `uvicorn-worker` are

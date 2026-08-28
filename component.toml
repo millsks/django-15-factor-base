@@ -135,10 +135,13 @@ migrate = ["migrate --database default --noinput"]
 #
 # Every process below belongs to the process group, and the rule for the group
 # is that a member declares `COMPONENT_PROCESS` through the pixi task named in
-# its `task` field. Story 5.2 adds those tasks and the two-way gate test that
-# reconciles each entry here against one of them; until it lands, the entries
-# below name tasks `pixi.toml` does not yet define. Admin processes are outside
-# the group and never set it -- see `[[admin_processes]]`.
+# its `task` field -- so the group is exactly the set of `pixi.toml` tasks whose
+# `env` carries that variable, and every entry here names one of them. Story 5.2
+# added those tasks and the two-way gate test in
+# tests/unit/test_process_model.py, which reconciles the two directions: no
+# entry here may name a task that does not exist, and no task in the process
+# group may go undeclared here. Admin processes are outside the group and never
+# set it -- see `[[admin_processes]]`.
 # ---------------------------------------------------------------------------
 
 [[processes]]

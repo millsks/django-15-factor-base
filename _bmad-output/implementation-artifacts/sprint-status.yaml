@@ -88,7 +88,7 @@ development_status:
   epic-4-retrospective: optional
   epic-5: in-progress
   5-1-the-component-declares-itself-in-component-toml: done
-  5-2-the-process-model-is-declared-as-pixi-tasks-with-its-constraints-as-data: ready-for-dev
+  5-2-the-process-model-is-declared-as-pixi-tasks-with-its-constraints-as-data: done
   5-3-two-asymmetric-health-endpoints: ready-for-dev
   5-4-shutdown-drains-in-a-defined-order: ready-for-dev
   5-5-migrations-are-a-release-stage-step-the-component-never-performs: ready-for-dev
