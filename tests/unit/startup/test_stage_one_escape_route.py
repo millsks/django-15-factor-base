@@ -71,6 +71,7 @@ def _evict_settings_modules() -> Iterator[None]:
     "runtime",
     [pytest.param(None, id="unset"), pytest.param(UNRECOGNIZED_RUNTIME, id="unrecognized")],
 )
+@pytest.mark.forbidden_state("local-settings-module-loaded")
 def test_a_deployed_component_importing_the_local_settings_module_refuses(
     monkeypatch: pytest.MonkeyPatch,
     runtime: str | None,

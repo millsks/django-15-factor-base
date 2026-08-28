@@ -18,13 +18,28 @@ The callers are deliberately not listed here. A roster in a docstring goes stale
 without anything failing -- this one already had, naming three modules when there
 were seven -- and `grep valid_deployed_settings_namespace` answers the question
 accurately at the moment it is asked.
+
+`pytest_collection_modifyitems` below is the collection side of FR-16's coverage
+audit. It reads the `forbidden_state` markers off collected items -- pytest's own
+machinery, never a source scan -- and writes them out when a run is asked to
+report them.
+
+`subprocess_env` is here for the shared-home reason the two URLconf builders are.
+It began in `tests/integration/startup/conftest.py`, which is where the boot
+probes live; `tests/unit/startup/test_refusal_coverage_audit.py` then needed the
+same environment for its collection child, and a unit module importing an
+integration package's conftest is the cross-import that file exists to prevent.
+One builder is what keeps "the environment a child probe runs in" meaning the
+same thing on both sides.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import sys
+from collections import defaultdict
 from contextlib import contextmanager
 from importlib.util import module_from_spec
 from importlib.util import spec_from_file_location
@@ -55,6 +70,148 @@ if TYPE_CHECKING:
     from django.urls import URLResolver
 
     from django_service.users.models import User
+
+
+#: The marker a refusal test claims a forbidden state with, registered in
+#: `pyproject.toml [tool.pytest.ini_options] markers`. The name lives here rather
+#: than as a literal in each reader so the audit and the collector cannot spell
+#: it differently.
+FORBIDDEN_STATE_MARKER: Final = "forbidden_state"
+
+#: Names the file `pytest_collection_modifyitems` writes the claim report to.
+#: Absent in an ordinary run, in which the hook records the claims and does
+#: nothing with them; set by `tests/unit/startup/test_refusal_coverage_audit.py`
+#: when it drives a collection-only child.
+#:
+#: A child process rather than this session's own collection, and that is the
+#: whole reason the variable exists. `pixi run test` collects `tests/unit/` alone
+#: and `pixi run test-integration` collects `tests/integration/` alone, so an
+#: audit reading whatever the running session happened to collect would report
+#: every integration-claimed state as unclaimed under the first and every
+#: unit-claimed state as unclaimed under the second. The audit asks for the whole
+#: suite, once, whatever invoked it.
+FORBIDDEN_STATE_REPORT_ENV_VAR: Final = "FORBIDDEN_STATE_CLAIM_REPORT"
+
+#: The two top-level keys of the claim report. Claims that a disabling marker
+#: would stop from ever executing are reported separately rather than dropped: an
+#: audit told only "this state is unclaimed" sends its reader looking for a
+#: missing marker, when the marker is there and the test is skipped.
+FORBIDDEN_STATE_CLAIMS_KEY: Final = "claims"
+FORBIDDEN_STATE_DISABLED_KEY: Final = "disabled"
+
+#: The markers that stop a test from being a claim. A test carrying any of them
+#: may never execute -- `skipif` and `xfail` conditionally, `skip`
+#: unconditionally -- and a state whose only claim is a test that never runs is
+#: not tested at all, which is precisely the reassurance FR-16 exists to
+#: withhold. `xfail` is included even in its non-strict form: a test expected to
+#: fail asserts nothing about a refusal firing.
+DISABLING_MARKERS: Final[tuple[str, ...]] = ("skip", "skipif", "xfail")
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Record which test claims which forbidden state, and report it when asked.
+
+    Collected through `item.iter_markers` rather than by parsing source text
+    (FR-16, Story 4.5 Task 2): a marker applied through `pytest.param(...,
+    marks=...)`, through a class-level `pytestmark`, or by another hook is
+    invisible to a grep and is exactly as valid a claim.
+
+    `trylast` for the same reason: another `pytest_collection_modifyitems` -- a
+    plugin's or a package conftest's -- may apply markers of its own, and a hook
+    that ran before it would report the claims that existed at the time rather
+    than the claims the session actually carries. Running last is what makes the
+    sentence above true of hook-applied markers as well.
+
+    Args:
+        items: Every item this session collected.
+
+    """
+    claimed: defaultdict[str, set[str]] = defaultdict(set)
+    disabled: defaultdict[str, set[str]] = defaultdict(set)
+    for item in items:
+        skipped = any(item.get_closest_marker(name) is not None for name in DISABLING_MARKERS)
+        destination = disabled if skipped else claimed
+        for marker in item.iter_markers(FORBIDDEN_STATE_MARKER):
+            for state_id in marker.args:
+                destination[str(state_id)].add(item.nodeid)
+
+    report = os.environ.get(FORBIDDEN_STATE_REPORT_ENV_VAR)
+    if report:
+        payload = {
+            FORBIDDEN_STATE_CLAIMS_KEY: {state_id: sorted(nodeids) for state_id, nodeids in claimed.items()},
+            FORBIDDEN_STATE_DISABLED_KEY: {state_id: sorted(nodeids) for state_id, nodeids in disabled.items()},
+        }
+        destination_path = Path(report)
+        # The variable names a path rather than a directory pytest owns, and a
+        # parent that does not exist would raise out of collection -- taking the
+        # whole session with it rather than failing the one case that asked for
+        # the report.
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        destination_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+#: The environment names `subprocess_env` drops, and why each one goes.
+#:
+#: `PYTHONPATH` because a child must resolve `config` through the editable
+#: install exactly as a deployed process does (AD-7). `DJANGO_SETTINGS_MODULE`
+#: because it is the variable under test: pytest-django set it to
+#: `config.settings.test` in this process from the `--ds` in `addopts`, and a
+#: child that inherited it would never exercise the `os.environ.setdefault` in
+#: `config/asgi.py` that a server process relies on.
+#:
+#: The database-selection variables go for a reason that cost a day to find: a
+#: probe supplies its own throwaway database and must boot the same way whatever
+#: the developer's shell holds. Inherited, a `DATABASE_URL` pointing at
+#: PostgreSQL makes `base.py` select the postgres engine, and a probe's sqlite
+#: *filename* is then handed to it as a database NAME -- which fails on
+#: PostgreSQL's 63-character limit rather than on anything the test is about. The
+#: suite passed only on machines with no database configured.
+#:
+#: The `COV_CORE_*` set is pytest-cov's subprocess activation, read by the
+#: `pytest-cov.pth` file in site-packages. Left in place, every child probe
+#: writes a `.coverage.<host>.<pid>.<random>` file into its working directory --
+#: the repository root for most of them -- and measures a process whose coverage
+#: nothing combines. Dropping them is what keeps a probe from leaving artifacts
+#: behind, which is a claim several of these modules make in their docstrings.
+SUBPROCESS_ENV_DROPPED: Final[tuple[str, ...]] = (
+    "PYTHONPATH",
+    "DJANGO_SETTINGS_MODULE",
+    "DATABASE_URL",
+    "POSTGRES_DB",
+    "POSTGRES_USER",
+    "POSTGRES_PASSWORD",
+    "POSTGRES_HOST",
+    "POSTGRES_PORT",
+    "COV_CORE_SOURCE",
+    "COV_CORE_CONFIG",
+    "COV_CORE_DATAFILE",
+    "COV_CORE_CONTEXT",
+)
+
+
+def subprocess_env() -> dict[str, str]:
+    """Return an environment in which only the editable install can resolve `src/`.
+
+    `PYTHONSAFEPATH` keeps the interpreter from prepending the working directory
+    to `sys.path` for `-c`, and everything in `SUBPROCESS_ENV_DROPPED` is
+    removed outright, for the reasons recorded there.
+
+    `COMPONENT_RUNTIME` is inherited, so a child boots local exactly as a
+    developer's `pixi run web` would -- which is why the sentinel is written
+    before the locality check rather than after it. A probe that needs a deployed
+    run drops the variable *after* boot rather than before it, so that the boot
+    itself is still the one a developer performs.
+
+    Returns:
+        A copy of the current environment with those adjustments.
+
+    """
+    env = dict(os.environ)
+    for name in SUBPROCESS_ENV_DROPPED:
+        env.pop(name, None)
+    env["PYTHONSAFEPATH"] = "1"
+    return env
 
 
 @pytest.fixture(autouse=True)

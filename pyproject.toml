@@ -234,6 +234,14 @@ markers = [
   # `spike_*.py` module the spike lives in, so collection never reaches it.
   # The marker is registered here so `-m spike` selects rather than warns.
   "spike: marks the R-1 django-storages fitness spike; runs only in the spike-storage environment",
+  # FR-16's claim marker. `@pytest.mark.forbidden_state("<state_id>")` says "this
+  # test configures that forbidden state and asserts the refusal", and
+  # tests/unit/startup/test_refusal_coverage_audit.py reconciles the claims
+  # against tests/unit/startup/forbidden_states.py in both directions. Registered
+  # rather than left unknown because `--strict-markers` is one flag away and,
+  # more to the point, an unregistered marker is a typo that warns instead of
+  # failing -- which is exactly how a state would go unclaimed unnoticed.
+  "forbidden_state: names the FR-16 forbidden state this test configures and asserts the refusal of",
 ]
 
 # ==== Coverage ====

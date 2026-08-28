@@ -208,6 +208,7 @@ class TestTheRosterAndThePositiveCase:
 class TestTheSqliteBackendIsReached:
     """Condition 1, over every configured alias (AC #1, AD-9)."""
 
+    @pytest.mark.forbidden_state("sqlite-backend")
     def test_sqlite_on_the_default_alias_refuses(self, namespace: ModuleType) -> None:
         """The state `production.py:26-28` already refuses, in its general form."""
         namespace.DATABASES["default"]["ENGINE"] = SQLITE_ENGINE
@@ -273,6 +274,7 @@ class TestTheSqliteBackendIsReached:
 class TestALocalCredentialPathIsLive:
     """Condition 2, four distinct forbidden states, each with its own message (AC #2)."""
 
+    @pytest.mark.forbidden_state("model-backend-installed")
     def test_model_backend_in_the_authentication_backends_refuses(self, namespace: ModuleType) -> None:
         """State 2a: Django's own username-and-password check against the local user table."""
         namespace.AUTHENTICATION_BACKENDS = [MODEL_BACKEND, DEPLOYED_AUTHENTICATION_BACKEND]
@@ -337,6 +339,7 @@ class TestALocalCredentialPathIsLive:
         assert "absent" in message
         assert MODEL_BACKEND in message
 
+    @pytest.mark.forbidden_state("account-login-methods-declared")
     def test_a_declared_login_method_refuses(self, namespace: ModuleType) -> None:
         """State 2b: any declared method keeps allauth's local sign-in form reachable."""
         namespace.ACCOUNT_LOGIN_METHODS = {"username"}
@@ -425,6 +428,7 @@ class TestALocalCredentialPathIsLive:
         assert "DJANGO_ADMIN_FORCE_ALLAUTH" in message
         assert repr(configured) in message
 
+    @pytest.mark.forbidden_state("admin-not-forced-through-allauth")
     def test_an_absent_admin_force_setting_refuses(self, namespace: ModuleType) -> None:
         """State 2c: absent counts as not true, and says so rather than saying `None`."""
         del namespace.DJANGO_ADMIN_FORCE_ALLAUTH
@@ -434,6 +438,7 @@ class TestALocalCredentialPathIsLive:
         assert "DJANGO_ADMIN_FORCE_ALLAUTH" in message
         assert "absent" in message
 
+    @pytest.mark.forbidden_state("static-token-surface")
     def test_the_authtoken_app_being_installed_refuses(self, namespace: ModuleType) -> None:
         """State 2d, first half: the app that mints and stores local API tokens."""
         namespace.INSTALLED_APPS = [*namespace.INSTALLED_APPS, AUTHTOKEN_APP]
@@ -543,6 +548,7 @@ class TestTheOpenTelemetrySdkIsDisabled:
             pytest.param("yes", id="yes"),
         ],
     )
+    @pytest.mark.forbidden_state("otel-sdk-disabled")
     def test_a_disabled_sdk_refuses(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -665,6 +671,7 @@ class TestTheJwksTrustAnchorIsNotDerivedFromTheIssuer:
         assert "<unreadable location>" in message
         assert SENSITIVE_USERINFO not in message
 
+    @pytest.mark.forbidden_state("untrusted-jwks-anchor")
     def test_a_location_on_a_host_the_issuer_does_not_control_refuses(self, namespace: ModuleType) -> None:
         """The refusal AD-23 exists for: a trust anchor somebody else can rotate."""
         namespace.OIDC_JWKS_URL = FOREIGN_JWKS_URL
@@ -722,6 +729,32 @@ class TestTheJwksTrustAnchorIsNotDerivedFromTheIssuer:
 class TestTheClaimsContractIsUnconfigured:
     """Condition 5, its stage-1 half (AC #5). The stage-2 half is Story 4.3's."""
 
+    def test_a_contract_carrying_all_four_names_is_accepted(self) -> None:
+        """This condition's own positive control (FR-16, Story 4.5 Task 7).
+
+        Every other condition in this module has one beside its refusals; this
+        one had only the module-wide `test_a_fully_valid_deployed_namespace_is_
+        accepted`, which is an assertion about the namespace rather than about
+        the predicate. A condition hardcoded to raise would pass all six of the
+        refusal cases below and be caught only by a case that hands it a contract
+        it must accept.
+
+        Driven through `run_stage_one` like everything else here, and asserted by
+        the absence of a refusal: the four names are the ones
+        `config.authorization.claims` declares, so a contract that satisfied a
+        weaker reading of "configured" would not satisfy this.
+        """
+        namespace = valid_deployed_settings_namespace()
+        namespace.CLAIMS_CONTRACT = ClaimsContract(
+            identity_key_claim="sub",
+            group_claim="groups",
+            staff_group="platform-staff",
+            superuser_group="platform-superuser",
+        )
+
+        run_stage_one(namespace)
+
+    @pytest.mark.forbidden_state("unconfigured-claims-contract")
     def test_an_absent_contract_refuses(self, namespace: ModuleType) -> None:
         """Nothing having built the contract at all is itself a forbidden state."""
         del namespace.CLAIMS_CONTRACT

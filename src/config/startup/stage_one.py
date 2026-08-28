@@ -70,6 +70,30 @@ describing what the region holds, and rewriting it breaks nothing.
 * path `tests/unit/startup/test_feature_scoped_refusals.py`, feature `celery`.
   It contains the `celery` entry in the same mapping and the whole test class
   for condition 9.
+* path `tests/unit/startup/forbidden_states.py`, feature `redis`. It contains
+  the `ForbiddenState` record naming condition 8's state. That file is FR-16's
+  index of forbidden states, and a combination without Redis has no such state
+  to demand a test for.
+* path `tests/unit/startup/forbidden_states.py`, feature `celery`. It contains
+  the record naming condition 9's state, for the same reason.
+* path `tests/unit/startup/test_refusal_coverage_audit.py`, feature `redis`. It
+  contains the `redis` entries in that module's conditional-state and
+  conditional-condition expectations, which are what fix the total at fourteen
+  and the conditions at nine without either literal: both shrink with the
+  declaration they audit.
+* path `tests/unit/startup/test_refusal_coverage_audit.py`, feature `celery`.
+  It contains the `celery` entries in the same two mappings, for the same
+  reason.
+* path `tests/unit/startup/test_no_softening.py`, feature `redis`. Two pairs in
+  that file: the builder that constructs condition 8's forbidden state together
+  with its entry in the CG-3 refusal mapping, and -- separately, near the top --
+  the `stage_one.py` entry in `BROAD_EXCEPT_ALLOWANCE`. The allowance records
+  the `except Exception` guarding `import_string` a few lines below, which is
+  itself inside this file's `feature:redis` region; a combination without Redis
+  loses the handler, so an allowance left behind would fail a tree that is
+  correct.
+* path `tests/unit/startup/test_no_softening.py`, feature `celery`. It contains
+  condition 9's builder and its entry in the refusal mapping.
 
 **Where the blank lines go is part of each region.** Every closing marker sits
 directly beneath the blank lines that separate its region from whatever follows,
