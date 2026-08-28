@@ -136,10 +136,49 @@ class TestTheContractHasOneHome:
         assert startup.is_serving_process is locality.is_serving_process
 
     def test_the_allowlist_module_is_the_authoritative_declaration_site(self) -> None:
-        """Present and empty. Story 4.6 fills it; AC #1 requires it to exist now."""
-        assert allowlist.ALLOWED_AUTHENTICATION_BACKENDS == ()
-        assert allowlist.ALLOWED_API_AUTHENTICATION_CLASSES == ()
-        assert allowlist.ALLOWED_AUTHENTICATION_ROUTE_PREFIXES == ()
+        """Present and populated. Story 4.1 required it to exist; Story 4.6 filled it.
+
+        Only that each surface says *something*: what any of them says is
+        `tests/unit/startup/test_authentication_allowlist.py`'s question, and
+        restating it here would give the same fact two owners. What this class can
+        say is that the declaration lives in this package, which is AD-26's "one
+        module containing both stages and the FR-17 allowlist".
+
+        The rosters are `frozenset[str]` rather than the tuples of resolved
+        objects the skeleton declared. `allowlist.py`'s own docstring records why:
+        AD-8's composition step imports this module during settings composition,
+        where resolving an authentication backend raises `AppRegistryNotReady` --
+        the same wall `stage_one.py` hit from the other side -- so the resolution
+        moved out to the tests, which is where the guarantee it buys belongs.
+        """
+        assert allowlist.ALLOWED_AUTHENTICATION_BACKENDS
+        assert allowlist.ALLOWED_API_AUTHENTICATION_CLASSES
+        assert allowlist.ALLOWED_AUTHENTICATION_ROUTE_SCOPES
+        assert allowlist.CONTRIBUTABLE_KEYS
+        assert allowlist.FORBIDDEN_CONTRIBUTABLE_KEYS
+
+    def test_the_allowlist_resolves_nothing_at_module_scope(self) -> None:
+        """The property that lets Epic 9 import this module from inside settings composition.
+
+        A dotted path resolved here -- `import_string` at module level, or an
+        `AUTHENTICATION_BACKENDS` entry written as the class itself -- would drag
+        the application registry into a module that has to be importable before it
+        is ready. Asserted structurally rather than by importing under a torn-down
+        registry, which no test can arrange without breaking the session.
+        """
+        source = ast.parse((STARTUP_PACKAGE / "allowlist.py").read_text(encoding="utf-8"))
+        imported = {
+            (node.module or "").split(".")[0] for node in ast.walk(source) if isinstance(node, ast.ImportFrom)
+        } | {
+            alias.name.split(".")[0]
+            for node in ast.walk(source)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+
+        assert "django" not in imported, "the allowlist imports django, which the composition step cannot afford"
+        assert "allauth" not in imported
+        assert "rest_framework" not in imported
 
     def test_stage_one_takes_a_required_positional_only_module(self) -> None:
         """The calling convention every condition story builds on, pinned.

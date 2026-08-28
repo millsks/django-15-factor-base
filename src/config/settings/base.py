@@ -200,8 +200,24 @@ MIGRATION_MODULES = {"sites": "django_service.contrib.sites.migrations"}
 # AUTHENTICATION
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#authentication-backends
+# Allauth's backend alone, because the base is the surface a *deployed* component
+# inherits: authentication is the identity provider's (FR-4), and stage 1 refuses
+# `django.contrib.auth.backends.ModelBackend` here in a deployed component
+# (condition 2, state a). It carried `ModelBackend` until this story, which meant
+# no deployed component could import this module at all -- `production.py` adds no
+# override, so the refusal fired on every real deployment.
+#
+# `local.py` and `test.py` add it back, which is where the affordance it exists
+# for belongs: persona sign-in hands `django.contrib.auth.login` the backend path
+# in `config.local_dev.views.SESSION_BACKEND`, and `get_user` answers
+# `AnonymousUser` on the next request for a backend this list does not name. A
+# locality-scoped credential path is declared where the locality is, exactly as
+# the cache and task substitutions are.
+#
+# Allauth's `AuthenticationBackend` **is** a `ModelBackend` subclass, which is why
+# condition 2a compares dotted paths rather than resolving and testing
+# `issubclass` -- see `config/startup/stage_one.py`.
 AUTHENTICATION_BACKENDS = [
-    "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#auth-user-model
@@ -428,7 +444,15 @@ CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 # ------------------------------------------------------------------------------
 ACCOUNT_ALLOW_REGISTRATION = env.bool("DJANGO_ACCOUNT_ALLOW_REGISTRATION", True)
 # https://docs.allauth.org/en/latest/account/configuration.html
-ACCOUNT_LOGIN_METHODS = {"username"}
+# Empty in the base for the reason `AUTHENTICATION_BACKENDS` above is empty of
+# `ModelBackend`: any declared login method keeps allauth's local sign-in form
+# reachable, which is stage 1's condition 2, state b. Declared -- rather than left
+# out -- because absence is not neutral here: allauth defaults this to a method,
+# so a deleted line reinstates the forbidden state, and `stage_one.py` refuses an
+# undeclared `ACCOUNT_LOGIN_METHODS` for exactly that reason. `local.py` and
+# `test.py` declare the developer-facing form where the locality that justifies it
+# is.
+ACCOUNT_LOGIN_METHODS: set[str] = set()
 # https://docs.allauth.org/en/latest/account/configuration.html
 ACCOUNT_SIGNUP_FIELDS = ["email*", "username*", "password1*", "password2*"]
 # https://docs.allauth.org/en/latest/account/configuration.html

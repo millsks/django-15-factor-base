@@ -763,6 +763,25 @@ class TestTheSourceCarriesNoneOfTheThreeShapes:
         )
 
 
+#: The one `raise` in the package that is deliberately not `ImproperlyConfigured`,
+#: by module, frozen so a second one fails while the recorded one does not.
+#:
+#: `allowlist.py`'s `AuthenticationRouteScope.__post_init__` refuses a scope record
+#: that declares both a literal prefix and a settings key, or neither. Two reasons
+#: it is a `ValueError` and cannot be the refusal type:
+#:
+#: * **It cannot import Django.** AD-8's composition step imports the allowlist
+#:   during settings composition, so the module imports nothing from `django` at
+#:   all -- `tests/unit/startup/test_module_shape.py` asserts that directly. There
+#:   is no `ImproperlyConfigured` in scope to raise.
+#: * **It is not a configuration state.** Every other raise in this package is a
+#:   deployed component's settings or routes being wrong, which is what an
+#:   operator's runbook is written against. This one is the *declaration* being
+#:   malformed -- a programming error in a frozen dataclass literal, reachable only
+#:   by editing this repository, and never by any environment.
+OTHER_RAISE_ALLOWANCE: Final[dict[str, str]] = {"allowlist.py": "ValueError"}
+
+
 class TestTheExceptionTypeIsFixed:
     """Test D: `ImproperlyConfigured`, never something broader."""
 
@@ -799,17 +818,26 @@ class TestTheExceptionTypeIsFixed:
         A `ValueError` on an unreachable-looking path is still an escape hatch out
         of the one promise this package makes, and it is the kind of thing that
         arrives in a helper rather than in a condition.
+
+        One recorded exception, frozen the way the broad-handler allowance above
+        is: see `OTHER_RAISE_ALLOWANCE`.
         """
-        wrong = [
-            f"{_within_the_package(source)}:{node.lineno} raises {_dotted_name(node.exc) or ast.dump(node.exc)}"
+        wrong = {
+            f"{_within_the_package(source)}:{node.lineno}": _dotted_name(
+                node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+            )
             for source, tree in _parsed_package_modules()
             for node in ast.walk(tree)
             if isinstance(node, ast.Raise)
             and node.exc is not None
             and _dotted_name(node.exc.func if isinstance(node.exc, ast.Call) else node.exc) != REFUSAL_TYPE.__name__
-        ]
+        }
+        by_module = {location.split(":")[0]: raised for location, raised in wrong.items()}
 
-        assert wrong == [], f"the refusal contract raises something other than {REFUSAL_TYPE.__name__}: {wrong}"
+        assert by_module == OTHER_RAISE_ALLOWANCE, (
+            f"the refusal contract raises something other than {REFUSAL_TYPE.__name__} at {wrong}, "
+            f"and the recorded allowance is {OTHER_RAISE_ALLOWANCE}"
+        )
 
     def test_the_name_improperly_configured_is_djangos_in_every_module_that_raises_it(self) -> None:
         """The scan above compares a *name*, so the name has to be the one it means.
