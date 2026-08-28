@@ -497,9 +497,20 @@ def test_production_accepts_a_real_database(monkeypatch: pytest.MonkeyPatch):
 # condition-by-condition suite must not be duplicated here.
 # ---------------------------------------------------------------------------
 
-# State 2a of refusal condition 2, and the one that fires first on a real
-# deployed import today: `base.py` still lists it in `AUTHENTICATION_BACKENDS`.
-LIVE_FORBIDDEN_BACKEND = "django.contrib.auth.backends.ModelBackend"
+# Condition 4, and the state that fires first on a real deployed import today.
+#
+# It used to be state 2a -- `base.py` listed `ModelBackend` in
+# `AUTHENTICATION_BACKENDS` -- and then state 2b, `ACCOUNT_LOGIN_METHODS =
+# {"username"}`. Story 4.6 moved both into `local.py` and `test.py`, which is what
+# made a deployed component importable at all, and the chain then reached exactly
+# where the previous revision of this test predicted: an unset trust anchor, which
+# is a genuine deployment requirement rather than a leftover of the reference
+# application.
+#: The backend a deployed component keeps -- the only entry `base.py` declares.
+ALLAUTH_BACKEND = "allauth.account.auth_backends.AuthenticationBackend"
+
+LIVE_REFUSAL_SETTING = "OIDC_ISSUER"
+LIVE_REFUSAL_VARIABLE = "COMPONENT_OIDC_ISSUER"
 
 
 @pytest.mark.usefixtures("production_env")
@@ -512,15 +523,23 @@ def test_a_deployed_production_import_is_refused_by_stage_one(monkeypatch: pytes
     `COMPONENT_RUNTIME` is deleted rather than set, because locality fails closed
     (AD-13) and absent is how a deployment that lost the variable spells itself.
 
-    **Which condition this currently catches, and why that matters.** It is state
-    2a: `base.py:203-206` still lists `django.contrib.auth.backends.ModelBackend`
-    in `AUTHENTICATION_BACKENDS`, so condition 2 refuses before conditions 3, 4
-    and 5 are ever evaluated. Epic 2 Story 2.6/2.8 owns removing it. **When it
-    lands, this assertion will fail, and the fix is to move it forward rather
-    than to delete it:** the next live state is 2b, `ACCOUNT_LOGIN_METHODS =
-    {"username"}` at `base.py:431`, which the same story removes; after both,
-    the import reaches condition 4 and refuses on `OIDC_ISSUER` being unset,
-    which is a genuine deployment requirement rather than a leftover.
+    **Which condition this currently catches, and why that matters.** It is
+    condition 4, the trust anchor. States 2a and 2b used to fire first -- `base.py`
+    listed `ModelBackend` in `AUTHENTICATION_BACKENDS` and set
+    `ACCOUNT_LOGIN_METHODS = {"username"}` -- so this test caught condition 2 and
+    conditions 3, 4 and 5 were never reached. Epic 2 was recorded as owning that
+    removal and did not perform it, which left the tree in a state where **no**
+    deployed component could import this module: `production.py` adds no override,
+    so the refusal fired on every real deployment. Story 4.6 moved both states into
+    `local.py` and `test.py`, and the chain advanced to here, exactly as the
+    previous revision of this docstring predicted it would.
+
+    **When condition 4 stops being the live one, move this forward rather than
+    delete it.** A deployment that supplies `COMPONENT_OIDC_ISSUER` reaches
+    condition 5, the claims contract, and then leaves stage 1 entirely -- at which
+    point the case this test makes is carried by
+    `test_a_deployed_production_import_is_accepted_when_the_contract_is_complete`
+    and this one asserts the last remaining unmet deployment requirement.
 
     The assertion names the condition on purpose. A bare
     `pytest.raises(ImproperlyConfigured)` here would stay green through every one
@@ -535,8 +554,62 @@ def test_a_deployed_production_import_is_refused_by_stage_one(monkeypatch: pytes
         importlib.import_module(PRODUCTION)
 
     message = str(refused.value)
-    assert "AUTHENTICATION_BACKENDS" in message
-    assert LIVE_FORBIDDEN_BACKEND in message
+    assert LIVE_REFUSAL_SETTING in message
+    assert LIVE_REFUSAL_VARIABLE in message
+
+
+#: Everything a deployed component has to supply for stage 1 to pass it. Set as a
+#: mapping rather than as eleven `setenv` lines because the point of the case is
+#: the completeness of the set: this *is* the deployment contract, and a condition
+#: added later is meant to fail here until its variable is added.
+DEPLOYED_ENVIRONMENT = {
+    "DATABASE_URL": "postgres://user:pw@db:5432/app",
+    "REDIS_URL": "redis://redis:6379/0",
+    "DJANGO_ADMIN_FORCE_ALLAUTH": "True",
+    "COMPONENT_IDENTITY_CLAIM": "sub",
+    "COMPONENT_GROUP_CLAIM": "groups",
+    "COMPONENT_STAFF_GROUP": "platform-staff",
+    "COMPONENT_SUPERUSER_GROUP": "platform-superuser",
+    "COMPONENT_OIDC_ISSUER": "https://idp.example.invalid/realms/component",
+    "COMPONENT_OIDC_CLIENT_ID": "component-api",
+    "COMPONENT_OIDC_CLIENT_SECRET": "not-a-real-secret",
+}
+
+
+@pytest.mark.usefixtures("production_env")
+def test_a_deployed_production_import_is_accepted_when_every_requirement_is_met(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A deployed component can start. Until Story 4.6 it could not, and nothing said so.
+
+    This is the case whose absence let the escape through. Every stage-1 condition
+    had a test that configured its forbidden state and asserted the refusal, and
+    `test_a_deployed_production_import_is_refused_by_stage_one` above proved a real
+    deployed import refuses -- but *nothing* asserted that some environment exists
+    in which it does not. So `base.py` keeping `ModelBackend` and
+    `ACCOUNT_LOGIN_METHODS` read, to every green run, as the contract working: the
+    refusal fired, which is what the suite was watching for.
+
+    A refusal suite without this case cannot distinguish "refuses the forbidden
+    state" from "refuses everything", which is the FR-16 blind spot Story 4.5's
+    positive controls close per condition. This closes it for the composition as a
+    whole: the nine conditions have to be jointly satisfiable by a real settings
+    module, not only individually satisfiable by nine hand-built namespaces.
+
+    Locality is declared by deleting `COMPONENT_RUNTIME` rather than by setting it,
+    because locality fails closed (AD-13) and absent is how a deployment spells
+    itself -- so this composition is judged by every condition, exactly as a real
+    one is.
+    """
+    for name, value in DEPLOYED_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv(RUNTIME_ENV_VAR, raising=False)
+
+    production = importlib.import_module(PRODUCTION)
+
+    assert production.DEBUG is False
+    assert production.AUTHENTICATION_BACKENDS == [ALLAUTH_BACKEND]
+    assert not production.ACCOUNT_LOGIN_METHODS
 
 
 @pytest.mark.usefixtures("production_env")

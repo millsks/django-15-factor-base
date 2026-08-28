@@ -6,6 +6,7 @@ from config.local_dev.keys import JWKS_FILENAME
 from config.startup import run_stage_one
 
 from .base import *  # noqa: F403
+from .base import AUTHENTICATION_BACKENDS
 from .base import CLAIMS_CONTRACT
 from .base import INSTALLED_APPS
 from .base import MIDDLEWARE
@@ -110,6 +111,32 @@ CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
 # AUTHENTICATION
 # ------------------------------------------------------------------------------
+# The local username-and-password path, declared here and refused in a deployed
+# component by stage 1's condition 2 (states a and b). `base.py` carries neither:
+# it is the surface a deployed component inherits, and a base that carried them
+# made every deployment refuse to start.
+#
+# `ModelBackend` is what persona sign-in hands `django.contrib.auth.login` as
+# `config.local_dev.views.SESSION_BACKEND`. `login()` does not check that the
+# backend it is given is declared -- `get_user` does, on the *next* request, and
+# answers `AnonymousUser` when it is not, so an undeclared backend produces a
+# sign-in that returns 302 and a session gone by the redirect.
+#
+# The login method is allauth's own form, which a developer uses to reach `/admin/`
+# without an identity provider running. Both are locality-scoped affordances, and
+# they are declared where the locality is for the same reason the cache and task
+# substitutions are.
+#
+# Appended rather than respelled: a second full list would agree with `base.py` on
+# the day it was written and drift the first time either changed. Allauth's backend
+# stays first, so it answers before Django's own.
+AUTHENTICATION_BACKENDS = [
+    *AUTHENTICATION_BACKENDS,
+    "django.contrib.auth.backends.ModelBackend",
+]
+# https://docs.allauth.org/en/latest/account/configuration.html
+ACCOUNT_LOGIN_METHODS = {"username"}
+
 # Local development values, not defaults. `base.py` defaults none of the four
 # claim names -- `config/authorization/claims.py` reads each from the environment
 # and leaves it empty when unset, deliberately, so that a deployed component with

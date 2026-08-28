@@ -63,12 +63,21 @@ VIEW_MODULE = "config.local_dev.views"
 # mount is built rather than whenever the project URLconf is.
 INCLUDED_URLCONF = "config.local_dev.urls"
 
-# The credential surface FR-17's allowlist is evaluated over. Asserted as an
-# exact, ordered list: the order decides which backend answers first, and the
-# exactness is what fails when a local-development backend is added.
+# The credential surface FR-17's allowlist is evaluated over, as this settings
+# module composes it. Asserted as an exact, ordered list: the order decides which
+# backend answers first, and the exactness is what fails when a local-development
+# backend is added.
+#
+# `ModelBackend` is second and comes from `test.py`, not from `base.py`. Story 4.6
+# moved it there with allauth's local login method, because a base carrying either
+# is stage 1's condition 2 and made every deployed component refuse to start. What
+# this list asserts is therefore the *composed* surface of a local run; the
+# deployed surface is allauth's backend alone, and
+# `tests/unit/startup/test_authentication_allowlist.py` asserts that one against
+# `config.startup.allowlist`.
 EXPECTED_BACKENDS = [
-    "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",
+    "django.contrib.auth.backends.ModelBackend",
 ]
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
