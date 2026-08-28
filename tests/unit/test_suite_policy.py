@@ -19,13 +19,18 @@ both contain -- is then not itself an offence, and `assert connection.vendor ==
 expected` (an assertion, the opposite of an evasion) is distinguished from
 `if connection.vendor == ...` (a branch), which a grep cannot do.
 
-The ban is absolute with one recorded exception, and the exception is counted
-rather than described: `RECORDED_EXEMPTIONS` below licenses a fixed *number* of
-a fixed form in a fixed file -- one `pytest.skip(...)` in
-`integration/test_import_resolution.py`, for a dependency that has no build on
-one of the three declared platforms. A second `pytest.skip` in that same file
+The ban is absolute except where a decision was recorded, and a recorded
+exemption is counted rather than described: `RECORDED_EXEMPTIONS` below licenses
+a fixed *number* of a fixed form in a fixed file -- one `pytest.skip(...)` in
+`integration/test_import_resolution.py`, say, for a dependency that has no build
+on one of the three declared platforms. A second `pytest.skip` in that same file
 fails the gate exactly as it would anywhere else, which is the point: the
 exemption is a licence for one decision that was recorded, not for the file.
+
+The scan reads every `.py` under `tests/`, not only the modules pytest collects.
+An evasion written into an imported helper suppresses a test just as effectively
+as one written into the test, so a scan keyed on collection names would be a ban
+with a door in it -- and the door would open by renaming a file.
 
 This is a unit test: it reads repository files and parses them, and opens no
 network or database connection.
@@ -91,9 +96,32 @@ DB_MARKER = "pytest.mark.django_db"
 # wherever the resource exists. It is not a dodged gate failure -- the whole
 # module runs outside the gate, in the `spike-storage` environment, and cannot
 # dodge anything the gate asserts.
+# unit/test_release_stage.py -- Story 5.5, Task 1. The Dockerfile half of AD-22's
+# "no entrypoint, task or container command runs migrations". `Dockerfile` does
+# not exist in this repository yet: Story 5.6 lands it as `machinery` so the
+# harness can verify the FR-38/FR-39 payload properties, and materialized
+# components ship none at all (AD-15). The assertion is written now, against the
+# instruction lines the file will have, and skips with an explicit reason while
+# the file is absent -- which is a *sequencing* accommodation and not a dodged
+# gate failure: there is no state here to be permissive about, only a file that
+# has not been written. The spec requires the runtime `pytest.skip` over
+# `@pytest.mark.skip` for the same reason the two entries above do, and this one
+# additionally retires itself: the case runs the moment the file appears, and
+# Story 5.6's task list carries the obligation that it must pass on that day.
+# coverage_policy.py -- Story 3.6. The AD-20 assertions' shared guard, and the
+# entry the widened scan below brought into view rather than a new decision. It
+# skips when `--cov` was never passed at all, which is `pixi run
+# test-integration` in the inner loop and the one case AD-20's reading sanctions;
+# coverage *requested* and not running is the gate defect, and that branch calls
+# `pytest.fail`. The guard was written into a helper module partly because the
+# scan reached only `test_*.py` and `conftest.py`, which is the door this scan no
+# longer leaves open: the decision is recorded here instead, where a second skip
+# in that module fails the gate like anywhere else.
 RECORDED_EXEMPTIONS: dict[str, dict[str, int]] = {
+    "coverage_policy.py": {"pytest.skip(...)": 1},
     "integration/test_import_resolution.py": {"pytest.skip(...)": 1},
     "spikes/spike_django_storages_fitness.py": {"pytest.skip(...)": 1},
+    "unit/test_release_stage.py": {"pytest.skip(...)": 1},
 }
 
 
@@ -110,19 +138,24 @@ def _dotted_name(node: ast.expr) -> str:
 
 
 def _test_modules() -> list[Path]:
-    """Return every test module under `tests/`, whatever runs it.
+    """Return every Python module under `tests/`, whatever runs it.
 
-    Three globs, not two. `spike_*.py` is here because Story 1.8 introduced
-    `tests/spikes/`, whose modules are deliberately named so that `pytest tests/`
-    -- the gate -- does not collect them. That naming is what keeps the gate
-    green; it must not also be what puts a directory of tests beyond this scan's
-    reach, or the ban below would have acquired a door that opens by convention.
+    One glob, not three. The three it replaces -- `test_*.py`, `spike_*.py`,
+    `conftest.py` -- were the names of the things that get *collected*, and that
+    is the wrong question: what the ban is about is where an evasion can be
+    written, and a `pytest.skip` in a module the suite imports suppresses a test
+    exactly as one written in the test does. `tests/pixi_manifest.py`,
+    `tests/coverage_policy.py` and `tests/unit/startup/forbidden_states.py` are
+    all imported by cases in the gate and none of them matched any of the three
+    globs, so the ban had precisely the door this scan's own docstring says it
+    must not acquire: one that opens by naming a file something else.
+
+    Scanning every `.py` under `tests/` is the only rule with no such door,
+    because it has no convention in it to satisfy. A helper that legitimately
+    needs one is a decision to record in `RECORDED_EXEMPTIONS` above, in the
+    open, like any other.
     """
-    return (
-        sorted(TESTS_ROOT.rglob("test_*.py"))
-        + sorted(TESTS_ROOT.rglob("spike_*.py"))
-        + sorted(TESTS_ROOT.rglob("conftest.py"))
-    )
+    return sorted(TESTS_ROOT.rglob("*.py"))
 
 
 def _evasions(path: Path) -> list[str]:

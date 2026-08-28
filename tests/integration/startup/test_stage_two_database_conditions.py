@@ -24,6 +24,11 @@ stops, so the second alias is where every fault here is placed.
 **Nothing is left behind, and every clause of that is load-bearing.** The second
 alias is an in-memory sqlite database that ceases to exist when its connection
 closes, and the connection handler is restored to the mapping it held before.
+That setup is `tests.conftest.never_migrated_database_alias`, which lives there
+rather than here because Story 5.5's `tests/integration/test_release_stage.py`
+constructs the same state to assert AD-22's release-stage contract from the
+deployment side -- and the `connections`-handler refresh it performs has a silent
+failure mode a second copy would eventually get wrong.
 No case here creates a `Group`; three *delete* one, inside `django_db`'s
 transaction, which rolls the deletion back -- never `TransactionTestCase`
 semantics, which would commit it and leave the rest of the session short a row
@@ -53,40 +58,31 @@ integration test; the marker is not re-applied by hand.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import pytest
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.exceptions import ImproperlyConfigured
-from django.db import connections
-from django.test import override_settings
 
 from config.locality import PROCESS_ENV_VAR
 from config.locality import RUNTIME_ENV_VAR
 from config.observability.telemetry import OTEL_SDK_DISABLED_ENV_VAR
 from config.startup import run_stage_one
 from config.startup import run_stage_two
+from tests.conftest import NEVER_MIGRATED_ENGINE
 from tests.conftest import deployed_url_patterns
+from tests.conftest import never_migrated_database_alias
 from tests.conftest import temporary_root_urlconf
 from tests.conftest import valid_deployed_settings_namespace
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from pytest_django.plugin import DjangoDbBlocker
 
 # The alias every fault below is configured under. Never `default`: an
 # implementation that read only `DATABASES["default"]` would pass a test whose
 # fault sat there, which is the whole of what AC #6 is about.
 SECOND_ALIAS = "reporting"
-
-# The engine the second alias runs. sqlite in memory, because the fault being
-# constructed is "this schema was never migrated" and an empty database is the
-# purest form of it -- and because an in-memory database is gone the moment its
-# connection closes, so this file leaves no artifact anywhere.
-SQLITE_ENGINE = "django.db.backends.sqlite3"
 
 # One of the pending migrations the refusal message has to name. `contenttypes`
 # rather than a `users` migration because it is the first thing any Django
@@ -111,43 +107,6 @@ def _deployed_serving_process(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(RUNTIME_ENV_VAR, raising=False)
     monkeypatch.delenv(OTEL_SDK_DISABLED_ENV_VAR, raising=False)
     monkeypatch.setenv(PROCESS_ENV_VAR, SERVING_PROCESS)
-
-
-@contextmanager
-def _second_configured_database() -> Iterator[None]:
-    """Configure a second, never-migrated database alias for the duration of a block.
-
-    `override_settings(DATABASES=...)` alone is not enough, and the gap is worth
-    stating because it is silent: `django.db.connections` caches the mapping it
-    was configured with, and no `setting_changed` receiver refreshes it. So the
-    override makes `settings.DATABASES` name two aliases while
-    `connections["reporting"]` still raises `ConnectionDoesNotExist` -- a state
-    in which this file's subject could not be exercised at all. The handler is
-    reconfigured through its own public `configure_settings`, and restored to the
-    exact mapping it held before.
-
-    Yields:
-        None. The configuration is the effect.
-
-    """
-    databases = {
-        **settings.DATABASES,
-        SECOND_ALIAS: {"ENGINE": SQLITE_ENGINE, "NAME": ":memory:"},
-    }
-    with override_settings(DATABASES=databases):
-        restored = connections.__dict__.get("settings")
-        connections.settings = connections.configure_settings(dict(databases))
-        # Materialized here rather than on first use so that teardown always has
-        # a connection to close, whether or not the case under test opened one.
-        second = connections[SECOND_ALIAS]
-        try:
-            yield
-        finally:
-            second.close()
-            del connections[SECOND_ALIAS]
-            connections.__dict__.pop("settings", None)
-            if restored is not None:
-                connections.settings = restored
 
 
 def _refusal() -> str:
@@ -194,7 +153,7 @@ def test_unapplied_migrations_on_a_second_alias_refuse(django_db_blocker: Django
     written: the condition reads migration state and the second database is in
     memory.
     """
-    with django_db_blocker.unblock(), _second_configured_database():
+    with django_db_blocker.unblock(), never_migrated_database_alias(SECOND_ALIAS):
         message = _refusal()
 
     assert f"DATABASES[{SECOND_ALIAS!r}]" in message
@@ -214,7 +173,7 @@ def test_a_process_that_is_not_a_serving_process_is_exempt(monkeypatch: pytest.M
     """
     monkeypatch.delenv(PROCESS_ENV_VAR, raising=False)
 
-    with _second_configured_database():
+    with never_migrated_database_alias(SECOND_ALIAS):
         _accepted()
 
 
@@ -231,7 +190,7 @@ def test_both_stages_iterate_every_configured_database(django_db_blocker: Django
     namespace = valid_deployed_settings_namespace()
     namespace.DATABASES = {
         **namespace.DATABASES,
-        SECOND_ALIAS: {"ENGINE": SQLITE_ENGINE, "NAME": "/srv/reporting.sqlite3"},
+        SECOND_ALIAS: {"ENGINE": NEVER_MIGRATED_ENGINE, "NAME": "/srv/reporting.sqlite3"},
     }
 
     with pytest.raises(ImproperlyConfigured) as stage_one_refusal:
@@ -239,7 +198,7 @@ def test_both_stages_iterate_every_configured_database(django_db_blocker: Django
 
     assert f"DATABASES[{SECOND_ALIAS!r}]" in str(stage_one_refusal.value)
 
-    with django_db_blocker.unblock(), _second_configured_database():
+    with django_db_blocker.unblock(), never_migrated_database_alias(SECOND_ALIAS):
         stage_two_message = _refusal()
 
     assert f"DATABASES[{SECOND_ALIAS!r}]" in stage_two_message

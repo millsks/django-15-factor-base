@@ -405,13 +405,15 @@ def require_coverage_session(config: pytest.Config) -> Coverage:
       measured" into a green run in which every live AD-20 assertion silently
       vanished, which is the degradation this story exists to prevent.
 
-    The guard is stated here rather than in the test module because
-    `tests/unit/test_suite_policy.py` bans a literal `pytest.skip` from every
-    `test_*.py` and `conftest.py` in the suite -- Story 1.2's guard against a
-    PostgreSQL failure being dodged rather than fixed. This skip is not that
-    evasion: it guards a coverage session never having been requested, not the
-    presence of an inconvenient backend, and it is written in the open, in one
-    place, with its reason attached.
+    The guard is stated here rather than in each test module because every AD-20
+    assertion needs it and one copy is the point. That placement is no longer
+    also a way around `tests/unit/test_suite_policy.py`'s ban on a literal
+    `pytest.skip` -- Story 1.2's guard against a PostgreSQL failure being dodged
+    rather than fixed -- which now scans every `.py` under `tests/` rather than
+    only the modules pytest collects. This skip is not that evasion: it guards a
+    coverage session never having been requested, not the presence of an
+    inconvenient backend. It is recorded, once, in that module's
+    `RECORDED_EXEMPTIONS`, and a second skip here fails the gate.
 
     Args:
         config: The running pytest configuration, from the `request` fixture.

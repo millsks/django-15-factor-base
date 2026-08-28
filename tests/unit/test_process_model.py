@@ -48,13 +48,21 @@ whole mechanism until then.
 
 These read the manifests rather than executing the gate, so they are unit tests:
 no I/O beyond reading repository files, no network, no database.
+
+**Where the manifest reader went.** The walk over `pixi.toml`'s task tables, and
+with it the structural definition of the process group, moved to
+`tests/pixi_manifest.py` when Story 5.5 needed the same group to assert that no
+member of it migrates (AD-22). It is imported from there rather than copied,
+because two readers that can disagree about what the process group *is* would let
+a task escape one module's assertions while satisfying the other's -- the failure
+mode AD-26 names for the refusal contract, arriving through the tests. Nothing
+about the definition changed in the move; the region assertions below still read
+text, because a region is a span of lines that no parse preserves.
 """
 
 from __future__ import annotations
 
 import re
-import tomllib
-from pathlib import Path
 from typing import Any
 from typing import Final
 
@@ -65,14 +73,15 @@ from config.component import load_component_declaration
 from config.locality import PROCESS_ENV_VAR
 from config.locality import RUNTIME_ENV_VAR
 from config.locality import SERVING_PROCESSES
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-PIXI_MANIFEST = REPO_ROOT / "pixi.toml"
-
-# pixi's implicit feature. The unscoped `[tasks]` table belongs to it, and the
-# walk below treats it as one feature scope among the rest so that a task
-# declared under `[feature.<name>.tasks]` is read exactly like an unscoped one.
-DEFAULT_FEATURE: Final[str] = "default"
+from tests.pixi_manifest import PIXI_MANIFEST
+from tests.pixi_manifest import load_manifest
+from tests.pixi_manifest import manifest_lines
+from tests.pixi_manifest import process_group
+from tests.pixi_manifest import task_command
+from tests.pixi_manifest import task_env
+from tests.pixi_manifest import task_tables
+from tests.pixi_manifest import tasks
+from tests.pixi_manifest import tasks_named
 
 # The one process type that exists in all six combinations (AC #4). It is `core`:
 # it sits outside every region, which is what "unconditional" means in a file
@@ -129,7 +138,7 @@ FEATURE_MARKERS: Final[tuple[str, str]] = (f"# feature:{CELERY_FEATURE}", f"# /f
 # A task assignment as `pixi.toml` writes one: `name = { cmd = ... }`. Used only
 # to read task names back out of a *region*, which is a span of lines and not
 # something the parsed TOML preserves. Every assertion about a task's content
-# goes through `tomllib`.
+# goes through the parsed manifest instead.
 TASK_ASSIGNMENT = re.compile(r"^(?P<name>[A-Za-z0-9_-]+) = \{")
 
 
@@ -140,9 +149,7 @@ def manifest() -> dict[str, Any]:
     Returns:
         The manifest, parsed from TOML.
     """
-    with PIXI_MANIFEST.open("rb") as handle:
-        parsed: dict[str, Any] = tomllib.load(handle)
-    return parsed
+    return load_manifest()
 
 
 @pytest.fixture(scope="module")
@@ -157,165 +164,6 @@ def declaration() -> ComponentDeclaration:
         The parsed and validated declaration.
     """
     return load_component_declaration()
-
-
-def _feature_scopes(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Return every feature scope in the manifest, including the implicit default one.
-
-    Args:
-        manifest: The parsed pixi manifest.
-
-    Returns:
-        Feature name -> the table that scopes it. The unscoped root is returned
-        under `default`, which is the feature it belongs to.
-    """
-    scopes: dict[str, dict[str, Any]] = {DEFAULT_FEATURE: manifest}
-    for name, feature in manifest.get("feature", {}).items():
-        if isinstance(feature, dict):
-            scopes[str(name)] = feature
-    return scopes
-
-
-def _task_tables(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Return every task table in the manifest, keyed by where it lives.
-
-    `[tasks]`, each `[feature.<name>.tasks]`, and the platform-scoped variants of
-    both. Four unscoped-or-feature tables exist today and the platform-scoped
-    ones hold nothing; they are read anyway, because a `worker` declared under
-    `[target.linux-64.tasks]` is as real as any other and would otherwise escape
-    the reverse direction entirely.
-
-    The idiom is `tests/unit/test_locality_declaration.py`'s, mirrored rather
-    than reinvented: the two modules assert complementary halves of one contract
-    over the same tables, and a second shape would let a task be in scope for one
-    and out of scope for the other.
-
-    Args:
-        manifest: The parsed pixi manifest.
-
-    Returns:
-        Table location -> {task name: task definition}.
-    """
-    tables: dict[str, dict[str, Any]] = {}
-    for feature, scope in _feature_scopes(manifest).items():
-        prefix = "" if feature == DEFAULT_FEATURE else f"feature.{feature}."
-        tasks = scope.get("tasks")
-        if isinstance(tasks, dict):
-            tables[f"[{prefix}tasks]"] = tasks
-        for platform, target in scope.get("target", {}).items():
-            platform_tasks = target.get("tasks")
-            if isinstance(platform_tasks, dict):
-                tables[f"[{prefix}target.{platform}.tasks]"] = platform_tasks
-    return tables
-
-
-def _tasks(manifest: dict[str, Any]) -> list[tuple[str, str, Any]]:
-    """Return every task in the manifest as (table location, name, definition).
-
-    A list rather than a name-keyed mapping: keying by name lets a task declared
-    in two tables overwrite its twin, and a shadowed `worker` declaring a
-    different `COMPONENT_PROCESS` would then pass both directions of the gate
-    while the manifest contained a task neither direction had seen.
-
-    Args:
-        manifest: The parsed pixi manifest.
-
-    Returns:
-        One entry per declaration, in manifest order.
-    """
-    return [
-        (table, str(name), definition)
-        for table, tasks in _task_tables(manifest).items()
-        for name, definition in tasks.items()
-    ]
-
-
-def _task_env(definition: Any) -> dict[str, Any]:
-    """Return the `env` table a task definition declares, or an empty one.
-
-    A task written as a bare command string declares no `env` at all, which is
-    the right answer here: absent process type means *not a serving process*
-    (process type fails open), and absent locality means *deployed* (locality
-    fails closed). The pair of directions is deliberate -- failing process type
-    closed would make every management command a serving process and deadlock
-    the release stage on the migrations refusal.
-
-    Args:
-        definition: One task's definition, in either legal form.
-
-    Returns:
-        The declared environment, or `{}` when the task declares none.
-    """
-    if not isinstance(definition, dict):
-        return {}
-    env = definition.get("env")
-    return env if isinstance(env, dict) else {}
-
-
-def _task_command(definition: Any) -> str:
-    """Return the command a task runs, in either form the manifest permits.
-
-    Args:
-        definition: One task's definition.
-
-    Returns:
-        The command string, or an empty string for a task that declares only
-        `depends-on`.
-    """
-    if isinstance(definition, str):
-        return definition
-    if isinstance(definition, dict):
-        command = definition.get("cmd")
-        if isinstance(command, str):
-            return command
-    return ""
-
-
-def _process_group(manifest: dict[str, Any]) -> list[tuple[str, str, str]]:
-    """Return the process group as (table location, task name, declared process type).
-
-    The group is defined by what a task *declares*, not by what it is called
-    (AD-26). A task is in it when its own `env` carries `COMPONENT_PROCESS`, and
-    out of it otherwise, whatever its name suggests.
-
-    Args:
-        manifest: The parsed pixi manifest.
-
-    Returns:
-        One entry per task declaring a process type, in manifest order.
-    """
-    return [
-        (table, name, str(env[PROCESS_ENV_VAR]))
-        for table, name, definition in _tasks(manifest)
-        for env in [_task_env(definition)]
-        if PROCESS_ENV_VAR in env
-    ]
-
-
-def _tasks_named(manifest: dict[str, Any], name: str) -> list[tuple[str, str, Any]]:
-    """Return every declaration of one task name, across every table.
-
-    Args:
-        manifest: The parsed pixi manifest.
-        name: The task name to look for.
-
-    Returns:
-        The matching declarations, empty when the manifest declares no such task.
-    """
-    return [entry for entry in _tasks(manifest) if entry[1] == name]
-
-
-def _manifest_lines() -> list[str]:
-    """Return the manifest's lines, stripped, for the positional region assertions.
-
-    A region is a span of lines. `tomllib` does not preserve one, and neither
-    does it preserve comments, so the marker assertions read text -- and only the
-    marker assertions do.
-
-    Returns:
-        Every line of `pixi.toml`, with surrounding whitespace removed.
-    """
-    return [line.strip() for line in PIXI_MANIFEST.read_text(encoding="utf-8").splitlines()]
 
 
 def _lines_declare_task(lines: list[str], name: str) -> bool:
@@ -379,9 +227,9 @@ def test_the_scanners_see_the_manifest_they_claim_to(
     the file, and it is the assertion that fails first if a future manifest moves
     the tasks somewhere the walk does not look.
     """
-    assert "[tasks]" in _task_tables(manifest)
-    assert len(_task_tables(manifest)) > 1, "the feature-scoped task tables are not being read"
-    assert _process_group(manifest), "no task declares a process type, so both directions below are vacuous"
+    assert "[tasks]" in task_tables(manifest)
+    assert len(task_tables(manifest)) > 1, "the feature-scoped task tables are not being read"
+    assert process_group(manifest), "no task declares a process type, so both directions below are vacuous"
     assert declaration.processes, "component.toml declares no process, so both directions below are vacuous"
 
 
@@ -398,15 +246,15 @@ def test_every_declared_process_names_a_task_that_declares_it(
     """
     offenders: list[str] = []
     for process in declaration.processes:
-        declarations = _tasks_named(manifest, process.task)
+        declarations = tasks_named(manifest, process.task)
         if not declarations:
             offenders.append(f"{process.name!r} names task {process.task!r}, which pixi.toml does not declare")
             continue
         offenders.extend(
             f"{process.name!r} names task {process.task!r} in {table}, whose "
-            f"{PROCESS_ENV_VAR} is {_task_env(definition).get(PROCESS_ENV_VAR)!r}"
+            f"{PROCESS_ENV_VAR} is {task_env(definition).get(PROCESS_ENV_VAR)!r}"
             for table, _name, definition in declarations
-            if _task_env(definition).get(PROCESS_ENV_VAR) != process.name
+            if task_env(definition).get(PROCESS_ENV_VAR) != process.name
         )
 
     assert not offenders, (
@@ -430,7 +278,7 @@ def test_every_task_in_the_process_group_is_named_by_the_declaration(
     """
     declared = {process.name: process.task for process in declaration.processes}
     offenders: list[str] = []
-    for table, name, process_type in _process_group(manifest):
+    for table, name, process_type in process_group(manifest):
         if process_type not in declared:
             offenders.append(f"task {name!r} in {table} declares {process_type!r}, which component.toml does not")
         elif declared[process_type] != name:
@@ -459,8 +307,8 @@ def test_no_task_in_the_process_group_declares_a_runtime(manifest: dict[str, Any
     """
     offenders = sorted(
         f"{name} = {env[RUNTIME_ENV_VAR]!r} in {table}"
-        for table, name, definition in _tasks(manifest)
-        for env in [_task_env(definition)]
+        for table, name, definition in tasks(manifest)
+        for env in [task_env(definition)]
         if PROCESS_ENV_VAR in env and RUNTIME_ENV_VAR in env
     )
     assert not offenders, (
@@ -480,15 +328,15 @@ def test_the_web_process_is_unconditional_and_served_by_gunicorn(manifest: dict[
     a native `asgi` worker, and dropping `uvicorn-worker` for it is a spike
     rather than a decision, so a silent swap must fail here.
     """
-    declarations = [(table, name, definition) for table, name, definition in _tasks(manifest) if name == CORE_PROCESS]
+    declarations = [(table, name, definition) for table, name, definition in tasks(manifest) if name == CORE_PROCESS]
     assert declarations, f"pixi.toml declares no {CORE_PROCESS!r} task; it is core and exists in all six combinations"
 
     offenders = sorted(
-        f"{name} in {table}: env={_task_env(definition).get(PROCESS_ENV_VAR)!r}, cmd={_task_command(definition)!r}"
+        f"{name} in {table}: env={task_env(definition).get(PROCESS_ENV_VAR)!r}, cmd={task_command(definition)!r}"
         for table, name, definition in declarations
-        if _task_env(definition).get(PROCESS_ENV_VAR) != CORE_PROCESS
-        or WEB_SERVER not in _task_command(definition)
-        or WEB_WORKER_CLASS not in _task_command(definition)
+        if task_env(definition).get(PROCESS_ENV_VAR) != CORE_PROCESS
+        or WEB_SERVER not in task_command(definition)
+        or WEB_WORKER_CLASS not in task_command(definition)
     )
     assert not offenders, (
         f"these {CORE_PROCESS!r} declarations do not serve the component as AD-14 requires: {offenders}. "
@@ -536,10 +384,10 @@ def test_no_administrative_process_runs_a_task_that_declares_a_process_type(
     """
     offenders = sorted(
         f"admin process {admin.name!r} runs task {admin.task!r} in {table}, which declares "
-        f"{PROCESS_ENV_VAR} = {_task_env(definition).get(PROCESS_ENV_VAR)!r}"
+        f"{PROCESS_ENV_VAR} = {task_env(definition).get(PROCESS_ENV_VAR)!r}"
         for admin in declaration.admin_processes
-        for table, _name, definition in _tasks_named(manifest, admin.task)
-        if PROCESS_ENV_VAR in _task_env(definition)
+        for table, _name, definition in tasks_named(manifest, admin.task)
+        if PROCESS_ENV_VAR in task_env(definition)
     )
     assert not offenders, (
         f"these administrative processes declare themselves serving processes: {offenders}. "
@@ -569,7 +417,7 @@ def test_the_celery_process_tasks_sit_inside_a_marker_pair() -> None:
     application. Whether *absence here* agrees with absence in `component.toml`
     is the next case's question, not this one's.
     """
-    lines = _manifest_lines()
+    lines = manifest_lines()
     bounds = _celery_region_bounds(lines)
     if bounds is None:
         survivors = sorted(name for name in CELERY_PROCESSES if _lines_declare_task(lines, name))
@@ -620,16 +468,15 @@ def test_the_celery_feature_its_processes_and_its_task_region_are_present_or_abs
     combination reaching the gate half-stripped fails on the inconsistency rather
     than on whatever it breaks three steps later.
     """
-    lines = _manifest_lines()
+    lines = manifest_lines()
     opening, closing = FEATURE_MARKERS
     tasks_header = lines.index("[tasks]")
     region_present = opening in lines[tasks_header:] and closing in lines[tasks_header:]
 
     declared = load_component_declaration()
-    with PIXI_MANIFEST.open("rb") as handle:
-        parsed: dict[str, Any] = tomllib.load(handle)
+    parsed = load_manifest()
     declared_processes = {process.name for process in declared.processes}
-    group = {name for _table, name, _process_type in _process_group(parsed)}
+    group = {name for _table, name, _process_type in process_group(parsed)}
 
     signals = {
         f"component.toml selected_features declares {CELERY_FEATURE!r}": CELERY_FEATURE in declared.selected_features,
@@ -676,9 +523,9 @@ def test_the_worker_command_carries_no_shutdown_altering_flag(manifest: dict[str
     )
     offenders = sorted(
         f"{table}.{name} carries {flag!r}"
-        for table, name, definition in _tasks_named(manifest, WORKER_PROCESS)
+        for table, name, definition in tasks_named(manifest, WORKER_PROCESS)
         for flag in SHUTDOWN_ALTERING_WORKER_FLAGS
-        if flag in _task_command(definition)
+        if flag in task_command(definition)
     )
 
     assert not offenders, (
