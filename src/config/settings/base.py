@@ -364,7 +364,18 @@ EMAIL_TIMEOUT = 5
 # Django Admin URL.
 ADMIN_URL = "admin/"
 # https://docs.djangoproject.com/en/dev/ref/settings/#admins
-ADMINS = ['"Kevin Samuel Mills" <millsks@gmail.com>']
+#
+# A list of `(name, address)` pairs, and the shape is load-bearing rather than
+# stylistic: `django.core.mail.mail_admins` refuses anything else outright --
+# `raise ValueError("The ADMINS setting must be a list of 2-tuples.")` -- and it
+# is called from `AdminEmailHandler.emit`, which `production.py` wires onto the
+# `django.request` logger. The single-string form this carried until Story 5.3
+# therefore turned the *first* 5xx the component ever emitted into an unhandled
+# exception raised from inside `logging`, replacing the response with a
+# traceback. Nothing caught it before because nothing returned a 5xx
+# deliberately; readiness returns 503 by design (AD-22), so it does now, and
+# `tests/integration/test_health.py` exercises that path through the real stack.
+ADMINS = [("Kevin Samuel Mills", "millsks@gmail.com")]
 # https://docs.djangoproject.com/en/dev/ref/settings/#managers
 MANAGERS = ADMINS
 # https://cookiecutter-django.readthedocs.io/en/latest/settings.html#other-environment-settings

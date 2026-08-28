@@ -1,6 +1,13 @@
+---
+status: done
+baseline_revision: 63e7a77
+review_loop_iteration: 0
+warnings: []
+---
+
 # Story 5.3: Two asymmetric health endpoints
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -37,40 +44,40 @@ so that a brief database outage degrades a component instead of crash-looping th
 
 ## Tasks / Subtasks
 
-- [ ] Task 1 — Create the health concern module (AC: #1, #2, #3, #5)
-  - [ ] `src/config/health/__init__.py` — re-export `liveness`, `readiness`, and the drain-state accessors Story 5.4 will set.
-  - [ ] `src/config/health/state.py` — module-level process state with two flags and no external dependency: `_first_contact_made: bool` (starts `False`) and `_draining: bool` (starts `False`, written by Story 5.4). Expose `mark_first_contact()`, `first_contact_made()`, `begin_drain()`, `is_draining()`. Keep it a plain module, not a Django app, and not a cache entry — the cache is Django's in-process backend in the two of six combinations that have no Redis, and this state is per-process by design.
-  - [ ] `src/config/health/views.py` — two function-based views with full type hints and Google docstrings. Do **not** use DRF: `REST_FRAMEWORK["DEFAULT_PERMISSION_CLASSES"]` is `IsAuthenticated` (`src/config/settings/base.py:362`) and a probe carries no credential.
+- [x] Task 1 — Create the health concern module (AC: #1, #2, #3, #5)
+  - [x] `src/config/health/__init__.py` — re-export `liveness`, `readiness`, and the drain-state accessors Story 5.4 will set.
+  - [x] `src/config/health/state.py` — module-level process state with two flags and no external dependency: `_first_contact_made: bool` (starts `False`) and `_draining: bool` (starts `False`, written by Story 5.4). Expose `mark_first_contact()`, `first_contact_made()`, `begin_drain()`, `is_draining()`. Keep it a plain module, not a Django app, and not a cache entry — the cache is Django's in-process backend in the two of six combinations that have no Redis, and this state is per-process by design.
+  - [x] `src/config/health/views.py` — two function-based views with full type hints and Google docstrings. Do **not** use DRF: `REST_FRAMEWORK["DEFAULT_PERMISSION_CLASSES"]` is `IsAuthenticated` (`src/config/settings/base.py:362`) and a probe carries no credential.
 
-- [ ] Task 2 — Implement liveness (AC: #1)
-  - [ ] `liveness(request: HttpRequest) -> HttpResponse` returns `HttpResponse(status=200)` with a short plain-text body. It reads no setting that performs I/O, opens no database connection, touches no cache, resolves no `request.user`, and makes no network call.
-  - [ ] Decorate with `@never_cache` and `@require_GET` (add `HEAD` — probes commonly send `GET`; `require_GET` already permits `HEAD`).
-  - [ ] **Middleware hazard to verify, not assume:** `django_structlog.middlewares.RequestMiddleware` (`src/config/settings/base.py:175`) binds `user_id`, which resolves `request.user` and can load the session — a database query on the liveness path, which would break NFR-2. Verify with the `django_assert_num_queries(0)` assertion in Task 5 and, if it fails, exclude the health URLs from that binding by the mechanism django-structlog provides rather than by removing the middleware.
-  - [ ] Never let liveness raise: it either answers 200 or the process is not answering. Do not add a `try/except` that converts an error into a 500 — there is nothing to catch, and a bare `except:` is forbidden.
+- [x] Task 2 — Implement liveness (AC: #1)
+  - [x] `liveness(request: HttpRequest) -> HttpResponse` returns `HttpResponse(status=200)` with a short plain-text body. It reads no setting that performs I/O, opens no database connection, touches no cache, resolves no `request.user`, and makes no network call.
+  - [x] Decorate with `@never_cache` and `@require_GET` (add `HEAD` — probes commonly send `GET`; `require_GET` already permits `HEAD`).
+  - [x] **Middleware hazard to verify, not assume:** `django_structlog.middlewares.RequestMiddleware` (`src/config/settings/base.py:175`) binds `user_id`, which resolves `request.user` and can load the session — a database query on the liveness path, which would break NFR-2. Verify with the `django_assert_num_queries(0)` assertion in Task 5 and, if it fails, exclude the health URLs from that binding by the mechanism django-structlog provides rather than by removing the middleware.
+  - [x] Never let liveness raise: it either answers 200 or the process is not answering. Do not add a `try/except` that converts an error into a 500 — there is nothing to catch, and a bare `except:` is forbidden.
 
-- [ ] Task 3 — Implement readiness (AC: #2, #3, #4)
-  - [ ] `readiness(request: HttpRequest) -> JsonResponse`. Order of evaluation, exactly: (1) if `is_draining()` return 503 immediately (Story 5.4 depends on this ordering); (2) for each required database alias, open a cursor and execute `SELECT 1`; (3) on total success call `mark_first_contact()` and return 200.
-  - [ ] Required aliases come from `component.toml` via `src/config/component/loader.py` (Story 5.1): a database is required unless the declaration says `required = false` (AD-9). Iterate `django.db.connections` for aliases present in `settings.DATABASES`, and refuse to silently skip an alias that `settings.DATABASES` has and `component.toml` does not declare — treat it as required and log a warning naming the alias.
-  - [ ] Before the first success, `first_contact_made()` is `False` and readiness must return non-200 even if the check itself has not yet been attempted — the flag is what AC #3 asserts, not the query result.
-  - [ ] Catch `django.db.utils.OperationalError` and `django.db.utils.DatabaseError` specifically per alias — never a bare `except:`, never `except X: pass` — and emit a `structlog` event carrying the alias and the exception class before returning 503. Body: `{"status": "unready", "databases": {"<alias>": "ok" | "error"}}`; on success `{"status": "ready", ...}`.
-  - [ ] **Readiness never re-checks migrations** (AC #4). Do not import or call `MigrationExecutor`, `migrate --check`, `showmigrations`, or anything that reads `django_migrations`. Record the reason in the module docstring: during a rolling deploy an older replica may legitimately run against a newer schema.
-  - [ ] Status code for unready is `503`; do not use 500 (an error) or 200-with-a-body (unreadable by a probe).
+- [x] Task 3 — Implement readiness (AC: #2, #3, #4)
+  - [x] `readiness(request: HttpRequest) -> JsonResponse`. Order of evaluation, exactly: (1) if `is_draining()` return 503 immediately (Story 5.4 depends on this ordering); (2) for each required database alias, open a cursor and execute `SELECT 1`; (3) on total success call `mark_first_contact()` and return 200.
+  - [x] Required aliases come from `component.toml` via `src/config/component/loader.py` (Story 5.1): a database is required unless the declaration says `required = false` (AD-9). Iterate `django.db.connections` for aliases present in `settings.DATABASES`, and refuse to silently skip an alias that `settings.DATABASES` has and `component.toml` does not declare — treat it as required and log a warning naming the alias.
+  - [x] Before the first success, `first_contact_made()` is `False` and readiness must return non-200 even if the check itself has not yet been attempted — the flag is what AC #3 asserts, not the query result.
+  - [x] Catch `django.db.utils.OperationalError` and `django.db.utils.DatabaseError` specifically per alias — never a bare `except:`, never `except X: pass` — and emit a `structlog` event carrying the alias and the exception class before returning 503. Body: `{"status": "unready", "databases": {"<alias>": "ok" | "error"}}`; on success `{"status": "ready", ...}`.
+  - [x] **Readiness never re-checks migrations** (AC #4). Do not import or call `MigrationExecutor`, `migrate --check`, `showmigrations`, or anything that reads `django_migrations`. Record the reason in the module docstring: during a rolling deploy an older replica may legitimately run against a newer schema.
+  - [x] Status code for unready is `503`; do not use 500 (an error) or 200-with-a-body (unreadable by a probe).
 
-- [ ] Task 4 — Route the two endpoints (AC: #5)
-  - [ ] `src/config/health/urls.py` exposing `urlpatterns = [path("livez", liveness, name="liveness"), path("readyz", readiness, name="readiness")]`.
-  - [ ] In `src/config/urls.py`, add `path("", include("config.health.urls"))` as the **first** entry of `urlpatterns` so probe paths resolve first. Preserve every remaining entry, including the `DEBUG`-gated blocks at `:30-32` and `:48-75`. Do **not** anchor the insertion on the `home` route at `:14` or the `about` route at `:15-19`: revision 3 **deletes both** as demonstration content along with `templates/pages/` (AD-29), and Epic 7's Story 7.4 owns that deletion. Insert at the head of the list, which is correct whether or not 7.4 has landed.
-  - [ ] Do not place the health routes behind `ADMIN_URL`, `api/`, or `accounts/`. They must be resolvable with no authentication and must not appear in the DRF schema — they are not DRF views, so `drf-spectacular` will not pick them up; confirm with the existing `tests/integration/users/test_api_openapi.py` if the schema snapshot changes.
-  - [ ] **Host header note for the deployment repository, not an AC:** platform probes often send the pod IP as `Host`. `ALLOWED_HOSTS` is environment-driven (`src/config/settings/production.py:21`); record in `docs/deployment.md` that the probe must send a `Host` header the component allows, or the deployment repository must include the pod IP range. Do not weaken `ALLOWED_HOSTS` in the component to work around it.
+- [x] Task 4 — Route the two endpoints (AC: #5)
+  - [x] `src/config/health/urls.py` exposing `urlpatterns = [path("livez", liveness, name="liveness"), path("readyz", readiness, name="readiness")]`.
+  - [x] In `src/config/urls.py`, add `path("", include("config.health.urls"))` as the **first** entry of `urlpatterns` so probe paths resolve first. Preserve every remaining entry, including the `DEBUG`-gated blocks at `:30-32` and `:48-75`. Do **not** anchor the insertion on the `home` route at `:14` or the `about` route at `:15-19`: revision 3 **deletes both** as demonstration content along with `templates/pages/` (AD-29), and Epic 7's Story 7.4 owns that deletion. Insert at the head of the list, which is correct whether or not 7.4 has landed.
+  - [x] Do not place the health routes behind `ADMIN_URL`, `api/`, or `accounts/`. They must be resolvable with no authentication and must not appear in the DRF schema — they are not DRF views, so `drf-spectacular` will not pick them up; confirm with the existing `tests/integration/users/test_api_openapi.py` if the schema snapshot changes.
+  - [x] **Host header note for the deployment repository, not an AC:** platform probes often send the pod IP as `Host`. `ALLOWED_HOSTS` is environment-driven (`src/config/settings/production.py:21`); record in `docs/deployment.md` that the probe must send a `Host` header the component allows, or the deployment repository must include the pod IP range. Do not weaken `ALLOWED_HOSTS` in the component to work around it.
 
-- [ ] Task 5 — Tests (AC: #1, #2, #3, #4, #5)
-  - [ ] `tests/unit/test_health_views.py`: liveness returns 200 with `RequestFactory`; liveness performs **zero queries** — assert with pytest-django's `django_assert_num_queries(0)` (this is the mechanical form of AC #1 and of NFR-2); readiness returns 503 while `first_contact_made()` is `False`; readiness returns 503 while `is_draining()` is `True` even with a healthy database; the readiness view's module imports nothing from `django.db.migrations`.
-  - [ ] Reset the module state between tests with an autouse fixture — the flags are process-global and a leaked `True` makes a later test pass for the wrong reason.
-  - [ ] `tests/integration/test_health.py` (`@pytest.mark.integration`): readiness returns 200 against the real test database and the body reports every required alias `ok`; readiness returns 503 when a required connection raises `OperationalError` (patch the connection's `cursor`); after an unapplied migration is introduced readiness still returns 200 — the explicit AC #4 assertion that migrations are never re-checked.
-  - [ ] Assert both routes resolve by name (`reverse("liveness")`, `reverse("readiness")`) and are reachable unauthenticated with the anonymous test client.
+- [x] Task 5 — Tests (AC: #1, #2, #3, #4, #5)
+  - [x] `tests/unit/test_health_views.py`: liveness returns 200 with `RequestFactory`; liveness performs **zero queries** — assert with pytest-django's `django_assert_num_queries(0)` (this is the mechanical form of AC #1 and of NFR-2); readiness returns 503 while `first_contact_made()` is `False`; readiness returns 503 while `is_draining()` is `True` even with a healthy database; the readiness view's module imports nothing from `django.db.migrations`.
+  - [x] Reset the module state between tests with an autouse fixture — the flags are process-global and a leaked `True` makes a later test pass for the wrong reason.
+  - [x] `tests/integration/test_health.py` (`@pytest.mark.integration`): readiness returns 200 against the real test database and the body reports every required alias `ok`; readiness returns 503 when a required connection raises `OperationalError` (patch the connection's `cursor`); after an unapplied migration is introduced readiness still returns 200 — the explicit AC #4 assertion that migrations are never re-checked.
+  - [x] Assert both routes resolve by name (`reverse("liveness")`, `reverse("readiness")`) and are reachable unauthenticated with the anonymous test client.
 
-- [ ] Task 6 — Document the probe contract (AC: #1, #2, #4)
-  - [ ] `docs/deployment.md` `## Health endpoints`: what each path means, that liveness must be wired to the liveness probe and readiness to the readiness probe and never the reverse, that readiness is non-200 from process start until first successful database contact, and that readiness deliberately does not re-check migrations.
-  - [ ] Ensure `docs/deployment.md` is registered in `mkdocs.yml` `nav`; `pixi run docs` is `mkdocs build --strict`.
+- [x] Task 6 — Document the probe contract (AC: #1, #2, #4)
+  - [x] `docs/deployment.md` `## Health endpoints`: what each path means, that liveness must be wired to the liveness probe and readiness to the readiness probe and never the reverse, that readiness is non-200 from process start until first successful database contact, and that readiness deliberately does not re-check migrations.
+  - [x] Ensure `docs/deployment.md` is registered in `mkdocs.yml` `nav`; `pixi run docs` is `mkdocs build --strict`.
 
 ## Dev Notes
 
@@ -139,8 +146,51 @@ so that a brief database outage degrades a component instead of crash-looping th
 
 ### Agent Model Used
 
+`claude-opus-5[1m]`, via `bmad-dev-auto` under bmad-loop run `20260828-155959-cf8f`.
+
 ### Debug Log References
+
+- `pixi run ci` — exit 0. 1392 passed, total coverage 97.15% (floor 90).
+- `pixi run -e dev python -m pytest tests/unit/test_health_views.py` — 26 passed.
+- `tests/integration/test_health.py` — 8 integration cases.
+
+**The session was stopped mid-flight and the story was finished inline.** The
+orchestrator recorded `session-end … "status": "aborted", "error": "RunStopped"`
+after roughly 26 minutes of a 90-minute budget, so the run reported `0 done, 0
+tokens` while the working tree held the implementation, both test modules and the
+documentation. Nothing was committed and no task box had been ticked. Per this
+project's recovery note a killed dev session is not re-driven, so the work was
+verified against the six tasks one at a time rather than assumed complete, and the
+bookkeeping below was written by the orchestrating session. What was verified:
+
+| Task | Evidence |
+|---|---|
+| 1 | `src/config/health/{__init__,state,views,urls}.py` present; `state.py` is a plain module with the four accessors, not an app and not a cache entry. |
+| 2 | `@never_cache` and `@require_safe` on `liveness`; the zero-query assertion is present in `tests/unit/test_health_views.py` and passes, which is the mechanical form of NFR-2. |
+| 3 | `is_draining()` is evaluated first, then `SELECT 1` per required alias, then `mark_first_contact()`; `OperationalError` and `DatabaseError` are caught by name; the module imports nothing from `django.db.migrations` and the docstring records why. |
+| 4 | `config.health.urls` is the first entry of `config/urls.py`'s `urlpatterns`, mounted at the root behind no prefix. |
+| 5 | 26 unit and 8 integration cases, all green. |
+| 6 | `docs/deployment.md` `## Health endpoints` at `:179`; the page is registered in `mkdocs.yml` `nav`. |
 
 ### Completion Notes List
 
-### File List
+**`@require_safe` rather than the spec's `@require_GET`.** Task 2 asks for
+`require_GET` "add `HEAD`". `require_safe` *is* GET plus HEAD, so the decorator
+the spec describes and the decorator used are the same contract under one name
+instead of two; the view docstring records the substitution.
+
+**The middleware hazard Task 2 flagged did not materialize, and is asserted rather
+than assumed.** `django_structlog`'s `RequestMiddleware` binds `user_id`, which can
+resolve `request.user` and load the session — a database query on the liveness
+path. The `django_assert_num_queries(0)` case is what settles it, and it passes,
+so no exclusion was needed. The case stays as the guard against a future
+middleware change.
+
+**Readiness deliberately never re-checks migrations (AC #4).** The module docstring
+carries the reason: during a rolling deploy an older replica legitimately serves
+against a newer schema, and a readiness check reading `django_migrations` would
+report every still-serving old replica unready and drain the rollout.
+
+**The drain flag is written by Story 5.4.** `state.py` exposes `begin_drain()` and
+`is_draining()` now, and readiness already returns 503 on a draining process, so
+5.4 wires the signal rather than adding the branch.
