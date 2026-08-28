@@ -88,7 +88,13 @@ CORE_PROCESS: Final[str] = "web"
 # native `asgi` worker and dropping `uvicorn-worker` for it is a spike, not a
 # decision already taken.
 WEB_SERVER: Final[str] = "gunicorn"
-WEB_WORKER_CLASS: Final[str] = "-k uvicorn_worker.UvicornWorker"
+# The component's own worker class, not the stock one. Story 5.4: uvicorn's
+# `Server.capture_signals()` replaces the SIGTERM handler `config.asgi`
+# installed, so the drain flip never ran in `web`; `config.workers` subclasses
+# the server to flip readiness before shutting down. Asserting the component's
+# class rather than merely "some uvicorn worker" is what keeps a well-meaning
+# revert to the stock worker a gate failure instead of a silent regression.
+WEB_WORKER_CLASS: Final[str] = "-k config.workers.DrainingUvicornWorker"
 
 # The AD-24 region in `pixi.toml`, and the process-to-feature mapping that makes
 # a half-stripped region visible.
@@ -101,6 +107,23 @@ WEB_WORKER_CLASS: Final[str] = "-k uvicorn_worker.UvicornWorker"
 # others loaded clean; the cross-region check below is what closes that.
 CELERY_FEATURE: Final[str] = "celery"
 CELERY_PROCESSES: Final[tuple[str, ...]] = ("worker", "beat")
+
+# The Celery process whose shutdown semantics AC #2 of Story 5.4 depends on, and
+# the flags that would change them. Named here for the same reason the process
+# names are: this module is where the process model is authoritative.
+#
+# Spelled in both of Celery's accepted forms. `--pool=solo` and `--pool solo` are
+# the same option and only one of them is a substring of the other, so checking
+# one spelling would leave the other free to land.
+WORKER_PROCESS: Final[str] = "worker"
+SHUTDOWN_ALTERING_WORKER_FLAGS: Final[tuple[str, ...]] = (
+    "--pool=solo",
+    "--pool solo",
+    "-P solo",
+    "-P=solo",
+    "-Ofair",
+    "-O fair",
+)
 FEATURE_MARKERS: Final[tuple[str, str]] = (f"# feature:{CELERY_FEATURE}", f"# /feature:{CELERY_FEATURE}")
 
 # A task assignment as `pixi.toml` writes one: `name = { cmd = ... }`. Used only
@@ -623,4 +646,44 @@ def test_the_celery_feature_its_processes_and_its_task_region_are_present_or_abs
         f"The feature selection, the [[processes]] entries and the [tasks] region are one decision written in "
         f"three places (AD-24), and a strip that took some of them leaves a component whose declaration and "
         f"whose runnable tasks describe different components."
+    )
+
+
+def test_the_worker_command_carries_no_shutdown_altering_flag(manifest: dict[str, Any]) -> None:
+    """AD-22 relies on Celery's *default* warm shutdown, so nothing may change it.
+
+    One `SIGTERM` to a Celery worker stops it consuming new messages and lets it
+    finish the tasks it already holds. That is AC #2 in full, and Story 5.4's
+    obligation is to keep it true rather than to reimplement it -- the drain
+    handler flips readiness and hands the signal straight back to Celery's own.
+    A component-side flag is the one thing in this repository that can quietly
+    withdraw the behaviour underneath it:
+
+    * `--pool=solo` runs tasks in the main thread, where the signal interrupts
+      the task rather than being handled after it, so the in-flight task is lost
+      -- the precise failure AC #2 names.
+    * `-Ofair` changes prefetch behaviour, and with it how much acknowledged work
+      a worker is holding when the signal arrives.
+
+    Read from the manifest rather than asserted as prose beside the task, because
+    the comment inside the `celery` region says the same thing and a comment is
+    not a gate. Vacuous in the four combinations where the region has been
+    stripped, which is correct: a component with no `worker` task has no worker
+    shutdown semantics to alter.
+    """
+    assert WORKER_PROCESS in CELERY_PROCESSES, (
+        "the worker task was renamed and this case would have gone vacuous rather than failing"
+    )
+    offenders = sorted(
+        f"{table}.{name} carries {flag!r}"
+        for table, name, definition in _tasks_named(manifest, WORKER_PROCESS)
+        for flag in SHUTDOWN_ALTERING_WORKER_FLAGS
+        if flag in _task_command(definition)
+    )
+
+    assert not offenders, (
+        f"these worker tasks alter Celery's shutdown semantics: {offenders}. AD-22 gives the drain "
+        f"ordering to the component and the grace-period value to the deployment repository; neither "
+        f"is a flag on this command, and Story 5.4's handler delegates to Celery's default warm "
+        f"shutdown rather than replacing it."
     )

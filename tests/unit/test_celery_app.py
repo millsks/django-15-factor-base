@@ -3,9 +3,37 @@
 from __future__ import annotations
 
 import logging
+import weakref
+from typing import TYPE_CHECKING
+
+from celery.signals import worker_ready
 
 from config.celery_app import app
 from config.celery_app import config_loggers
+from config.celery_app import install_drain_handler
+
+if TYPE_CHECKING:
+    import pytest
+
+
+def _connected_receivers() -> list[object]:
+    """Return the live receivers connected to `worker_ready`.
+
+    Celery's dispatcher stores receivers weakly by default, so the entries are
+    `(lookup_key, weakref)` pairs and a dead reference resolves to `None`. It is
+    walked rather than asserted through `has_listeners()`, which would be
+    satisfied by any receiver at all.
+
+    Returns:
+        Every receiver still reachable from the signal, in connection order.
+
+    """
+    receivers: list[object] = []
+    for _key, receiver in worker_ready.receivers:
+        resolved = receiver() if isinstance(receiver, weakref.ReferenceType) else receiver
+        if resolved is not None:
+            receivers.append(resolved)
+    return receivers
 
 
 def test_celery_app_is_named_for_the_service():
@@ -19,3 +47,35 @@ def test_config_loggers_applies_the_django_logging_config():
     """
     config_loggers()
     assert logging.getLogger("django").handlers
+
+
+def test_the_drain_handler_is_connected_to_worker_ready():
+    """AD-22: a worker installs the same handler the web process does.
+
+    `worker_ready` and not `worker_process_init`: Celery installs its own
+    `SIGTERM` handler in the main worker process, which is the process the
+    platform signals, while the prefork children have their handlers reset and
+    never receive it directly.
+
+    Importing `config.celery_app` only *connects* the receiver -- nothing is
+    installed until Celery fires the signal -- so this case has no effect on the
+    test process's own handler.
+    """
+    assert install_drain_handler in _connected_receivers()
+
+
+def test_the_worker_ready_receiver_installs_the_sigterm_handler(monkeypatch: pytest.MonkeyPatch):
+    """The connection is only worth asserting if the receiver does the work.
+
+    The installer is patched where it is defined rather than where it is used:
+    the receiver imports it inside its own body -- `config/__init__.py` imports
+    `config.celery_app`, so a module-level import would drag the health concern
+    into every import of anything under `config` -- and a function-local import
+    resolves against the defining module at call time.
+    """
+    calls: list[int] = []
+    monkeypatch.setattr("config.health.drain.install_sigterm_handler", lambda: calls.append(1))
+
+    install_drain_handler()
+
+    assert calls == [1]
