@@ -309,6 +309,7 @@ class TestTheRosterAndThePositiveCase:
 class TestACredentialMintingRouteIsReachable:
     """Condition 6, state a: a route whose view callable is DRF's token endpoint."""
 
+    @pytest.mark.forbidden_state("credential-minting-route")
     def test_the_token_route_as_config_urls_once_mounted_it_refuses(self) -> None:
         """The exact route Story 2.8 deleted, reinstated: `api/auth-token/`."""
         message = _refusal(path("api/auth-token/", obtain_auth_token, name="obtain_auth_token"))
@@ -428,6 +429,7 @@ class TestACredentialMintingRouteIsReachable:
 class TestTheLocalSignInRouteIsReachable:
     """Condition 6, state b: a route whose view callable belongs to the local sign-in module."""
 
+    @pytest.mark.forbidden_state("local-sign-in-route")
     def test_the_package_url_configuration_mounted_at_its_own_prefix_refuses(self) -> None:
         """The mount `config/urls.py` builds when the run is local, on a deployed run."""
         message = _refusal(path(LOCAL_SIGNIN_PATH_PREFIX, include("config.local_dev.urls")))

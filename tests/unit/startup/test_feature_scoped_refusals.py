@@ -274,6 +274,16 @@ MARKER_BEARING_PATHS: Final = (
     STAGE_ONE_PATH,
     Path(__file__).resolve(),
     Path(__file__).resolve().with_name("test_stage_one_conditions.py"),
+    # Story 4.5's three. `forbidden_states.py` carries the `ForbiddenState`
+    # record for each conditional state, `test_refusal_coverage_audit.py` carries
+    # the expectations that read them, and `test_no_softening.py` carries each
+    # conditional state's CG-3 builder and the broad-handler allowance recording
+    # a guard that is itself inside a `feature:redis` region. All three shrink
+    # with their features rather than demanding a test, a count or an allowance
+    # for a condition a combination does not contain.
+    Path(__file__).resolve().with_name("forbidden_states.py"),
+    Path(__file__).resolve().with_name("test_refusal_coverage_audit.py"),
+    Path(__file__).resolve().with_name("test_no_softening.py"),
 )
 
 #: Each of those files read once, at import, so that a case that scans one is a
@@ -527,6 +537,7 @@ class TestAnInProcessCacheBackendWhereRedisIsSelected:
         assert any(region.encloses(definition) for region in regions), f"{name}'s definition is outside the region"
         assert any(region.encloses(call_site) for region in regions), f"{name}'s roster entry is outside the region"
 
+    @pytest.mark.forbidden_state("in-process-cache-backend")
     def test_the_in_process_cache_backend_refuses(self, namespace: ModuleType) -> None:
         """The state itself: `local.py:38-43`'s cache, reached in a deployment."""
         namespace.CACHES = _cached_by(LOCMEM_CACHE)
@@ -731,6 +742,7 @@ class TestEagerTaskExecutionWhereBackgroundTasksAreSelected:
         assert any(region.encloses(definition) for region in regions), f"{name}'s definition is outside the region"
         assert any(region.encloses(call_site) for region in regions), f"{name}'s roster entry is outside the region"
 
+    @pytest.mark.forbidden_state("eager-task-execution")
     def test_eager_task_execution_refuses(self, namespace: ModuleType) -> None:
         """`local.py:103`'s flag, reached in a deployment.
 

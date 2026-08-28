@@ -37,15 +37,22 @@ connection guard but rebinds nothing, so a case that took it alone would run
 against the repository's own `db.sqlite3`, passing or failing on whatever state
 a developer's local artifact happened to be in.
 
+**Where the served-path proof went.** Story 4.3 wrote the ASGI probe that drives
+every stage-2 condition from a process that has served a request, and it lived at
+the end of this file. FR-16 needs one case per condition rather than one case
+over four, so Story 4.5 moved it to
+`tests/integration/startup/test_stage_two_served_path.py` and split it there.
+Nothing was dropped: the probe source and every assertion it fed are the same,
+and the module beside it is now also where the management-command control and
+AD-13's exemption are asserted. This file keeps the in-process cases, which are
+the ones that need pytest-django's rolling-back transaction.
+
 `tests/integration/conftest.py` marks everything under `tests/integration/` as an
 integration test; the marker is not re-applied by hand.
 """
 
 from __future__ import annotations
 
-import json
-import subprocess
-import sys
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -56,7 +63,6 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connections
 from django.test import override_settings
 
-from config.locality import LOCAL
 from config.locality import PROCESS_ENV_VAR
 from config.locality import RUNTIME_ENV_VAR
 from config.observability.telemetry import OTEL_SDK_DISABLED_ENV_VAR
@@ -65,13 +71,9 @@ from config.startup import run_stage_two
 from tests.conftest import deployed_url_patterns
 from tests.conftest import temporary_root_urlconf
 from tests.conftest import valid_deployed_settings_namespace
-from tests.integration.startup.conftest import BOOT_PROBE_TIMEOUT_SECONDS
-from tests.integration.startup.conftest import REPO_ROOT
-from tests.integration.startup.conftest import subprocess_env
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
     from pytest_django.plugin import DjangoDbBlocker
 
@@ -175,6 +177,7 @@ def _accepted() -> None:
         run_stage_two()
 
 
+@pytest.mark.forbidden_state("unapplied-migrations")
 def test_unapplied_migrations_on_a_second_alias_refuse(django_db_blocker: DjangoDbBlocker) -> None:
     """AC #4: a serving process never starts against an unrecognized schema.
 
@@ -243,6 +246,7 @@ def test_both_stages_iterate_every_configured_database(django_db_blocker: Django
 
 
 @pytest.mark.django_db
+@pytest.mark.forbidden_state("designated-group-absent")
 def test_the_designated_staff_group_absent_refuses() -> None:
     """AC #5, first half: the misconfiguration surfaces as a configuration error.
 
@@ -260,6 +264,7 @@ def test_the_designated_staff_group_absent_refuses() -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.forbidden_state("designated-group-absent")
 def test_the_designated_superuser_group_absent_refuses() -> None:
     """AC #5, second half, asserted separately because it is a separate forbidden state.
 
@@ -307,278 +312,3 @@ def test_the_refusal_creates_no_group() -> None:
     _refusal()
 
     assert not Group.objects.filter(name=staff_group).exists()
-
-
-# Boot this component the way a server does, serve one request through the
-# callable that produced, and only then evaluate every stage-2 condition from
-# inside that same process. Story 4.5 owns the audit that each condition is
-# reachable on a served path rather than only under `manage.py`; this is the
-# evidence it will read.
-#
-# A string on purpose: nothing here executes in the test process, so the
-# deferred imports and the `print`-free file handoff need no ruff exemptions.
-_CONDITIONS_PROBE_SOURCE = '''
-"""Serve one request through the ASGI callable, then exercise every stage-2 condition."""
-
-import asyncio
-import json
-import os
-import sys
-from pathlib import Path
-from types import ModuleType
-
-# The import that boots: `config/asgi.py` sets DJANGO_SETTINGS_MODULE by
-# setdefault and calls `get_asgi_application()`, which runs `django.setup()` and
-# with it every AppConfig.ready().
-from config.asgi import application
-
-PROBE_PATH = "/__stage-two-conditions-probe__/"
-SERVE_TIMEOUT_SECONDS = 60.0
-
-SCOPE = {
-    "type": "http",
-    "asgi": {"version": "3.0", "spec_version": "2.3"},
-    "http_version": "1.1",
-    "method": "GET",
-    "scheme": "http",
-    "path": PROBE_PATH,
-    "raw_path": PROBE_PATH.encode("ascii"),
-    "query_string": b"",
-    "root_path": "",
-    "headers": [(b"host", b"localhost")],
-    "client": ("127.0.0.1", 54321),
-    "server": ("localhost", 80),
-}
-
-
-async def _serve_one_request():
-    """Drive one HTTP request through the ASGI callable and collect what it sent."""
-    sent = []
-    body_delivered = False
-    never = asyncio.Event()
-
-    async def receive():
-        nonlocal body_delivered
-        if not body_delivered:
-            body_delivered = True
-            return {"type": "http.request", "body": b"", "more_body": False}
-        await never.wait()
-        return {"type": "http.disconnect"}
-
-    async def send(message):
-        sent.append(message)
-
-    await asyncio.wait_for(application(SCOPE, receive, send), SERVE_TIMEOUT_SECONDS)
-    return sent
-
-
-messages = asyncio.run(_serve_one_request())
-
-# Everything from here runs in a process that has served a request. The locality
-# declaration is dropped and a serving process declared, which is the state every
-# stage-2 condition evaluates in.
-os.environ.pop("COMPONENT_RUNTIME", None)
-os.environ["COMPONENT_PROCESS"] = "web"
-
-from contextlib import contextmanager
-
-from django.conf import settings
-from django.contrib import admin
-from django.core.exceptions import ImproperlyConfigured
-from django.core.management import call_command
-from django.db import connections
-from django.test import override_settings
-from django.urls import path
-from rest_framework.authtoken.views import obtain_auth_token
-
-from config.authorization.claims import ClaimsContract
-from config.local_dev import views as local_dev_views
-from config.startup import run_stage_two
-from django_service.users.provisioning import provision_designated_groups
-
-SCRATCH = Path(sys.argv[2])
-
-UNCONFIGURED_CONTRACT = ClaimsContract("", "", "", "")
-CONFIGURED_CONTRACT = ClaimsContract(
-    identity_key_claim="sub",
-    group_claim="groups",
-    staff_group="probe-staff",
-    superuser_group="probe-superuser",
-)
-
-
-def install_urlconf(name, patterns):
-    """Register a throwaway root URL configuration and return its dotted name."""
-    module = ModuleType(name)
-    module.urlpatterns = patterns
-    sys.modules[name] = module
-    return name
-
-
-CLEAN = install_urlconf("probe_clean_urlconf", [path("admin/", admin.site.urls)])
-TOKEN = install_urlconf(
-    "probe_token_urlconf",
-    [path("api/auth-token/", obtain_auth_token, name="obtain_auth_token")],
-)
-LOCAL = install_urlconf(
-    "probe_local_sign_in_urlconf",
-    [path("accounts/local-sign-in/", local_dev_views.persona_signin, name="local_persona_login")],
-)
-
-
-@contextmanager
-def scratch_database():
-    """Point the default alias at a throwaway sqlite file under the scratch directory.
-
-    The probe boots on the local settings module, whose default database is a
-    file in the repository root. Overriding it before anything connects is what
-    keeps this test from creating one.
-    """
-    # The engine is named rather than inherited from the live configuration. A
-    # spread of `settings.DATABASES["default"]` carries whatever engine the boot
-    # selected, and pairing a postgres engine with this sqlite *filename* fails
-    # on PostgreSQL's 63-character NAME limit instead of on anything this probe
-    # is about.
-    databases = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": str(SCRATCH / "probe.sqlite3"),
-        },
-    }
-    with override_settings(DATABASES=databases):
-        restored = connections.__dict__.get("settings")
-        # Serving the request above materialized the default connection wrapper
-        # from the settings that were live then, and replacing the handler's
-        # mapping does not reconfigure a wrapper that already exists. Without
-        # dropping it first, every query below would go to the local settings
-        # module's own database file in the repository root -- which is the one
-        # thing this probe must not touch.
-        previous = connections["default"]
-        previous.close()
-        del connections["default"]
-        connections.settings = connections.configure_settings(dict(databases))
-        try:
-            yield
-        finally:
-            connections["default"].close()
-            del connections["default"]
-            connections.__dict__.pop("settings", None)
-            if restored is not None:
-                connections.settings = restored
-            connections["default"] = previous
-
-
-def outcome(**overrides):
-    """Run stage 2 under the given setting overrides and report what it did."""
-    try:
-        with override_settings(**overrides):
-            run_stage_two()
-    except ImproperlyConfigured as refusal:
-        return str(refusal)
-    return None
-
-
-report = {
-    "response_statuses": [m["status"] for m in messages if m["type"] == "http.response.start"],
-    "credential_minting_route": outcome(ROOT_URLCONF=TOKEN),
-    "local_sign_in_route": outcome(ROOT_URLCONF=LOCAL),
-}
-
-with scratch_database():
-    report["database_in_use"] = connections["default"].settings_dict["NAME"]
-
-    # Nothing has been migrated into the scratch database yet, so every
-    # migration is pending on it.
-    os.environ.pop("COMPONENT_PROCESS", None)
-    report["migrations_pending_off_a_serving_process"] = outcome(ROOT_URLCONF=CLEAN)
-    os.environ["COMPONENT_PROCESS"] = "web"
-    report["unapplied_migrations"] = outcome(ROOT_URLCONF=CLEAN)
-
-    # Migrated with an unconfigured contract, so the data migration provisions
-    # nothing and the designated groups are genuinely absent afterwards.
-    with override_settings(CLAIMS_CONTRACT=UNCONFIGURED_CONTRACT):
-        call_command("migrate", verbosity=0)
-
-    report["missing_designated_groups"] = outcome(
-        ROOT_URLCONF=CLEAN,
-        CLAIMS_CONTRACT=CONFIGURED_CONTRACT,
-    )
-
-    with override_settings(CLAIMS_CONTRACT=CONFIGURED_CONTRACT):
-        provision_designated_groups()
-        report["everything_satisfied"] = outcome(
-            ROOT_URLCONF=CLEAN,
-            CLAIMS_CONTRACT=CONFIGURED_CONTRACT,
-        )
-
-Path(sys.argv[1]).write_text(json.dumps(report), encoding="utf-8")
-'''
-
-
-def test_every_stage_two_condition_is_reachable_on_a_served_request_path(tmp_path: Path) -> None:
-    """Each condition fires in a process that boots and serves the way a server does.
-
-    Reuses Story 4.1's ASGI-driven probe rather than starting a server: the same
-    `config.asgi` import gunicorn and uvicorn perform, the same
-    `get_asgi_application()` that runs `django.setup()` and every
-    `AppConfig.ready()`, and one request driven through the callable that import
-    produced. `tests/integration/test_import_resolution.py` is what proves those
-    two runtimes resolve the module identically, so this drives the callable
-    directly rather than standing up a third and fourth server.
-
-    The conditions are then evaluated from inside that process, which is the
-    claim worth making: not that they refuse somewhere, but that they refuse in a
-    process that has served traffic. The probe writes a JSON report to a file
-    named on its command line rather than to stdout, because Django's logging
-    configuration also writes to stdout.
-
-    Everything the probe touches lives in `tmp_path`: the scratch database is
-    created there and the local settings module's own database file is never
-    connected to.
-    """
-    report_path = tmp_path / "stage-two-conditions.json"
-    scratch = tmp_path / "scratch"
-    scratch.mkdir()
-
-    # The autouse fixture above declared this process deployed and serving, and a
-    # child inherits `os.environ`. Boot has to happen *local*: `config/asgi.py`
-    # selects `config.settings.local`, and stage 1's FR-12 escape route refuses
-    # that module the moment the run is deployed -- so an inherited declaration
-    # would abort the child during `django.setup()` and every assertion below
-    # would be about a component that never started. The probe flips to deployed
-    # and serving itself, after it has served, which is the state these
-    # conditions evaluate in.
-    env = subprocess_env()
-    env[RUNTIME_ENV_VAR] = LOCAL
-    env.pop(PROCESS_ENV_VAR, None)
-
-    completed = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", _CONDITIONS_PROBE_SOURCE, str(report_path), str(scratch)],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=BOOT_PROBE_TIMEOUT_SECONDS,
-        check=False,
-    )
-
-    assert completed.returncode == 0, (
-        f"the stage-two conditions probe exited {completed.returncode}\n"
-        f"--- stdout ---\n{completed.stdout}\n--- stderr ---\n{completed.stderr}"
-    )
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-
-    assert report["response_statuses"], "the probe never served a request, so nothing below is about serving"
-    assert report["database_in_use"].startswith(str(scratch)), (
-        "the probe migrated something other than its own scratch database, so it did not leave the tree as found"
-    )
-    assert "rest_framework.authtoken" in (report["credential_minting_route"] or "")
-    assert "config.local_dev" in (report["local_sign_in_route"] or "")
-    assert "unapplied migrations" in (report["unapplied_migrations"] or "")
-    assert report["migrations_pending_off_a_serving_process"] is None, (
-        "the migrations condition fired on a process that declared no serving type (AD-13)"
-    )
-    assert "probe-staff" in (report["missing_designated_groups"] or "")
-    assert report["everything_satisfied"] is None, (
-        "a fully satisfied component was refused, so every refusal above proves nothing"
-    )

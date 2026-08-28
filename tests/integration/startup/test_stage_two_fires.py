@@ -55,9 +55,9 @@ from django.core.management import call_command
 
 from config.startup.stage_two import STAGE_TWO_OWNER_APP_LABEL
 from config.startup.stage_two import stage_two_has_run
+from tests.conftest import subprocess_env
 from tests.integration.startup.conftest import BOOT_PROBE_TIMEOUT_SECONDS
 from tests.integration.startup.conftest import REPO_ROOT
-from tests.integration.startup.conftest import subprocess_env
 
 if TYPE_CHECKING:
     from pathlib import Path

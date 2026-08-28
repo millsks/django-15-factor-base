@@ -1,10 +1,18 @@
-"""What the startup boot probes share: where the repository is, how long to wait, what to inherit.
+"""What the startup boot probes share: where the repository is, and how long to wait.
 
 Two modules in this package drive a fresh interpreter through `config.asgi` --
 `test_stage_two_fires.py` proves the stage-2 hook fires on a served path, and
-`test_stage_two_database_conditions.py` drives every stage-2 condition from a
-process that has served one. Both need the same three facts, and they lived in
-the first of those two modules until the second imported them from it.
+`test_stage_two_served_path.py` drives every stage-2 condition from a process
+that has served one. Both need the same two facts, and they lived in the first of
+those two modules until the second imported them from it.
+
+The third fact -- the environment a child probe inherits -- moved on to
+`tests/conftest.py` once `tests/unit/startup/test_refusal_coverage_audit.py`
+needed it too. A unit module importing an integration package's conftest is the
+same cross-import this file exists to remove, so the builder went to the home
+both halves already share rather than being copied. `subprocess_env` is imported
+from there by the modules that use it, not re-exported here: a re-export is a
+second name for one declaration, and there is nothing here to hang it on.
 
 That direction of import is what this file exists to remove. A collected test
 module is not a helper library: importing one from another makes a collection
@@ -21,7 +29,6 @@ integration test, so nothing here re-applies the marker.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Final
 
@@ -32,42 +39,3 @@ REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
 #: Generous rather than tight: a cold Django start pays for app loading and four
 #: OpenTelemetry instrumentors, and overshooting costs nothing when boot is quick.
 BOOT_PROBE_TIMEOUT_SECONDS: Final[float] = 180.0
-
-
-def subprocess_env() -> dict[str, str]:
-    """Return an environment in which only the editable install can resolve `src/`.
-
-    `PYTHONSAFEPATH` keeps the interpreter from prepending the working directory
-    to `sys.path` for `-c`, and `PYTHONPATH` is dropped outright, so the child
-    resolves `config` the way a deployed process does.
-
-    `DJANGO_SETTINGS_MODULE` is dropped because it is the variable under test:
-    pytest-django set it to `config.settings.test` in this process from the
-    `--ds` in `addopts`, and a child that inherited it would never exercise the
-    `os.environ.setdefault` in `config/asgi.py` that a server process relies on.
-
-    `COMPONENT_RUNTIME` is inherited, so the child boots local exactly as a
-    developer's `pixi run web` would -- which is why the sentinel is written
-    before the locality check rather than after it. A probe that needs a deployed
-    run drops the variable *after* boot rather than before it, so that the boot
-    itself is still the one a developer performs.
-
-    Returns:
-        A copy of the current environment with those adjustments.
-
-    """
-    env = dict(os.environ)
-    env.pop("PYTHONPATH", None)
-    env.pop("DJANGO_SETTINGS_MODULE", None)
-    # The database-selection variables are dropped for the same reason
-    # `DJANGO_SETTINGS_MODULE` is: the probe supplies its own throwaway database
-    # and must boot the same way whatever the developer's shell holds. Inherited,
-    # a `DATABASE_URL` pointing at PostgreSQL makes `base.py` select the postgres
-    # engine, and the probe's sqlite *filename* is then handed to it as a
-    # database NAME -- which fails on PostgreSQL's 63-character limit rather than
-    # on anything this test is about. The suite passed only on machines with no
-    # database configured.
-    for name in ("DATABASE_URL", "POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_HOST", "POSTGRES_PORT"):
-        env.pop(name, None)
-    env["PYTHONSAFEPATH"] = "1"
-    return env
