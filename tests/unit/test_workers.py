@@ -18,6 +18,21 @@ Two things are asserted here and they fail for different reasons:
   name with no overridable seam. The pin below fails on a `uvicorn-worker`
   upgrade that changes that shape, which is the one event that would silently
   restore the bug.
+
+**Every case here returns early off POSIX, and the imports are guarded with it.**
+`pixi.toml` declares `gunicorn` and `uvicorn-worker` only under
+`[target.linux-64.dependencies]` and `[target.osx-arm64.dependencies]` -- gunicorn
+is POSIX-only and has no conda-forge win-64 build -- while
+`.github/workflows/ci.yml` runs `pixi run test` on `windows-latest`. There the
+subject of this module is not installed, and importing it at collection time fails
+the whole run.
+
+Branched rather than skipped: `tests/unit/test_suite_policy.py` bans
+`skip`/`skipif`/`xfail` *and* `pytest.importorskip`, with one recorded exemption
+that is not this one. `tests/unit/test_local_dev_keys.py` uses the same
+branch-and-return shape for its POSIX-only mode assertions. Nothing is lost by it:
+the `web` process runs only where gunicorn does, so there is no Windows deployment
+for these cases to be silent about.
 """
 
 from __future__ import annotations
@@ -25,20 +40,29 @@ from __future__ import annotations
 import ast
 import contextlib
 import inspect
+import os
 import signal
 import textwrap
 from typing import TYPE_CHECKING
 
 import pytest
-import uvicorn_worker
-from uvicorn.config import Config
-from uvicorn.server import Server
 
-from config import workers
 from config.health.state import is_draining
 from config.health.state import reset_health_state_for_testing
-from config.workers import DrainingServer
-from config.workers import DrainingUvicornWorker
+
+#: True where `gunicorn` and `uvicorn-worker` are installed, which `pixi.toml`
+#: scopes to the two POSIX targets. Read at import, because it decides whether the
+#: imports below can happen at all.
+ON_POSIX = os.name == "posix"
+
+if ON_POSIX:
+    import uvicorn_worker
+    from uvicorn.config import Config
+    from uvicorn.server import Server
+
+    from config import workers
+    from config.workers import DrainingServer
+    from config.workers import DrainingUvicornWorker
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -55,6 +79,9 @@ class TestTheDrainingServer:
 
     def test_handle_exit_flips_readiness(self) -> None:
         """The acceptance criterion itself."""
+        if not ON_POSIX:
+            return
+
         server = DrainingServer(config=_config())
 
         assert not is_draining()
@@ -69,6 +96,9 @@ class TestTheDrainingServer:
         implementation. Asserting it is what proves `super().handle_exit` was
         reached rather than replaced.
         """
+        if not ON_POSIX:
+            return
+
         server = DrainingServer(config=_config())
 
         server.handle_exit(signal.SIGTERM, None)
@@ -84,6 +114,9 @@ class TestTheDrainingServer:
         flip is wrapped so it can record uvicorn's own latch at the instant it
         runs: `should_exit` must still be False there.
         """
+        if not ON_POSIX:
+            return
+
         server = DrainingServer(config=_config())
         latched_at_flip: list[bool] = []
         original = workers.begin_drain
@@ -100,6 +133,9 @@ class TestTheDrainingServer:
 
     def test_a_second_signal_still_reaches_uvicorns_escalation(self) -> None:
         """The flip never guards the delegation, so an escalating platform is not swallowed."""
+        if not ON_POSIX:
+            return
+
         server = DrainingServer(config=_config())
 
         server.handle_exit(signal.SIGTERM, None)
@@ -124,6 +160,9 @@ class TestTheHandlerUvicornActuallyInstalls:
 
     def test_capture_signals_installs_the_draining_handler(self) -> None:
         """What uvicorn registers for SIGTERM is *our* `handle_exit`, not the stock one."""
+        if not ON_POSIX:
+            return
+
         server = DrainingServer(config=_config())
 
         with server.capture_signals():
@@ -145,6 +184,9 @@ class TestTheHandlerUvicornActuallyInstalls:
         delivers a real `SIGTERM` to the test runner under the default
         disposition and kills it mid-session. Found by writing it without one.
         """
+        if not ON_POSIX:
+            return
+
         server = DrainingServer(config=_config())
 
         with _absorbing_sigterm(), server.capture_signals():
@@ -163,6 +205,9 @@ class TestTheHandlerUvicornActuallyInstalls:
         finished. A future uvicorn that stopped re-raising would change what
         `SIGTERM` does to the serving process, and this is where that shows up.
         """
+        if not ON_POSIX:
+            return
+
         server = DrainingServer(config=_config())
         delivered: list[int] = []
 
@@ -179,6 +224,9 @@ class TestTheHandlerUvicornActuallyInstalls:
         No absorbing handler is needed here: nothing calls the installed handler,
         so `_captured_signals` stays empty and there is nothing to re-raise.
         """
+        if not ON_POSIX:
+            return
+
         before = signal.getsignal(signal.SIGTERM)
         server = DrainingServer(config=_config())
 
@@ -193,6 +241,9 @@ class TestTheUpstreamCouplingIsPinned:
 
     def test_the_worker_subclasses_the_stock_one(self) -> None:
         """Everything except the server class is inherited, and that is deliberate."""
+        if not ON_POSIX:
+            return
+
         assert issubclass(DrainingUvicornWorker, uvicorn_worker.UvicornWorker)
 
     def test_upstream_still_builds_its_server_inside_serve(self) -> None:
@@ -203,6 +254,9 @@ class TestTheUpstreamCouplingIsPinned:
         a smaller and supported seam. A failure here is an invitation, not a
         defect.
         """
+        if not ON_POSIX:
+            return
+
         # SLF001 is the point of the case, not an oversight: `_serve` being private
         # with no public seam is exactly what forced the copy, so the pin has to
         # read the private member to notice when that stops being true.
@@ -220,6 +274,9 @@ class TestTheUpstreamCouplingIsPinned:
         exit path -- would be silently dropped from the `web` process. Compared
         on normalized source rather than by eye.
         """
+        if not ON_POSIX:
+            return
+
         upstream = _normalize(inspect.getsource(uvicorn_worker.UvicornWorker._serve))  # noqa: SLF001 - see above
         ours = _normalize(inspect.getsource(DrainingUvicornWorker._serve))  # noqa: SLF001 - see above
 
@@ -229,6 +286,9 @@ class TestTheUpstreamCouplingIsPinned:
 
     def test_the_server_uvicorn_would_have_used_is_the_one_we_subclass(self) -> None:
         """A pin on the identity of the base, so a vendored fork is noticed."""
+        if not ON_POSIX:
+            return
+
         assert issubclass(DrainingServer, Server)
 
 
