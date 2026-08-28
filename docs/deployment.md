@@ -175,3 +175,106 @@ The rule for the process group is that each member declares `COMPONENT_PROCESS`
 through the pixi task its `task` field names, which is what
 [Process model](#process-model) above describes and what
 `tests/unit/test_process_model.py` reconciles in both directions.
+
+## Health endpoints
+
+Two routes, at the root of the component, reachable with no credential:
+
+| Path | Wire it to | Answers |
+|---|---|---|
+| `/livez` | the **liveness** probe | `200` with a plain-text body while the process is running |
+| `/readyz` | the **readiness** probe | `200` with `{"status": "ready", …}` when the process should be routed to, `503` with `{"status": "unready", …}` when it should not |
+
+Both accept `GET` and `HEAD`, answer `405` to anything else, and carry no-cache
+headers so nothing between the probe and the process answers on its behalf.
+
+### They are not interchangeable, and swapping them causes an outage
+
+**Wire liveness to the liveness probe and readiness to the readiness probe, never
+the reverse.** The two mean deliberately different things, and the platform's
+reactions to them are deliberately different too.
+
+`/livez` checks **nothing external**. It opens no database connection, reads no
+cache, resolves no user and makes no network call. The process either answers it
+or it does not, and "it does not" is the only signal a liveness probe is entitled
+to act on — because the action it takes is to *kill the process*. This is why the
+endpoint is so aggressively empty: a liveness check that touched the database
+would turn a thirty-second database outage into every replica of every component
+being restarted at once, which is the failure the split exists to prevent.
+
+`/readyz` checks that **every required database answers**. Failing it removes the
+pod from the load balancer's pool and *leaves the process alive*, which is the
+correct response to a dependency being briefly unavailable: the component
+degrades and then recovers on its own, instead of crash-looping.
+
+Point the liveness probe at `/readyz` and you have built exactly the outage the
+two endpoints exist to avoid — the database blinks, every replica fails its
+liveness check, and the platform restarts the entire estate.
+
+### Readiness is non-200 from process start until first contact
+
+A process that has booted but has not yet successfully reached its databases
+answers `503`. That is a deliberate property, not a startup race: a replica is
+not ready because it started, it is ready because it has proved it can talk to
+what it needs. The flag is per-process and lives in process memory, so a restart
+does not inherit another replica's proof — and nothing about it is shared across
+replicas or written to disk.
+
+Give the readiness probe a `failureThreshold` and `initialDelaySeconds` that
+tolerate this, and expect the first probe after a start to fail.
+
+A process that has begun shutting down also answers `503`, before it looks at any
+database, so that it leaves the routing pool before it finishes its in-flight
+work.
+
+### Readiness deliberately does not re-check migrations
+
+`/readyz` opens a cursor on each required alias and issues `SELECT 1`. It does
+**not** compare the migration graph against `django_migrations`, run
+`migrate --check`, or ask any other question about the schema, and that is a
+decision rather than an omission.
+
+During a rolling deploy the release stage migrates *first* and new pods start
+*after*, so for the length of the rollout every still-serving replica of the old
+generation is running against a newer schema and sees migrations it has not
+applied. That state is legitimate — it is precisely what backwards-compatible
+migrations are for. A readiness check that compared migration state would report
+every one of those replicas unready, drain the whole old generation at once, and
+turn a routine migration into an outage.
+
+Migration state *is* checked, once, at process start, by the startup refusal
+contract. It is not re-asked on every probe.
+`tests/integration/test_health.py` asserts that readiness still answers `200`
+with an unapplied migration present, so this cannot regress quietly.
+
+### Which required means what
+
+An alias is required unless `component.toml` declares `required = false` for it
+— see [The two declarations](#the-two-declarations). An alias that
+`DATABASES` configures and `component.toml` does not declare at all is treated as
+required and logged by name; it is never silently skipped.
+
+The response body names every alias it asked:
+
+```json
+{"status": "ready", "databases": {"default": "ok"}}
+```
+
+### The `Host` header is the deployment repository's to get right
+
+Platform probes commonly send the **pod IP** as the `Host` header rather than a
+service name. `ALLOWED_HOSTS` is environment-driven —
+`DJANGO_ALLOWED_HOSTS`, read in `config/settings/production.py` — and Django
+rejects a request whose `Host` is not in it with `400`, before any view runs. A
+probe that gets a `400` reads it as a failure.
+
+So the deployment repository must do one of two things:
+
+- set an explicit `Host` header (or `httpHeaders`) on both probes to a value
+  `DJANGO_ALLOWED_HOSTS` contains; or
+- include the pod IP range in `DJANGO_ALLOWED_HOSTS`.
+
+**Do not weaken `ALLOWED_HOSTS` in the component to work around this.** A
+wildcard baked into the component travels into every component materialized from
+it and disables Django's host validation everywhere, in exchange for saving one
+line in one manifest.

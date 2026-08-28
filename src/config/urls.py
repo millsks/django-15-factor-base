@@ -21,6 +21,18 @@ if TYPE_CHECKING:
     from django.urls import URLResolver
 
 urlpatterns = [
+    # The platform's probes, first (AD-22, Story 5.3). First because the resolver
+    # walks this list in order and `livez`/`readyz` are the two paths that must
+    # answer while everything else about this process may be in doubt; also
+    # because the head of the list is the one insertion point that stays correct
+    # however the entries below it change -- Epic 7's Story 7.4 deletes the home
+    # and about routes as demonstration content (AD-29), so anchoring on them
+    # would break with that story rather than with anything about health.
+    #
+    # Mounted at the root and behind no prefix: a probe carries no credential.
+    # See config/health/urls.py for why the paths carry no trailing slash and are
+    # not part of the FR-17 authentication surface.
+    path("", include("config.health.urls")),
     path("", TemplateView.as_view(template_name="pages/home.html"), name="home"),
     path(
         "about/",
