@@ -500,7 +500,7 @@ serve = { cmd = "uvicorn config.asgi:application", default-environment = "defaul
 # grace-period value to the deployment repository, and gunicorn's own
 # GUNICORN_CMD_ARGS environment variable is the injection point for that, for
 # --bind and for worker counts -- so none of it needs a component-side flag.
-web = { cmd = "gunicorn config.asgi:application -k uvicorn_worker.UvicornWorker --bind 0.0.0.0:8000", default-environment = "default", env = { COMPONENT_PROCESS = "web" }, description = "Serving process: gunicorn + uvicorn worker (deployed)" }
+web = { cmd = "gunicorn config.asgi:application -k config.workers.DrainingUvicornWorker --bind 0.0.0.0:8000", default-environment = "default", env = { COMPONENT_PROCESS = "web" }, description = "Serving process: gunicorn + uvicorn worker (deployed)" }
 # The first `# feature:` region in this manifest (AD-24). `worker` and `beat`
 # exist only where background task processing is selected -- two of the six
 # combinations -- so they are removed by declared marker rather than surviving

@@ -278,3 +278,61 @@ So the deployment repository must do one of two things:
 wildcard baked into the component travels into every component materialized from
 it and disables Django's host validation everywhere, in exchange for saving one
 line in one manifest.
+
+## Shutdown
+
+On `SIGTERM` the component flips readiness first, and only then drains.
+
+1. The process marks itself draining. `/readyz` answers `503` from that moment
+   on, before it looks at any database.
+2. The load balancer sees the first `503` and removes the replica from its pool,
+   so no new request is routed here.
+3. The server stops accepting connections, finishes the requests already in
+   flight, and exits.
+
+A Celery worker does the same thing in its own terms: it stops consuming new
+messages and finishes the task it is holding.
+
+**The component owns the ordering; the grace period value is the deployment
+repository's setting.** The ordering is the half that cannot be configured from
+outside — it is what stops the process finishing in-flight work while traffic is
+still arriving — and it ships with the component. The two knobs that decide how
+long the drain is allowed to take are yours:
+
+| Knob | Where it lives | What it bounds |
+|---|---|---|
+| the platform's termination grace period | your deployment manifest (`terminationGracePeriodSeconds` on Kubernetes) | how long after `SIGTERM` the platform waits before `SIGKILL` |
+| `GUNICORN_CMD_ARGS` | the process environment you set for the `web` process | gunicorn's own `--graceful-timeout`, alongside `--bind` and worker counts |
+
+Set the platform's grace period *longer* than gunicorn's graceful timeout. The
+other way round, `SIGKILL` arrives while requests are still being finished and
+the drain buys nothing.
+
+### The platform must keep probing readiness during the drain
+
+The flip is only useful if something reads it. A readiness probe whose interval
+is longer than the grace period may never run between the `SIGTERM` and the
+process exiting, in which case the load balancer removes the replica because it
+stopped answering rather than because it said it was draining — which is the
+dropped-request window the flip exists to close. Keep `periodSeconds` well
+inside the grace period, and let the load balancer deregister on the first `503`
+rather than after a failure threshold, so the pool is updated once and early.
+
+### A second `SIGTERM` is a cold shutdown, and that is your choice
+
+Celery treats a second `SIGTERM` as a *cold* shutdown: it stops waiting for the
+running task and terminates. The component neither sends that second signal nor
+prevents it. Whether one is sent — and how long the platform waits before
+sending it — is a deployment-repository decision, made with the same grace period
+above, and it is the point at which unfinished work is deliberately abandoned.
+
+### What the component does not decide
+
+The grace period value, the probe interval, and the load balancer's
+deregistration behaviour are all outside this repository. Nothing in
+`component.toml` or `pixi.toml` states them: `component.toml` carries replica
+counts and replacement strategy, `pixi.toml` carries the commands, and neither
+carries a timeout. The `web` command encodes no `--graceful-timeout` and the
+`worker` command encodes no flag that alters Celery's warm shutdown — no
+`--pool=solo`, no `-Ofair` — because both would take the decision away from you.
+`tests/unit/test_process_model.py` holds that.
