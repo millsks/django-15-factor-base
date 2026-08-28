@@ -458,9 +458,75 @@ manage = { cmd = "python manage.py", default-environment = "default", descriptio
 migrate = { cmd = "python manage.py migrate", default-environment = "default", description = "Apply database migrations" }
 collectstatic = { cmd = "python manage.py collectstatic --noinput", default-environment = "default", description = "Collect static files into staticfiles/" }
 createsuperuser = { cmd = "python manage.py createsuperuser", default-environment = "default", description = "Create an admin user" }
-# uvicorn runs on all three platforms, unlike the gunicorn+uvicorn-worker
-# pairing used in production, which is POSIX-only.
-serve = { cmd = "uvicorn config.asgi:application", default-environment = "default", description = "Serve with uvicorn (production-like ASGI)" }
+# The cross-platform *local* ASGI server, and not a process type. uvicorn runs
+# on all three platforms, unlike the gunicorn+uvicorn-worker pairing the `web`
+# process uses, which is POSIX-only -- which is the only reason this task exists
+# beside `web` at all.
+#
+# It is emphatically not "production-like", and has not been since the locality
+# contract landed: bare `pixi run serve` resolves in `default`, reads *deployed*,
+# and config/asgi.py's DJANGO_SETTINGS_MODULE fallback then imports
+# config.settings.local -- which stage-1 condition 1 refuses outright
+# (src/config/startup/stage_one.py). The invocation is `pixi run -e dev serve`,
+# which resolves in `dev`, reads *local*, and is what the description now says.
+# A deployment runs `web`; this is a developer's. (Story 5.2 resolved this in
+# favour of correcting the description rather than changing the entrypoint
+# default: manage.py carries the same local fallback, so moving asgi.py's alone
+# would be half a fix for a property the refusal already guarantees.)
+serve = { cmd = "uvicorn config.asgi:application", default-environment = "default", description = "Serve with uvicorn (local ASGI; run it as `pixi run -e dev serve`)" }
+
+# ---- Serving processes (AD-14) ----
+# The process model. The deployment repository invokes `pixi run <process>` and
+# enumerates the set with `pixi task list`; there is no Procfile and none will be
+# added (AD-15: materialized components ship no Dockerfile either, so `pixi run`
+# against the golden base *is* the invocation path).
+#
+# Each one declares COMPONENT_PROCESS in its own `env` and declares **no**
+# COMPONENT_RUNTIME, thereby inheriting *deployed* from the `default`
+# environment's silence (AD-13). Adding a runtime here "for clarity" inverts the
+# fail-closed property, and tests/unit/test_locality_declaration.py fails the
+# gate on any task that does. The membership rule for the process group is
+# structural rather than nominal (AD-26): the group is exactly the set of tasks
+# whose `env` declares COMPONENT_PROCESS, and
+# tests/unit/test_process_model.py reconciles it against component.toml's
+# `[[processes]]` in both directions.
+#
+# gunicorn and uvicorn-worker are declared only under
+# [target.linux-64.dependencies] and [target.osx-arm64.dependencies] above --
+# gunicorn has no conda-forge win-64 build, which is also AD-18's reason the
+# six-combination harness is Linux-only. Windows development uses `serve`.
+#
+# No grace period and no port are encoded in the command. AD-22 gives the
+# grace-period value to the deployment repository, and gunicorn's own
+# GUNICORN_CMD_ARGS environment variable is the injection point for that, for
+# --bind and for worker counts -- so none of it needs a component-side flag.
+web = { cmd = "gunicorn config.asgi:application -k uvicorn_worker.UvicornWorker --bind 0.0.0.0:8000", default-environment = "default", env = { COMPONENT_PROCESS = "web" }, description = "Serving process: gunicorn + uvicorn worker (deployed)" }
+# The first `# feature:` region in this manifest (AD-24). `worker` and `beat`
+# exist only where background task processing is selected -- two of the six
+# combinations -- so they are removed by declared marker rather than surviving
+# into a component the deployment repository would then try to run.
+#
+# Everything the region needs explaining is written *inside* it, below the
+# opening marker rather than above it. A comment placed above would survive the
+# strip and leave a non-Celery component carrying prose about a `--scheduler`
+# flag on a task it does not have -- the orphan-residue category AD-24 names,
+# arriving through the one file that declares the regions. Markers stay flush
+# against the span they delimit, the convention Story 4.4 established when a
+# blank-separated marker did not survive `ruff format`.
+# feature:celery
+# The region is *placed* here and **declared** in `accelerator.toml` in Epic 7,
+# which is where AD-24's `[[regions]]` array lives. Epic 7 author: this pair,
+# path `pixi.toml`, feature `celery`, is one of the entries you need; an
+# undeclared region is one the materializer never strips.
+#
+# `config.celery_app` is src/config/celery_app.py. The explicit --scheduler is
+# belt-and-braces: CELERY_BEAT_SCHEDULER already names the database scheduler in
+# src/config/settings/base.py, and the two must agree. Neither command carries a
+# flag that alters shutdown semantics -- no --pool=solo, no -Ofair -- because
+# Story 5.4's drain ordering depends on Celery's default warm shutdown.
+worker = { cmd = "celery -A config.celery_app worker -l INFO", default-environment = "default", env = { COMPONENT_PROCESS = "worker" }, description = "Serving process: Celery worker (deployed)" }
+beat = { cmd = "celery -A config.celery_app beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler", default-environment = "default", env = { COMPONENT_PROCESS = "beat" }, description = "Serving process: Celery beat, exactly one replica (deployed)" }
+# /feature:celery
 # The local personas (FR-19). It belongs here rather than in [feature.dev.tasks]
 # because src/config/local_dev/ is `core` and ships in every component: the path
 # is guarded by a refusal rather than stripped, so it must be runnable from the

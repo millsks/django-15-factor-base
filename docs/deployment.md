@@ -52,6 +52,91 @@ declares which ones *this component has*, and it is the only declaration of that
 present when settings are imported in both the reference application and a
 materialized component.
 
+## Process model
+
+The component's process types are **pixi tasks**. The deployment repository
+invokes them directly:
+
+```sh
+pixi run web      # gunicorn + the uvicorn worker class
+pixi run worker   # the Celery worker  (only where `celery` is selected)
+pixi run beat     # the Celery scheduler (only where `celery` is selected)
+```
+
+and enumerates the set with `pixi task list`, which prints each one beside its
+description. **There is no Procfile, and none will be added** — a Procfile is a
+file the deployment repository may not read, and it would be a second place the
+process model is written. Materialized components ship no Dockerfile either, so
+`pixi run <process>` against the golden base *is* the invocation path.
+
+`web` exists in all six combinations. `worker` and `beat` exist only where
+background task processing is selected, so in `pixi.toml` they sit inside paired
+`# feature:celery` / `# /feature:celery` line comments and are removed with the
+feature — rather than surviving into a component with no broker that the
+deployment repository would then try to run.
+
+Replica counts and replacement strategy are **not** in `pixi.toml`; a task cannot
+express them. They are in `component.toml`, one `[[processes]]` entry per process
+type:
+
+| Process | Replicas | Replacement |
+|---|---|---|
+| `web` | the platform's to choose | `rolling` |
+| `worker` | the platform's to choose | `rolling` |
+| `beat` | exactly `1` | `stop-before-start` |
+
+`beat` is the one that constrains the platform. Its schedule lives in
+PostgreSQL, so it is replaceable but never duplicable: a second scheduler
+double-enqueues every periodic task, and a default rolling update produces
+exactly that second scheduler for the length of the overlap. The replica count
+and the replacement strategy are therefore one decision, not two.
+
+`tests/unit/test_process_model.py` reconciles the two files in **both**
+directions: every process type `component.toml` names has a matching task, and
+every task in the process group is named by `component.toml`. Membership in the
+process group is structural — a task is in it when its `env` declares
+`COMPONENT_PROCESS`, whatever the task is called.
+
+### The two variables, and which way each one fails
+
+A process task declares `COMPONENT_PROCESS` in its own `env` and declares **no**
+`COMPONENT_RUNTIME`, thereby inheriting *deployed*. The two variables fail in
+opposite directions, deliberately:
+
+- **Locality fails closed.** An absent or unrecognized `COMPONENT_RUNTIME` means
+  *deployed*, so a declaration lost between the manifest and production leaves
+  every refusal armed rather than disarmed.
+- **Process type fails open.** An absent `COMPONENT_PROCESS` means *not a serving
+  process*. Failing it closed would make every command that ran without it a
+  serving process — `pixi run migrate` included, which is a release-stage step —
+  and it would then refuse on the unapplied-migrations condition and deadlock the
+  release. The accepted price is that a serving process started outside the `web`
+  task does not fire that refusal.
+
+This is also why `COMPONENT_PROCESS` may not appear in any pixi activation env,
+feature-scoped ones included: the golden base runs pixi, so activation env
+reaches production, and one placed there would produce that deadlock on every
+release.
+
+The grace period is not the component's to state. `web`'s command encodes no
+timeout and no port — `GUNICORN_CMD_ARGS` is gunicorn's own injection point for
+`--bind`, worker counts and the graceful-shutdown timeout, so the deployment
+repository sets them without a component-side flag.
+
+### The deployment platform must set `DJANGO_SETTINGS_MODULE`
+
+It is not optional, and the failure when it is missing is loud rather than
+subtle. `config/asgi.py` falls back to `config.settings.local`, and stage-1
+condition 1 (`_refuse_the_local_settings_module`) refuses a *deployed* process
+that loaded the local settings module. So a platform that forgets the variable
+gets a refusal at settings import, not a component quietly serving with
+`DEBUG=True`. That is why the entrypoint's fallback is left as it is: it already
+fails closed.
+
+`pixi run serve` is **not** a process type. It is the cross-platform local ASGI
+server — uvicorn directly, because gunicorn has no conda-forge win-64 build —
+and it is invoked as `pixi run -e dev serve`. A deployment runs `web`.
+
 ## Reading the declaration
 
 `config.component.load_component_declaration()` parses the file into frozen
@@ -82,10 +167,11 @@ Because `component.toml` is a `core` file that carries lines belonging to a
 single feature — the `worker` and `beat` processes exist only where `celery` is
 selected — those lines sit inside paired `# feature:celery` / `# /feature:celery`
 line comments. That is the only mechanism permitted for removing part of a `core`
-file, and it is what will keep the process declarations in step with the pixi
-tasks in every combination once Story 5.2 adds those tasks and the two-way gate
-test that reconciles the two.
+file, and it is what keeps the process declarations in step with the pixi tasks
+in every combination — `pixi.toml` carries the matching `# feature:celery` region
+around its own `worker` and `beat` tasks.
 
 The rule for the process group is that each member declares `COMPONENT_PROCESS`
-through the pixi task its `task` field names. Story 5.2 owns that half; the
-entries in `component.toml` today name tasks `pixi.toml` does not yet define.
+through the pixi task its `task` field names, which is what
+[Process model](#process-model) above describes and what
+`tests/unit/test_process_model.py` reconciles in both directions.
