@@ -108,6 +108,18 @@ DB_MARKER = "pytest.mark.django_db"
 # `@pytest.mark.skip` for the same reason the two entries above do, and this one
 # additionally retires itself: the case runs the moment the file appears, and
 # Story 5.6's task list carries the obligation that it must pass on that day.
+# integration/test_image_payload.py -- Story 5.6, Task 5. The FR-38/FR-39 payload
+# properties, verified by building the machinery image and running it under
+# `--user 12345:0 --read-only --tmpfs /tmp`. It skips where `docker` is not on
+# `PATH`, and the form is the difference: this is a `@pytest.mark.skipif` on a
+# *capability* rather than a `pytest.skip` inside a case, because the whole module
+# needs the tool and there is no per-case decision to take. It is not a dodged
+# gate failure for the same reason the gunicorn entry above is not: the gate runs
+# on Linux with Docker available (`.github/workflows/ci.yml`), so every assertion
+# here executes there, and what the guard accommodates is a developer machine
+# without the tool installed rather than a backend that behaves permissively.
+# One occurrence, at module scope: a second `skipif` in this file would be a
+# second decision and fails the gate exactly as it would anywhere else.
 # coverage_policy.py -- Story 3.6. The AD-20 assertions' shared guard, and the
 # entry the widened scan below brought into view rather than a new decision. It
 # skips when `--cov` was never passed at all, which is `pixi run
@@ -119,6 +131,7 @@ DB_MARKER = "pytest.mark.django_db"
 # in that module fails the gate like anywhere else.
 RECORDED_EXEMPTIONS: dict[str, dict[str, int]] = {
     "coverage_policy.py": {"pytest.skip(...)": 1},
+    "integration/test_image_payload.py": {"@pytest.mark.skipif": 1},
     "integration/test_import_resolution.py": {"pytest.skip(...)": 1},
     "spikes/spike_django_storages_fitness.py": {"pytest.skip(...)": 1},
     "unit/test_release_stage.py": {"pytest.skip(...)": 1},

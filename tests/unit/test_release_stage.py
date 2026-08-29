@@ -26,11 +26,12 @@ fails equally if anything it depends on -- at any depth -- migrates.
   Celery application `worker` and `beat` name. A `call_command("migrate")` in
   any of them runs inside every replica at every boot.
 * The `Dockerfile`, whose executing instructions are the container half of the
-  same question. It does not exist yet -- Story 5.6 lands it -- so
-  that one case skips with an explicit reason. The skip is a sequencing
-  accommodation and not a permanent exemption: Story 5.6's task list records
-  that its Dockerfile must satisfy this assertion on the day it lands, and the
-  skip retires itself the moment the file appears.
+  same question. Story 5.6 landed it as `machinery` (AD-15), and the assertion
+  written here for a file that did not exist yet armed itself on that day with
+  no edit. Its `pytest.skip` branch stays where it is: what it accommodates is
+  *absence*, and absence is the normal state of this file in a materialized
+  component, so removing the branch would make this module unusable in the one
+  place AD-15 says the Dockerfile will not be.
 
 **The other direction: what must *not* be a serving process.** `migrate` and
 `collectstatic` are a release-stage and a build-stage step. Neither may declare
@@ -71,6 +72,9 @@ from django.core.management import get_commands
 
 from config.component import load_component_declaration
 from config.locality import PROCESS_ENV_VAR
+from tests.dockerfile import DOCKERFILE
+from tests.dockerfile import EXECUTING_INSTRUCTIONS
+from tests.dockerfile import instruction_lines
 from tests.pixi_manifest import REPO_ROOT
 from tests.pixi_manifest import load_manifest
 from tests.pixi_manifest import process_group
@@ -137,29 +141,19 @@ ENTRYPOINT_MODULES: Final[dict[str, str | None]] = {
 MANAGEMENT_PACKAGE: Final[str] = "django.core.management"
 COMMAND_RUNNER: Final[str] = "call_command"
 
-# The container instructions that execute something. `FROM`, `COPY`, `ENV` and
-# the rest describe the image; these four describe what runs -- at build time, at
-# start-up and, for `HEALTHCHECK`, on an interval for the life of the container.
-# `ONBUILD` is not here because it is not an instruction of its own: it prefixes
-# one, and `_instruction_lines` strips the prefix so the wrapped `RUN` or `CMD`
-# is classified as what it is.
-EXECUTING_INSTRUCTIONS: Final[frozenset[str]] = frozenset({"RUN", "ENTRYPOINT", "CMD", "HEALTHCHECK"})
-
-# The `ONBUILD` prefix, the line continuation, and the comment marker Docker
-# strips wherever it appears -- including inside a continuation, which is why the
-# parser cannot gate the skip on being between instructions.
-ONBUILD_INSTRUCTION: Final[str] = "ONBUILD"
-CONTINUATION: Final[str] = "\\"
-COMMENT_PREFIX: Final[str] = "#"
-
-# A BuildKit heredoc opener: `RUN <<EOF`, `RUN <<-EOF`, `RUN <<"EOF"`, and the
-# `cat > file <<EOF` form. The body that follows is arguments to the instruction
-# that opened it, not instructions of its own, and a line-per-instruction reader
-# would classify `pixi run migrate` inside one under a head of `PIXI` and never
-# scan it. The delimiter word closes the body on a line of its own.
-HEREDOC_OPENER: Final[re.Pattern[str]] = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
-
-DOCKERFILE: Final[Path] = REPO_ROOT / "Dockerfile"
+# Where the Dockerfile reader went, and why it is not here any more.
+#
+# `DOCKERFILE`, `EXECUTING_INSTRUCTIONS` and the parser this module wrote moved
+# to `tests/dockerfile.py` when Story 5.6 landed the file and needed the same
+# instruction reading for a second set of assertions -- the FR-38/FR-39 payload
+# properties in `tests/unit/test_payload_properties.py`. It is imported from
+# there rather than copied, for the reason `tests/pixi_manifest.py` records about
+# the pixi manifest: two parsers that can disagree about what an instruction *is*
+# would let a line escape one module's assertion while satisfying the other's.
+# Nothing about the parse changed in the move, and its execution -- the synthetic
+# cases below -- deliberately stayed here, because the second half of each case
+# asserts the *migration* count, which is this module's question rather than the
+# parser's.
 
 # The page that carries the release-stage contract in prose, and the two headings
 # this story wrote into it. Pinned by literal, as
@@ -277,17 +271,21 @@ SYNTHETIC_PROCESS_MANIFESTS: Final[tuple[tuple[str, dict[str, Any], str], ...]] 
 )
 
 
-# The Dockerfile parser's own cases, and the reason they are here rather than in
-# Story 5.6.
+# The Dockerfile parser's own cases, and the reason they stay here.
 #
-# `Dockerfile` does not exist in this repository yet, so the case that scans it
-# skips and `_instruction_lines` has no execution at all -- a parser carrying
-# four ways to miss an instruction, none of which anything would notice until the
-# day the file lands and the assertion it feeds reports nothing. Each entry is
-# one form an instruction can take, its expected parse, and how many of its
-# instructions the migration scan must flag. The comment-inside-a-continuation
-# case is the one that must flag *nothing*: prose about the prohibition is not a
-# breach of it.
+# They were written when `Dockerfile` did not exist, because the case that scans
+# it skipped and `instruction_lines` therefore had no execution at all -- a
+# parser carrying four ways to miss an instruction, none of which anything would
+# notice until the day the file landed and the assertion it feeds reported
+# nothing. Story 5.6 has landed the file, and they are no less necessary for it:
+# the real Dockerfile contains none of these forms, so it drives one path through
+# the parser and would look identical against a reader that had stopped joining
+# continuations or absorbing heredoc bodies.
+#
+# Each entry is one form an instruction can take, its expected parse, and how
+# many of its instructions the migration scan must flag. The
+# comment-inside-a-continuation case is the one that must flag *nothing*: prose
+# about the prohibition is not a breach of it.
 SYNTHETIC_DOCKERFILES: Final[tuple[tuple[str, str, tuple[tuple[int, str, str], ...], int], ...]] = (
     (
         "a continuation joined into the instruction that carries it",
@@ -433,101 +431,11 @@ def _migrating_processes(manifest: dict[str, Any]) -> list[str]:
     )
 
 
-def _collected_instruction(start: int, parts: list[str]) -> tuple[int, str, str]:
-    """Return one instruction's collected lines as (line number, instruction, arguments).
-
-    `ONBUILD` is stripped here rather than treated as an instruction of its own.
-    It is a prefix: `ONBUILD RUN pixi run migrate` is a `RUN` that executes in
-    the *next* image built from this one, and classifying it under a head of
-    `ONBUILD` would put it outside `EXECUTING_INSTRUCTIONS` and outside every
-    scan built on this parser.
-
-    Args:
-        start: The line number the instruction began on.
-        parts: Its collected lines, continuations and heredoc body included.
-
-    Returns:
-        The instruction, upper-cased, with its arguments.
-    """
-    joined = " ".join(part for part in parts if part)
-    head, _, arguments = joined.partition(" ")
-    head = head.upper()
-    while head == ONBUILD_INSTRUCTION and arguments:
-        head, _, arguments = arguments.partition(" ")
-        head = head.upper()
-    return start, head, arguments
-
-
-def _instruction_lines(dockerfile: str) -> list[tuple[int, str, str]]:
-    """Return the Dockerfile's instructions as (line number, instruction, arguments).
-
-    Four things happen here that a scan of raw lines does not do, and each of
-    them is a way a migrate invocation would otherwise escape the assertion built
-    on this parser -- or be reported when it is not one.
-
-    *Continuations are joined.* `RUN pixi run collectstatic \\` followed by `&&
-    pixi run migrate` is one instruction, and a per-line reader would see a
-    second line whose first word is `&&` and classify it as no instruction at
-    all. An instruction whose last line is *itself* continued -- a trailing `\\`
-    at end of file -- is still emitted, because dropping it would silently
-    unscan whatever it ran.
-
-    *Comments are dropped wherever they appear*, including between the lines of
-    a continuation, which is where Docker drops them too. Gating that on being
-    between instructions is what turns a Dockerfile comment reading `# migrate is
-    a release-stage step` into a reported migration: prose about a prohibition is
-    not a breach of it, which is the same reason the entrypoint scan parses
-    Python rather than grepping it.
-
-    *Heredoc bodies are absorbed into the instruction that opened them.* `RUN
-    <<EOF` followed by `pixi run migrate` is one `RUN`; read line by line, the
-    body's first word is `pixi` and it is classified as an instruction nothing
-    scans.
-
-    Args:
-        dockerfile: The file's text.
-
-    Returns:
-        One entry per instruction, the instruction upper-cased, in file order.
-    """
-    instructions: list[tuple[int, str, str]] = []
-    pending: list[str] = []
-    heredocs: list[str] = []
-    continued = False
-    start = 0
-    for number, line in enumerate(dockerfile.splitlines(), start=1):
-        stripped = line.strip()
-        if heredocs:
-            if stripped == heredocs[0]:
-                heredocs.pop(0)
-                if not heredocs and not continued:
-                    instructions.append(_collected_instruction(start, pending))
-                    pending = []
-            elif not stripped.startswith(COMMENT_PREFIX):
-                pending.append(stripped)
-            continue
-        if stripped.startswith(COMMENT_PREFIX) or (not pending and not stripped):
-            continue
-        if not pending:
-            start = number
-        continued = stripped.endswith(CONTINUATION)
-        body = stripped.removesuffix(CONTINUATION).strip()
-        pending.append(body)
-        heredocs.extend(match.group(2) for match in HEREDOC_OPENER.finditer(body))
-        if continued or heredocs:
-            continue
-        instructions.append(_collected_instruction(start, pending))
-        pending = []
-    if pending:
-        instructions.append(_collected_instruction(start, pending))
-    return instructions
-
-
 def _migrating_instructions(instructions: list[tuple[int, str, str]]) -> list[str]:
     """Return every parsed instruction that executes something and migrates.
 
     Args:
-        instructions: The parsed instructions, as `_instruction_lines` returns.
+        instructions: The parsed instructions, as `instruction_lines` returns.
 
     Returns:
         One line per offending instruction, sorted, empty when none migrates.
@@ -748,12 +656,19 @@ def test_no_entrypoint_module_runs_a_management_command(module: str, declaration
 def test_no_dockerfile_instruction_migrates() -> None:
     """AC #1's container half, over instruction lines rather than the whole file.
 
-    Skipped with a reason while the file is absent: `Dockerfile` is Story 5.6's
-    to write (AD-15 -- this repository ships one as `machinery` so the harness
-    can verify the payload properties; materialized components ship none). The
-    skip is recorded in `tests/unit/test_suite_policy.py`'s exemption table and
-    it retires itself: the moment the file exists this case runs, and Story 5.6's
-    task list carries the obligation that it must pass on that day.
+    Story 5.6 landed `Dockerfile` as `machinery` (AD-15 -- this repository ships
+    one so the harness can verify the FR-38/FR-39 payload properties;
+    materialized components ship none), and this case armed itself on that day
+    with no edit here.
+
+    The `pytest.skip` branch stays, and it is not a leftover. What it
+    accommodates is the file's *absence*, which is the normal state of a
+    materialized component and of any tree this module is copied into -- so the
+    branch is what keeps this module usable there rather than erroring on a file
+    AD-15 says will not exist. It remains recorded in
+    `tests/unit/test_suite_policy.py`'s exemption table, and the two go together:
+    removing the branch without the entry fails from one side, removing the entry
+    without the branch fails from the other.
 
     `RUN`, `ENTRYPOINT`, `CMD` and `HEALTHCHECK` are the instructions that
     execute something; the rest describe the image. The parser is what makes
@@ -761,17 +676,17 @@ def test_no_dockerfile_instruction_migrates() -> None:
     joined, heredoc bodies absorbed, comments dropped, `ONBUILD` unwrapped -- and
     it is exercised directly by
     `test_the_dockerfile_parser_reads_each_form_an_instruction_can_take` below,
-    which runs today rather than on the day the file appears.
+    over forms the real file does not contain.
     """
     if not DOCKERFILE.is_file():
         pytest.skip(
-            f"{DOCKERFILE.name} does not exist yet -- Story 5.6 lands it as `machinery` (AD-15). "
-            f"That story's task list records that its RUN, ENTRYPOINT and CMD instructions must satisfy "
-            f"this assertion on the day the file appears; this branch is a sequencing accommodation, not "
-            f"a permanent exemption."
+            f"{DOCKERFILE.name} is absent, which is what a materialized component looks like -- AD-15 "
+            f"ships one only in this repository, as `machinery`, so the harness can verify the payload "
+            f"properties. This branch is an accommodation for the file's absence and not a licence for "
+            f"its contents: wherever the file exists, the assertion below runs."
         )
 
-    instructions = _instruction_lines(DOCKERFILE.read_text(encoding="utf-8"))
+    instructions = instruction_lines(DOCKERFILE.read_text(encoding="utf-8"))
     assert instructions, f"{DOCKERFILE.name} exists but parses to no instruction at all"
 
     offenders = _migrating_instructions(instructions)
@@ -790,23 +705,26 @@ def test_no_dockerfile_instruction_migrates() -> None:
 def test_the_dockerfile_parser_reads_each_form_an_instruction_can_take(
     text: str, expected: tuple[tuple[int, str, str], ...], offences: int
 ) -> None:
-    """The parser above is Story 5.6's gate, and until 5.6 lands nothing else runs it.
+    """The parser is `tests/dockerfile.py`'s, and nothing else drives it this hard.
 
-    The case that scans the real file skips while `Dockerfile` is absent, so
-    every way `_instruction_lines` could miss an instruction would sit unnoticed
-    until the day the file appears -- at which point the assertion built on it
-    would report nothing and read as a pass. These cases are that execution,
-    today: a continuation, a continuation still open at end of file, a comment
-    between continuation lines, a BuildKit heredoc, an `ONBUILD` prefix and a
-    `HEALTHCHECK`.
+    The real `Dockerfile` contains none of these forms -- it is written plainly,
+    which is the right way to write it -- so the case that scans it exercises one
+    path and would look identical against a reader that had stopped joining
+    continuations, absorbing heredoc bodies, dropping comments or unwrapping
+    `ONBUILD`. Every one of those is a way an instruction becomes invisible to a
+    scan for absence, and an invisible instruction reads as a pass.
+
+    These cases are that execution: a continuation, a continuation still open at
+    end of file, a comment between continuation lines, a BuildKit heredoc, an
+    `ONBUILD` prefix and a `HEALTHCHECK`.
 
     Both halves are asserted, because the parse and the classification fail
     differently: an instruction read wrongly is a migration nobody scans, and an
     instruction classified wrongly is either a migration nobody scans or a
     comment reported as one.
     """
-    assert tuple(_instruction_lines(text)) == expected
-    assert len(_migrating_instructions(_instruction_lines(text))) == offences
+    assert tuple(instruction_lines(text)) == expected
+    assert len(_migrating_instructions(instruction_lines(text))) == offences
 
 
 def test_every_declared_migration_step_is_a_management_invocation_naming_its_own_alias(

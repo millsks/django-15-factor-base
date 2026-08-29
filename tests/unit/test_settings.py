@@ -10,7 +10,6 @@ materialised at startup and hold no reference to these fresh module objects.
 from __future__ import annotations
 
 import importlib
-import sys
 
 import pytest
 from django.core.exceptions import ImproperlyConfigured
@@ -19,6 +18,7 @@ from config.authorization import claims
 from config.local_dev import keys
 from config.locality import LOCAL as LOCAL_RUNTIME
 from config.locality import RUNTIME_ENV_VAR
+from tests.settings_import import evicted_settings_modules
 
 # AD-23's declared windows, in seconds, and the values the environment-driven
 # case overrides them with. Named rather than written at the assertion so the
@@ -52,12 +52,20 @@ LOCMEM_CACHE_BACKEND = "django.core.cache.backends.locmem.LocMemCache"
 
 @pytest.fixture(autouse=True)
 def _evict_settings_modules():
-    """Drop freshly imported settings modules before and after each test."""
-    for name in (BASE, LOCAL, PRODUCTION, TEST):
-        sys.modules.pop(name, None)
-    yield
-    for name in (BASE, LOCAL, PRODUCTION, TEST):
-        sys.modules.pop(name, None)
+    """Drop freshly imported settings modules before and after each test.
+
+    The body lives in `tests/settings_import.py` because
+    `tests/unit/test_payload_properties.py` needs the identical thing and a
+    second copy is a second answer waiting to drift -- the same argument
+    `tests/pixi_manifest.py` and `tests/dockerfile.py` record for their readers.
+
+    It also restores structlog, which this copy did not. `config/settings/
+    base.py` calls `configure_structlog()` at module scope, so every fresh
+    import reconfigures the process-wide pipeline; leaving the last one standing
+    blinds `structlog.testing.capture_logs()` in whatever module sorts after this
+    one, with no failure here to point at it.
+    """
+    yield from evicted_settings_modules()
 
 
 @pytest.fixture
