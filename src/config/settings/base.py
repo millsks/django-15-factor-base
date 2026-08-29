@@ -342,6 +342,29 @@ FIXTURE_DIRS = (str(APPS_DIR / "fixtures"),)
 
 # SECURITY
 # ------------------------------------------------------------------------------
+# https://docs.djangoproject.com/en/dev/ref/settings/#session-engine
+#
+# FR-44 / AD-31: sessions are database-backed, and the engine is stated here
+# rather than inherited. Django's own global default happens to be this same
+# string, so the line changes no behaviour today -- which is precisely why it is
+# worth writing. What it removes is the *dependence on a default*: a value the
+# component never states is a value a Django release note can move, and one that
+# a feature's settings fragment can quietly redefine.
+#
+# The Redis feature may not change it. Two of the six combinations ship no Redis
+# at all, so a cache-backed engine would make session behaviour a property of an
+# unrelated toggle -- per-replica sessions in those two LocMem combinations, where
+# a user's session then depends on which replica answered. That is the NFR-3
+# statelessness failure this setting exists to prevent, and it is why this
+# assignment sits **outside every `feature:<name>` region**: an assignment inside
+# a region is an assignment the materializer removes from every component that
+# did not select that region's feature, whichever feature that turns out to be.
+#
+# No `cached_db` variant "for performance", and no `SESSION_CACHE_ALIAS`: both
+# reintroduce the toggle dependency the explicit engine removes.
+# `tests/unit/test_session_settings.py` holds all of it, including the
+# outside-every-region half.
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
 # https://docs.djangoproject.com/en/dev/ref/settings/#session-cookie-httponly
 SESSION_COOKIE_HTTPONLY = True
 # https://docs.djangoproject.com/en/dev/ref/settings/#csrf-cookie-httponly
