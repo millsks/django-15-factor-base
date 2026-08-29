@@ -549,3 +549,168 @@ base image, the buildpack, replica counts as applied, probe intervals, grace
 periods, secrets and their rotation — lives in a **separate repository** and is an
 explicit non-goal here. This repository states what the component is and what it
 needs; the deployment repository decides how it runs.
+
+## Session and epoch pruning
+
+**Sessions are database-backed in every combination, and you schedule the process
+that prunes them.** `SESSION_ENGINE` is set explicitly in
+`src/config/settings/base.py` to `django.contrib.sessions.backends.db`. It is set
+there and nowhere else, outside every feature-owned region, so it is identical in
+all six combinations — including the two that ship no Redis.
+
+That explicitness is the point rather than the value. Django's own default is the
+same string, so the line changes nothing today; what it removes is the component's
+dependence on a default. A session engine nobody states is one a Django release
+note can move and one a feature's settings fragment can quietly redefine — and a
+cache-backed engine is per-replica wherever the cache is Django's in-process
+backend, which is two of the six combinations. A user would then stay signed in
+or not depending on which replica answered.
+
+### One admin process prunes both tables
+
+Two tables accumulate rows that stop mattering at a moment written into the row
+itself: `django_session`, and the mapper's epoch table, which records the first
+sighting of each credential. Nothing in the component removes a dead row from
+either.
+
+The component declares one admin process that removes both:
+
+```
+pixi run prune            # delete every expired session row and epoch record
+pixi run prune --dry-run  # report what would be deleted, and delete nothing
+```
+
+It is idempotent and safe to run beside serving traffic, with one qualification
+worth stating plainly rather than as "nothing is locked". Each leg issues a single
+unbounded `DELETE ... WHERE <expiry> < cutoff` — no `LIMIT`, no chunking — so
+PostgreSQL takes a row lock on every row that statement removes and holds it until
+the statement ends. What it does **not** take is a table lock, and nothing here
+truncates; and no row a live request is using is locked, because the predicate is
+expiry and a live session's `expire_date` cannot satisfy it. Your serving traffic
+is untouched by the locks.
+
+It is still one statement, and that is the part to plan for. A **first** run
+against a table nobody has pruned in months is a single large `DELETE`: it can
+exceed the `statement_timeout` your platform or your connection sets and roll back
+having made no progress at all — then do the same thing, at the same cost, the
+next night. Size it with `--dry-run` before you schedule it, and if the count is
+large, raise `statement_timeout` for that one job to get through the backlog.
+Every run after it is small.
+
+A second run a second later removes nothing and says so. Both events are still
+written, each carrying zero, so a run with nothing to do is visible to your
+alerting rather than indistinguishable from a job that stopped being scheduled.
+
+Each run writes one structured event per kind with the row count, on the same
+event stream as everything else; nothing in it is a session key or a token
+identifier, and neither is the human-facing line on stdout.
+
+The two legs are independent statements in autocommit — there is no transaction
+around them, and that is deliberate. If the epoch leg fails after the session leg
+has committed, the run exits non-zero **and** the session rows it already removed
+stay removed, with `prune.sessions_pruned` already on the stream carrying its
+count. Nothing has to be reconciled by hand: fix the cause and run it again. The
+command is idempotent, so the re-run takes whatever expired in the meantime and
+finishes the epoch leg.
+
+### One residue this process does not remove
+
+An epoch row whose `expires_at` is `NULL` is pruned by nothing, ever. That is
+correct rather than an oversight, and it is stated here so you do not schedule
+this job believing it bounds both tables without qualification.
+
+The mapper writes `NULL` whenever the token it recorded carried no readable `exp`
+— a missing claim, or one the platform cannot represent — and a null expiry means
+the credential's end is unknown. Removing such a row by expiry would re-sync a
+credential that may still be live, which is the failure the predicate is shaped to
+avoid; `<` excludes `NULL` in SQL, which is how the exclusion is enforced.
+
+So: `django_session` is bounded by this process without qualification, and the
+epoch table is bounded only for the rows whose expiry was readable. If your IdP
+issues tokens with no `exp`, those rows accumulate and nothing here will remove
+them. Removing them needs a policy — an age cutoff, or a rule tying the row to
+whether the identity still exists — and this repository does not take one, because
+a wrong age deletes the record of a live credential. If it matters for your
+estate, it is a decision to make in your repository with your IdP's behaviour in
+front of you.
+
+**It is deliberately not a background task, and that is not a preference.**
+Background task processing exists in only two of the six combinations. A Celery
+beat entry would therefore prune nothing at all in the other four, and those four
+are precisely the deployments with no worker fleet to notice — the session table
+would grow without bound while a scheduled job that does not exist reported
+nothing wrong.
+
+### The schedule is yours; the process is the component's
+
+The component declares that the process exists and what it is called, in
+`component.toml`:
+
+```toml
+[[admin_processes]]
+name = "prune"
+task = "prune"
+schedule = "deployment-repository"
+```
+
+`schedule = "deployment-repository"` is the whole of the schedule the component
+states. **Pick the cadence yourself** — daily is ample for most estates — and run
+it the way your platform runs one-off jobs. Do not add a cron expression or an
+interval to `component.toml`; nothing reads one, and a cadence written into the
+component is a cadence that ships to every deployment whatever its traffic.
+
+**What the job needs in its environment.** The same configuration a serving
+process gets. `pixi run prune` is a Django management command, so it imports the
+settings module before it does anything at all: it needs
+`DJANGO_SETTINGS_MODULE`, the database URL, and every variable the startup
+refusals require. A one-off job given a trimmed-down environment does not run a
+smaller version of the work — it refuses at import.
+
+The failure mode is worth knowing by sight, because it names the wrong thing.
+`prune_expired_state` is an *application* command, contributed by an installed
+app, so Django's management utility can only see it once the settings import
+succeeds. When they do not import, the utility falls back to listing the commands
+it ships with, and the job reports:
+
+```
+Unknown command: 'prune_expired_state'
+Type 'manage.py help' for usage.
+```
+
+That is a misconfigured environment. It is not a missing command, not a wrong task
+name and not a component that failed to ship the process — so check
+`DJANGO_SETTINGS_MODULE` and the variables the settings module reads before you go
+looking for anything else.
+
+This is a phase boundary rather than an omission. The explicit engine is phase-1
+and is delivered here; the *scheduling* half of the requirement is marked **Next**
+and belongs to your repository in the same way the grace period, the probe
+interval and the replica counts as applied do.
+
+The `prune` task declares no `env` table at all, and both halves of that matter to
+you. It sets no `COMPONENT_PROCESS`, because an admin process is not a serving
+process: one that said it was would fire the serving-process refusals — the
+unapplied-migrations one included — on the very maintenance it was invoked to do.
+And it sets no `COMPONENT_RUNTIME`, because locality is declared by the
+environment your platform supplies, never by a task.
+
+### What this section does not change
+
+Session *cookie* hardening is unchanged by any of the above and lives where it
+already did, in `src/config/settings/production.py`: `SESSION_COOKIE_SECURE = True`
+and `SESSION_COOKIE_NAME = "__Secure-sessionid"`. Those govern how the session
+cookie travels; the engine governs where the session is stored. They are named
+here only so you do not go looking for them somewhere else.
+
+`tests/unit/test_session_settings.py` holds the engine — set in `base.py`, set
+exactly once, set in no other settings module, and inside no feature-owned region.
+`tests/unit/test_process_model.py` holds the declaration: every declared admin
+process names a task `pixi.toml` actually has, in the root `[tasks]` table rather
+than under a feature or a platform; that task's command names a management command
+Django actually has, so the `Unknown command` above cannot be reached by a typo
+that got through review; and no admin process runs a task that declares a process
+type. `tests/integration/test_prune_command.py` holds the behaviour against a real
+database, including the two boundaries a review will not catch — an epoch record
+whose expiry was never readable is *not* prunable by expiry and survives, and one
+whose token is still inside the configured clock-skew leeway survives too, because
+the Bearer path would still accept it.

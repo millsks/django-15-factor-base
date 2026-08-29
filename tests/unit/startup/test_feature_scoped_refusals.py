@@ -70,7 +70,6 @@ import ast
 import inspect
 import re
 import tomllib
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Final
@@ -87,6 +86,16 @@ from config.observability.telemetry import OTEL_SDK_DISABLED_ENV_VAR
 from config.startup import run_stage_one
 from config.startup import stage_one
 from tests.conftest import valid_deployed_settings_namespace
+
+# The AD-24 marker parser, promoted to `tests/feature_regions.py` when Story 5.7
+# needed the same question answered about `src/config/settings/base.py` -- see
+# that module's docstring for why a second private copy was not written. Bound
+# back to the private names the cases below already use, deliberately: four of
+# them assign a local `regions`, and importing the function under its own name
+# would shadow it into an `UnboundLocalError`. Nothing about the parse changed in
+# the move, and no assertion here changed with it.
+from tests.feature_regions import marker_events as _marker_events
+from tests.feature_regions import regions as _regions
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -290,13 +299,6 @@ MARKER_BEARING_PATHS: Final = (
 #: comparison rather than a second read of the same bytes.
 MARKER_BEARING_SOURCES: Final = {path: path.read_text(encoding="utf-8") for path in MARKER_BEARING_PATHS}
 
-#: AD-24's delimiters, matched as whole lines in the file's own comment syntax.
-#: Anchored so that the same text quoted inside a module docstring -- where the
-#: region declarations are recorded until Epic 7 authors `accelerator.toml` -- is
-#: not read as a marker. That is the same distinction Story 8.3's stripper has to
-#: make, which is why it is made the same way here.
-MARKER: Final = re.compile(r"^[ \t]*#[ \t]*(?P<closing>/?)feature:(?P<feature>[A-Za-z0-9_-]+)[ \t]*$")
-
 #: One region declaration in `stage_one.py`'s module docstring. Only the
 #: structured opening of each bullet is matched -- the path and the feature, in
 #: that order, each in backticks -- because everything after it is prose that
@@ -326,79 +328,6 @@ FEATURE_CONDITIONS: Final = {
     "celery": "_refuse_eager_tasks",
     # /feature:celery
 }
-
-
-@dataclass(frozen=True, slots=True)
-class _Region:
-    """One balanced marker pair, and the lines it encloses.
-
-    Attributes:
-        feature: The feature named by both markers.
-        first_line: 1-indexed line just after the opening marker.
-        last_line: 1-indexed line just before the closing marker.
-
-    """
-
-    feature: str
-    first_line: int
-    last_line: int
-
-    def encloses(self, line: int) -> bool:
-        """Report whether a 1-indexed source line falls inside this region.
-
-        Args:
-            line: The line to test.
-
-        Returns:
-            True when the line is strictly between the two markers.
-
-        """
-        return self.first_line <= line <= self.last_line
-
-
-def _marker_events(source: str) -> list[tuple[int, bool, str]]:
-    """Every marker line in one file, in file order.
-
-    Args:
-        source: The file's text.
-
-    Returns:
-        Tuples of 1-indexed line number, whether the marker closes a region, and
-        the feature it names.
-
-    """
-    events: list[tuple[int, bool, str]] = []
-    for line_number, line in enumerate(source.splitlines(), start=1):
-        match = MARKER.match(line)
-        if match is not None:
-            events.append((line_number, bool(match["closing"]), match["feature"]))
-    return events
-
-
-def _regions(source: str) -> list[_Region]:
-    """Pair the markers up into regions.
-
-    Written to be lenient about imbalance rather than to detect it -- detection is
-    `test_every_marker_pair_is_balanced_and_never_nested`'s, and a helper that
-    raised would make that test fail during collection instead of reporting.
-
-    Args:
-        source: The file's text.
-
-    Returns:
-        One entry per closed pair, in the order the pairs close.
-
-    """
-    open_at: dict[str, int] = {}
-    regions: list[_Region] = []
-    for line_number, closing, feature in _marker_events(source):
-        if closing:
-            opened = open_at.pop(feature, None)
-            if opened is not None:
-                regions.append(_Region(feature, opened + 1, line_number - 1))
-        elif feature not in open_at:
-            open_at[feature] = line_number
-    return regions
 
 
 def _features_marked_in(source: str) -> set[str]:

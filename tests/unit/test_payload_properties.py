@@ -49,11 +49,12 @@ decides what enters by accident.
   rather than on a string, because a `LOGGING` dict is data and a substring
   search over it would pass a handler class that merely spells itself
   differently.
-* *Sessions are database-backed.* Story 5.7 owns setting `SESSION_ENGINE`
-  explicitly; this module asserts the property AC #2 depends on -- the resolved
-  store *is* the database store, so nothing is written to local disk and nothing
-  is per-replica. See that case's own docstring for what is 5.7's and what is
-  not.
+* *Sessions are database-backed.* This module asserts the property AC #2 depends
+  on -- the resolved store *is* the database store, so nothing is written to
+  local disk and nothing is per-replica.
+  `tests/unit/test_session_settings.py` owns the declaration side: that
+  `SESSION_ENGINE` is set in `base.py`, once, in no other settings module, and
+  outside every AD-24 region.
 
 **The `MEDIA_ROOT` residue, recorded rather than fixed.** `MEDIA_ROOT` is
 `str(APPS_DIR / "media")` and `src/config/urls.py` mounts
@@ -1115,18 +1116,21 @@ def test_no_settings_module_declares_a_file_based_log_handler(name: str, monkeyp
 def test_the_session_store_is_the_database_store(monkeypatch: pytest.MonkeyPatch) -> None:
     """AC #3's sessions leg, asserted as the acceptance criterion states it.
 
-    **What holds today, and why.** `SESSION_ENGINE` is set nowhere in `src/`, so
-    what resolves is Django's own global default -- which is the database
-    backend. That is the whole reason this passes, and it is stated here rather
-    than left to be inferred, because "it happens to default correctly" and "we
-    set it" are different degrees of guarantee and only one of them survives a
-    Django release note.
+    **What holds today, and why.** `config/settings/base.py` sets
+    `SESSION_ENGINE` explicitly to the database-backed engine, and
+    `production.py` inherits it through `from .base import *`. Story 5.7 landed
+    that line; before it, what resolved was Django's own global default, which is
+    the same string. The difference is not cosmetic -- "it happens to default
+    correctly" and "we set it" are different degrees of guarantee, and only one of
+    them survives a Django release note -- which is why the setting's *presence*
+    is now asserted here rather than fallen back from.
 
-    **What Story 5.7 owns and this does not.** Setting `SESSION_ENGINE`
-    explicitly is 5.7's task. This case does not do it, does not import anything
-    5.7 has not written, and must not be read as having discharged it: it asserts
-    the *payload property* AC #2 and AC #3 depend on, which is a claim about what
-    the component resolves to today and not about what it declares.
+    **What `test_session_settings.py` owns and this does not.** That the value is
+    declared in `base.py` and in no other settings module, exactly once, outside
+    every AD-24 region, is that module's. This one asks the payload question AC
+    #2 and AC #3 depend on: what the resolved store class *is*, so that a
+    project-local engine reached under a different dotted path is still the right
+    answer.
 
     **Why the property is stated as an identity rather than as a denial.** AC #3
     says sessions are database-backed. Refusing only the file store would pass
@@ -1142,8 +1146,13 @@ def test_the_session_store_is_the_database_store(monkeypatch: pytest.MonkeyPatch
     """
     module = _import_settings(PRODUCTION_SETTINGS, monkeypatch)
     engine = getattr(module, "SESSION_ENGINE", None)
-    if engine is None:
-        engine = importlib.import_module("django.conf.global_settings").SESSION_ENGINE
+
+    assert engine is not None, (
+        "config/settings/production.py composes no SESSION_ENGINE at all. Falling back to "
+        "django.conf.global_settings here would make this case pass on Django's default, which is the "
+        "same string -- and FR-44's whole point is that the component states the engine rather than "
+        "inheriting it (AD-31)."
+    )
     store = importlib.import_module(engine).SessionStore
     database_store = importlib.import_module(DATABASE_SESSION_BACKEND).SessionStore
 
@@ -1151,8 +1160,7 @@ def test_the_session_store_is_the_database_store(monkeypatch: pytest.MonkeyPatch
         f"the resolved session engine {engine!r} is not the database-backed store. NFR-3: nothing is shared "
         f"through local disk or process memory across replicas, and sessions are database-backed in every "
         f"combination -- a file store is a writable path AC #2 denies, and a cache or cookie store is "
-        f"per-replica or client-held, so a user's session would depend on which replica answered. Story 5.7 "
-        f"owns setting SESSION_ENGINE explicitly; this case asserts what the component resolves to."
+        f"per-replica or client-held, so a user's session would depend on which replica answered."
     )
 
 

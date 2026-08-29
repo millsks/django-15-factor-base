@@ -458,6 +458,28 @@ manage = { cmd = "python manage.py", default-environment = "default", descriptio
 migrate = { cmd = "python manage.py migrate", default-environment = "default", description = "Apply database migrations" }
 collectstatic = { cmd = "python manage.py collectstatic --noinput", default-environment = "default", description = "Collect static files into staticfiles/" }
 createsuperuser = { cmd = "python manage.py createsuperuser", default-environment = "default", description = "Create an admin user" }
+# The admin process AD-31 declares, and `component.toml`'s one
+# `[[admin_processes]]` entry names by exactly this task name.
+#
+# It sits here rather than beside `worker` and `beat` for a reason the position
+# alone does not carry: it must be **outside** the `# feature:celery` region
+# below. Expired session rows and expired mapper epoch records accumulate in all
+# six combinations, and background task processing exists in two of them, so a
+# prune declared inside that region would be stripped from the four components
+# whose session table nobody is watching -- which is exactly why AD-31 makes
+# pruning an admin process instead of a beat entry in the first place.
+#
+# It declares **no `env` table at all**, and both halves of that are asserted.
+# No COMPONENT_PROCESS: an admin process is not a serving process, and one that
+# said it was would fire the serving-process refusals on the very maintenance it
+# was invoked to do (AD-13's deadlock; tests/unit/test_process_model.py). No
+# COMPONENT_RUNTIME: locality is declared by the environment, never by a task
+# (tests/unit/test_locality_declaration.py).
+#
+# No schedule is encoded here or in `component.toml`. FR-44's scheduling half is
+# the deployment repository's; the component declares only that the process
+# exists and what it is called.
+prune = { cmd = "python manage.py prune_expired_state", default-environment = "default", description = "Admin process: prune expired sessions and mapper epoch records" }
 # The cross-platform *local* ASGI server, and not a process type. uvicorn runs
 # on all three platforms, unlike the gunicorn+uvicorn-worker pairing the `web`
 # process uses, which is POSIX-only -- which is the only reason this task exists

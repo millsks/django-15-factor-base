@@ -63,10 +63,12 @@ text, because a region is a span of lines that no parse preserves.
 from __future__ import annotations
 
 import re
+import shlex
 from typing import Any
 from typing import Final
 
 import pytest
+from django.core.management import get_commands
 
 from config.component import ComponentDeclaration
 from config.component import load_component_declaration
@@ -140,6 +142,17 @@ FEATURE_MARKERS: Final[tuple[str, str]] = (f"# feature:{CELERY_FEATURE}", f"# /f
 # something the parsed TOML preserves. Every assertion about a task's content
 # goes through the parsed manifest instead.
 TASK_ASSIGNMENT = re.compile(r"^(?P<name>[A-Za-z0-9_-]+) = \{")
+
+# Django's entrypoint, as the admin tasks' `cmd` strings spell it. Everything up
+# to and including this token is interpreter and script; the token after it is the
+# sub-command `django.core.management.get_commands()` has to know about.
+MANAGE_SCRIPT: Final[str] = "manage.py"
+
+# The unscoped task table, keyed as `tests.pixi_manifest.task_tables` keys it. A
+# task declared only under `[feature.<name>.tasks]` or a `[target.*.tasks]` table
+# is a task the component's own environment may not resolve, which for an admin
+# process means a scheduled job that fails on the platform and nowhere else.
+ROOT_TASK_TABLE: Final[str] = "[tasks]"
 
 
 @pytest.fixture(scope="module")
@@ -377,10 +390,10 @@ def test_no_administrative_process_runs_a_task_that_declares_a_process_type(
     migrate` refuses on the unapplied-migrations condition and deadlocks the
     release stage.
 
-    Deliberately *not* asserted: that the task exists. `component.toml` declares
-    `prune` and no `prune` task is written until the session-pruning story lands,
-    which is a forward reference rather than a defect. The admin half of the
-    manifest therefore has no forward direction; it has only this prohibition.
+    That the task *exists* is the next case's question. Story 5.7 wrote the
+    `prune` task, so the admin half of the manifest now has a forward direction
+    as well as this prohibition; the two are kept apart because they fail for
+    different reasons and a deployment repository can hit either one alone.
     """
     offenders = sorted(
         f"admin process {admin.name!r} runs task {admin.task!r} in {table}, which declares "
@@ -392,6 +405,136 @@ def test_no_administrative_process_runs_a_task_that_declares_a_process_type(
     assert not offenders, (
         f"these administrative processes declare themselves serving processes: {offenders}. "
         f"An admin process is outside the process group (AD-13) and never sets {PROCESS_ENV_VAR}."
+    )
+
+
+def test_every_declared_admin_process_names_a_task_that_exists(
+    manifest: dict[str, Any], declaration: ComponentDeclaration
+) -> None:
+    """Forward direction for the admin half: a declared admin process is runnable (AD-31, FR-44).
+
+    `[[admin_processes]]` is the same kind of instruction `[[processes]]` is --
+    something a deployment repository schedules with `pixi run <task>` against a
+    tree it cannot read -- so it fails the same way when the task is missing, and
+    it fails *later*: an unschedulable prune is not noticed on the day it is
+    declared but on the day somebody looks at the size of `django_session`.
+
+    Asserted as a set of declarations rather than as one name, because
+    `component.toml` may grow a second admin process and a case pinned to
+    `prune` would keep passing while the new one named nothing at all.
+
+    Deliberately **not** asserted here: what the task *runs*. That it does not
+    declare a process type is the previous case's, and that no task in the
+    process group migrates is `tests/unit/test_release_stage.py`'s. The whole of
+    this one is existence, which is the half the prohibition above cannot see --
+    a declaration naming a task nobody wrote satisfies that case vacuously,
+    because there is no `env` to find a process type in.
+    """
+    assert declaration.admin_processes, "component.toml declares no admin process, so this case holds over nothing"
+    offenders = sorted(
+        f"admin process {admin.name!r} names task {admin.task!r}, which pixi.toml does not declare"
+        for admin in declaration.admin_processes
+        if not tasks_named(manifest, admin.task)
+    )
+    assert not offenders, (
+        f"these [[admin_processes]] entries name no task: {offenders}. An admin process is a `pixi run <task>` "
+        f"invocation the deployment repository schedules (AD-31), so an entry with no task behind it is a "
+        f"maintenance job that silently never runs -- and for AD-31's prune, a session table that grows without "
+        f"bound in the four combinations that have no background task processing to fall back on."
+    )
+
+
+def test_every_declared_admin_process_runs_a_management_command_django_has(
+    manifest: dict[str, Any], declaration: ComponentDeclaration
+) -> None:
+    """The admin task's `cmd` names a command that exists, not merely a task that does (AD-31, FR-44).
+
+    The case above stops at the task *name*: `[[admin_processes]]` says `task =
+    "prune"` and `pixi.toml` declares a `prune`, so the two reconcile. Nothing
+    then reads the string that task runs. `python manage.py prune_expired_state`
+    could be misspelled in the `cmd`, or the command module could be renamed or
+    moved out of an installed app's `management/commands/`, and every assertion in
+    this file would stay green while `pixi run prune` printed `Unknown command`
+    and exited -- which a deployment repository's scheduled job reports as a
+    failing job at whatever hour it is scheduled for, and only after the table it
+    was meant to prune has been growing for however long the rename went
+    unnoticed. The integration suite does not close it either: it dispatches its
+    own `"prune_expired_state"` literal through `call_command`, so it proves the
+    command works and proves nothing about what the task invokes.
+
+    Checked against `get_commands()`, the registry `manage.py` itself dispatches
+    through, which is the same technique
+    `tests/unit/test_release_stage.py::test_every_declared_migration_step_is_a_management_invocation_naming_its_own_alias`
+    uses on the declared migrate steps and for the same reason: it is the only
+    reader that agrees with the one doing the dispatching, including about
+    commands contributed by an app this combination did select.
+
+    Every declaration of the task is checked rather than the first, because
+    `tasks_named` returns one entry per table and a second declaration of `prune`
+    somewhere else is a second thing `pixi run prune` might resolve to.
+    """
+    assert declaration.admin_processes, "component.toml declares no admin process, so this case holds over nothing"
+    known = get_commands()
+    offenders: list[str] = []
+    for admin in declaration.admin_processes:
+        for table, name, definition in tasks_named(manifest, admin.task):
+            command = task_command(definition)
+            try:
+                tokens = shlex.split(command)
+            except ValueError as error:
+                offenders.append(f"{table}.{name}: {command!r} cannot be split into arguments ({error})")
+                continue
+            entrypoint = next((index for index, token in enumerate(tokens) if token.endswith(MANAGE_SCRIPT)), None)
+            if entrypoint is None:
+                offenders.append(f"{table}.{name}: {command!r} invokes no {MANAGE_SCRIPT}")
+                continue
+            arguments = tokens[entrypoint + 1 :]
+            if not arguments:
+                offenders.append(f"{table}.{name}: {command!r} names no management sub-command")
+            elif arguments[0] not in known:
+                offenders.append(
+                    f"{table}.{name}: {command!r} names {arguments[0]!r}, which is not a management command"
+                )
+
+    assert not offenders, (
+        f"these [[admin_processes]] tasks do not run a management command Django has: {offenders}. "
+        f"An admin process is a `pixi run <task>` a deployment repository schedules against a tree it cannot "
+        f"read (AD-31), so a typo in the cmd or a renamed command module is a job that reports `Unknown "
+        f"command` at three in the morning rather than failing in this gate."
+    )
+
+
+def test_every_declared_admin_process_task_is_declared_in_the_root_task_table(
+    manifest: dict[str, Any], declaration: ComponentDeclaration
+) -> None:
+    """The admin task is one a *deployed* component has, not one only the dev environment has (AD-31).
+
+    `tasks_named` searches every task table in the manifest, so the two cases
+    above are satisfied by a `prune` declared under `[feature.dev.tasks]` or
+    `[target.osx-arm64.tasks]`. Neither is a task the deployment repository can
+    run: the dev feature is not in the environment a component ships with, and a
+    platform-scoped table is absent on every platform but its own. A `prune` that
+    existed only in one of those would reconcile with `component.toml`, name a
+    real management command, and still be a maintenance job that runs on a
+    developer's laptop and nowhere the session table is actually growing.
+
+    "At least one" declaration in `[tasks]` rather than "exactly one": a
+    platform-scoped override of a task that also exists unscoped is a legitimate
+    shape, and forbidding it here would be this module deciding a question about
+    platform overrides that nothing in AD-31 or AD-14 raises.
+    """
+    assert declaration.admin_processes, "component.toml declares no admin process, so this case holds over nothing"
+    offenders = sorted(
+        f"admin process {admin.name!r} names task {admin.task!r}, declared only in "
+        f"{sorted(table for table, _name, _definition in tasks_named(manifest, admin.task))}"
+        for admin in declaration.admin_processes
+        if ROOT_TASK_TABLE not in {table for table, _name, _definition in tasks_named(manifest, admin.task)}
+    )
+    assert not offenders, (
+        f"these [[admin_processes]] tasks are declared outside {ROOT_TASK_TABLE}: {offenders}. A task scoped to "
+        f"a feature the deployed environment does not carry, or to one platform, is a scheduled job that "
+        f"resolves in the gate and not on the platform -- which for AD-31's prune is a session table growing "
+        f"while the job that was supposed to prune it reports `Unknown task`."
     )
 
 
