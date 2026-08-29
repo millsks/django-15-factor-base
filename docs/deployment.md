@@ -449,3 +449,103 @@ carries a timeout. The `web` command encodes no `--graceful-timeout` and the
 `worker` command encodes no flag that alters Celery's warm shutdown — no
 `--pool=solo`, no `-Ofair` — because both would take the decision away from you.
 `tests/unit/test_process_model.py` holds that.
+
+## The component is a payload
+
+A component built from this accelerator is a **payload**, not an image. It starts
+from environment variables alone, runs under a UID assigned by the platform that
+the image has never seen, on a read-only root filesystem, and writes nothing
+outside a temporary directory. Those are properties of the *application*, and
+they are what let it be built by the platform's image pipeline rather than by a
+build of its own.
+
+### Materialized components ship no Dockerfile
+
+The buildpack and golden-base path is the default. A materialized component
+carries no `Dockerfile`, no `.dockerignore` and no per-component build
+definition, and that is deliberate: a component that owns its own build also owns
+its own base image, and a CVE in that base becomes one pull request per component
+rather than one rebuild for all of them.
+
+A component that genuinely needs its own build is a **deliberate departure** —
+something to decide, record and justify, not something to reach for because a
+`Dockerfile` is the familiar shape. Nothing prevents it. What the default
+prevents is acquiring one by accident.
+
+### The four legs of the zero-writable-path claim
+
+"Writes nothing outside a temporary directory" is not a hope about the
+application's behaviour. It is four decisions, each of which removed a reason to
+write somewhere:
+
+- **Static files are collected at build and served by the application.**
+  `collectstatic` runs at build time, and `whitenoise.middleware.WhiteNoiseMiddleware`
+  serves what it produced through `whitenoise.storage.CompressedManifestStaticFilesStorage`.
+  There is no run-time collection step, no sidecar and no shared volume — so
+  `STATIC_ROOT` is read-only in a running component.
+- **User media is a non-goal.** No model declares a file field and nothing is
+  saved through the default storage. The `MEDIA_ROOT` and `MEDIA_URL` settings
+  and the `static()` media route in `config/urls.py` are still present and are
+  inert: `django.conf.urls.static.static` returns nothing whenever `DEBUG` is
+  false, so a deployed component mounts no media route at all. Removing the
+  surface belongs to the object-storage work; until then its inertness is
+  asserted rather than assumed.
+- **Logs go to the event stream.** Structured JSON on stdout. No files, no
+  rotation, no log directory, and nothing for the platform to mount.
+- **Sessions are database-backed.** Not file-backed and not local: a session
+  written to disk is per-replica, so a user's session would depend on which
+  replica answered — which is the statelessness requirement lost through the one
+  setting nobody looks at.
+
+Each leg is asserted rather than asserted-about. `tests/unit/test_payload_properties.py`
+holds the static half; `tests/integration/test_image_payload.py` builds the image,
+runs it under `--user 12345:0 --read-only --tmpfs /tmp`, and requires that
+`docker diff` on a *writable* run reports no changed path outside the temporary
+directory.
+
+### Running under an arbitrary UID
+
+A platform that assigns UIDs gives the container a numeric identity that appears
+nowhere in the image and has no `/etc/passwd` entry. Two things make that work,
+and both are properties an image has to arrange in advance:
+
+- **Group 0 has the owner's permissions on the application tree.** The assigned
+  UID is placed in group 0, which is the only group membership such a platform
+  guarantees, so access is granted through the group rather than through an
+  ownership the image could not have predicted.
+- **`HOME` points at the temporary directory.** With no passwd entry, `getpwuid`
+  fails and everything resolving `$HOME` falls back to `/`, which is read-only.
+  The failure surfaces as a permission error from whichever tool asked first,
+  with nothing in the message about UIDs or filesystems.
+
+### This repository's `Dockerfile` is machinery
+
+There is a `Dockerfile` at the root of *this* repository. It is `machinery`: it
+does not travel, it is not the deployment artefact, and nothing here pushes it
+anywhere. It exists so the harness can *run* the payload properties instead of
+believing them — build the image, start it under an arbitrary UID on a read-only
+root filesystem, and check that it serves and writes nothing.
+
+Its `CMD` is `pixi run web`, which is the same invocation a deployment repository
+makes, so the image and the process model cannot declare two different things.
+It applies no migrations at any depth: migration is a release-stage step, as
+[Migrations are a release-stage step](#migrations-are-a-release-stage-step)
+records.
+
+One component shape inherits it. "Use this template" produces a **fork of this
+base**, not a generated component, and that fork carries the machinery — the
+materializer, `accelerator.toml` and this `Dockerfile` — so it *can* opt out of
+the image pipeline where a materialized component cannot. That is a named
+governed exception rather than an oversight, and it is accepted rather than
+mitigated.
+
+### What this does not deliver
+
+This is the component-side half, and only that half. Nothing in this repository
+starts a component on a platform.
+
+The deployment configuration — manifests, the image pipeline itself, the golden
+base image, the buildpack, replica counts as applied, probe intervals, grace
+periods, secrets and their rotation — lives in a **separate repository** and is an
+explicit non-goal here. This repository states what the component is and what it
+needs; the deployment repository decides how it runs.
