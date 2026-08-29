@@ -100,12 +100,57 @@ if TYPE_CHECKING:
 #: rather than whatever `PATH` resolves at the moment of the call.
 DOCKER: Final[str | None] = shutil.which("docker")
 
+#: What `docker version --format {{.Server.Os}}` reports where this module can work.
+LINUX_CONTAINERS: Final[str] = "linux"
+
+#: Bound on the capability probe. It is a local daemon query, so a slow answer is
+#: an unhealthy daemon rather than a slow one, and waiting longer would not help.
+DOCKER_VERSION_TIMEOUT_SECONDS: Final[int] = 30
+
+
+def _builds_linux_images() -> bool:
+    """Answer whether the local Docker can build the `linux/amd64` image this module needs.
+
+    **The binary being on PATH is not the capability, and assuming it was is what
+    this function exists to correct.** `windows-latest` in the compatibility
+    matrix ships `docker.EXE` and runs it in *Windows containers* mode, where
+    pulling the `linux/amd64` base fails with `no matching manifest for
+    linux/amd64 in the manifest list entries` -- a red gate on a runner doing
+    nothing wrong, reported as five errors that look like the image is broken.
+
+    The daemon's own OS is the thing to ask. `docker version` reports it directly,
+    and a daemon that is not running answers non-zero, so the unreachable case
+    falls out of the same call rather than needing a second one.
+
+    Returns:
+        True when a Docker daemon is reachable and serving Linux containers.
+
+    """
+    if DOCKER is None:
+        return False
+    try:
+        probed = subprocess.run(  # noqa: S603 - DOCKER is resolved by shutil.which, not from input
+            [DOCKER, "version", "--format", "{{.Server.Os}}"],
+            capture_output=True,
+            text=True,
+            timeout=DOCKER_VERSION_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except OSError, subprocess.SubprocessError:
+        # A docker binary that cannot be executed at all is the same capability
+        # answer as one that is absent. Named rather than caught broadly.
+        return False
+    return probed.returncode == 0 and probed.stdout.strip() == LINUX_CONTAINERS
+
+
 pytestmark = pytest.mark.skipif(
-    DOCKER is None,
+    not _builds_linux_images(),
     reason=(
-        "docker is not on PATH. This module builds and runs the machinery image to verify the FR-38/FR-39 "
-        "payload properties; the gate runs on Linux with Docker available, so this is a developer-machine "
-        "capability guard rather than a suppressed failure."
+        "no Docker daemon serving Linux containers. This module builds and runs the machinery image to "
+        "verify the FR-38/FR-39 payload properties, and the image is linux/amd64 because pixi.lock declares "
+        "linux-64 and no linux-aarch64. The gate runs on Linux with Docker available, so this is a "
+        "capability guard for developer machines and for the Windows compatibility runner -- which has "
+        "docker.EXE but serves Windows containers -- rather than a suppressed failure."
     ),
 )
 
