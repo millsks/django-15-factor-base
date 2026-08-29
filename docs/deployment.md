@@ -176,6 +176,119 @@ through the pixi task its `task` field names, which is what
 [Process model](#process-model) above describes and what
 `tests/unit/test_process_model.py` reconciles in both directions.
 
+## Migrations are a release-stage step
+
+**Migration runs before new pods begin serving, and no process the component
+starts performs it.** No entrypoint, no serving-process task and no container
+command migrates, and none will be added. That is not an oversight to be
+corrected in your deployment repository by adding one — it is the contract, and
+the component is built to make the omission safe.
+
+`pixi.toml` does declare a `migrate` task, and it is not a counter-example. It is
+a management command — the release stage's own invocation surface, and a
+developer's — and it declares no `COMPONENT_PROCESS`, so it is not a serving
+process. What the contract forbids is any path from a process that serves
+requests to a migration, whether written into its command or reached through
+`depends-on`; `tests/unit/test_release_stage.py` asserts both, transitively.
+
+The reason is the race. An entrypoint that migrates runs once per replica, so a
+rolling deploy of three replicas starts three concurrent `migrate` invocations
+against the same database. The winner applies the schema; the losers do
+something between failing loudly and half-applying a data migration. There is no
+locking that makes this correct in general, so the invocation is moved to a stage
+where there is exactly one of it.
+
+### The ordering your deployment repository must implement
+
+1. **Apply migrations.** Run each step `component.toml` declares, once per
+   database, to completion. Nothing else has started.
+2. **Start the new replicas.** They boot against a schema that is already
+   current.
+3. **Let the old replicas drain.** They leave the routing pool on their own
+   terms — see [Shutdown](#shutdown).
+
+Step 1 finishing before step 2 begins is the whole property. If your platform
+runs the migration as a pre-deploy hook, it must be a *blocking* one.
+
+### One step per database, exactly as `component.toml` declares
+
+The steps are not inferred and must not be guessed. Each `[[databases]]` entry
+carries a `migrate` list, one entry per invocation:
+
+```toml
+[[databases]]
+alias = "default"
+required = true
+migrate = ["migrate --database default --noinput"]
+```
+
+Each step is arguments to a Django management command, so the release stage runs
+it through pixi:
+
+```sh
+pixi run manage migrate --database default --noinput
+```
+
+Every step names its target alias explicitly with `--database`. A component that
+adopts a reusable application bringing its own database adds an alias here with
+its own step, and the release stage picks it up without any change on your side —
+which only works because no step relies on `default` being implied.
+`tests/unit/test_release_stage.py` asserts that each declared step is a real
+management command and names the alias of the entry that declares it.
+
+There is deliberately **no** component-side task that runs every step in
+sequence. One name that migrates everything is one `depends-on` away from
+becoming the entrypoint this contract exists to prevent.
+
+### The component refuses to serve an unrecognized schema
+
+Migration state is checked once, at process start. A serving process that finds
+unapplied migrations on any configured alias raises `ImproperlyConfigured` and
+does not serve — the stage-2 refusal in `src/config/startup/`, which names the
+alias and the pending migrations so the message says which database was never
+migrated rather than that something is pending somewhere.
+
+This is what makes step 1 above enforceable rather than advisory: a deployment
+that starts new pods without migrating gets a process that refuses to start,
+which your platform surfaces as a failed rollout, instead of a process that
+serves requests against a schema it does not know.
+
+Readiness does **not** re-ask the question — see
+[Readiness deliberately does not re-check migrations](#readiness-deliberately-does-not-re-check-migrations).
+The two rules fit together: during the rollout every still-serving replica of the
+old generation is running against a newer schema, which is precisely what
+backwards-compatible migrations are for, and a readiness probe that compared
+migration state would drain that entire generation at once and turn a routine
+migration into an outage. Refuse at start, never re-check while serving.
+
+### Accepted risk R-3: the refusal only fires for a declared process
+
+The refusal applies to serving processes, and a process is a serving process only
+when it declares `COMPONENT_PROCESS` — which the `web` pixi task does, and
+`worker` and `beat` where `celery` is selected, and nothing else does. **A
+serving process started outside those tasks does not fire the migrations
+refusal.** A hand-rolled `gunicorn
+config.asgi:application`, or a platform manifest that invokes the server binary
+directly instead of `pixi run web`, will start against an unmigrated schema and
+serve.
+
+This is recorded as risk **R-3**, and it is accepted rather than mitigated.
+
+Closing it would mean failing the process-type check *closed* — treating
+"`COMPONENT_PROCESS` is absent" as "assume this is a serving process". That
+inverts into a deadlock immediately: `pixi run migrate` is a management command
+and declares no process type, so it would be treated as a serving process, refuse
+on the unapplied migrations it was invoked to apply, and leave the release stage
+with no way to clear a state only it could clear. The refusal would forbid the
+one action that resolves it.
+
+So the price is paid deliberately, and it is a small one, because it is bounded
+by a rule you already have to follow: **start processes with `pixi run <process>`,
+as [Process model](#process-model) describes.** Every process type the deployment
+repository is told to start is a pixi task, that is the only invocation path the
+component declares, and a process started any other way is outside the contract
+in more ways than this one.
+
 ## Health endpoints
 
 Two routes, at the root of the component, reachable with no credential:

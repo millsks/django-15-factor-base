@@ -52,7 +52,9 @@ from typing import Final
 from typing import NoReturn
 
 import pytest
+from django.conf import settings
 from django.contrib import admin
+from django.db import connections
 from django.test import override_settings
 from django.urls import include
 from django.urls import path
@@ -66,6 +68,7 @@ from tests.factories import UserFactory
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from django.db.backends.base.base import BaseDatabaseWrapper
     from django.urls import URLPattern
     from django.urls import URLResolver
 
@@ -439,6 +442,89 @@ def deployed_component_urlconf() -> Iterator[str]:
             yield name
     finally:
         sys.modules.pop(name, None)
+
+
+#: The engine a never-migrated alias runs, and only the engine. sqlite, because
+#: the fault being constructed is "this schema was never migrated" and an empty
+#: sqlite database is the purest form of it: nothing to provision, no server, and
+#: `django_migrations` genuinely absent rather than emptied.
+#:
+#: The `NAME` is the caller's, which is why it is not folded in here. The
+#: context manager below pairs the engine with `:memory:`; the sqlite condition
+#: in `tests/integration/startup/test_stage_two_database_conditions.py` pairs it
+#: with a path that is never opened, because the refusal it drives reads
+#: `DATABASES` and never connects.
+NEVER_MIGRATED_ENGINE: Final = "django.db.backends.sqlite3"
+
+
+@contextmanager
+def never_migrated_database_alias(alias: str) -> Iterator[None]:
+    """Configure an additional, never-migrated database alias for the duration of a block.
+
+    Shared for the reason the two URLconf builders above are shared. Two modules
+    construct this state -- `tests/integration/startup/` drives FR-16's condition
+    7 with it, and `tests/integration/test_release_stage.py` drives AD-22's
+    release-stage contract with it -- and the setup has a silent failure mode
+    that a second copy would eventually get wrong.
+
+    That failure mode: `override_settings(DATABASES=...)` alone is not enough.
+    `django.db.connections` caches the mapping it was configured with, and no
+    `setting_changed` receiver refreshes it, so the override makes
+    `settings.DATABASES` name the extra alias while `connections[alias]` still
+    raises `ConnectionDoesNotExist` -- a state in which the subject cannot be
+    exercised at all, and one that presents as a passing test rather than as an
+    error. The handler is reconfigured through its own public
+    `configure_settings` and restored to the exact mapping it held before.
+
+    The alias is never `default`. A condition that read `DATABASES["default"]`
+    and stopped would pass a case whose fault sat there, and AD-9's whole point
+    is that a schema nobody migrated is the same defect under any alias.
+
+    `:memory:` for the same reason the engine is sqlite: an in-memory database is
+    gone the moment its connection closes, so a case built on this leaves no
+    artifact anywhere, whatever it did inside the block.
+
+    Every mutation of global state happens *inside* the `try`, and the restore
+    runs whatever happens to the teardown of the connection itself. Both
+    orderings matter and neither is cosmetic: `connections[alias]` raising with
+    the replaced handler already installed would leak that handler into every
+    later test in the session, and a close that raised would otherwise skip the
+    restore entirely -- each producing a suite whose remaining failures are
+    reported against the tests that inherit the damage rather than against this
+    one. That is the same silent-failure shape the paragraph above describes, and
+    a fixture that warns about one while carrying the other is not much of a
+    warning.
+
+    Args:
+        alias: The alias to configure. Must not be `default`.
+
+    Yields:
+        None. The configuration is the effect.
+
+    """
+    if alias == "default":
+        message = f"{alias!r} is the alias every caller already has; the fault belongs on a second one (AD-9)"
+        raise ValueError(message)
+
+    databases = {**settings.DATABASES, alias: {"ENGINE": NEVER_MIGRATED_ENGINE, "NAME": ":memory:"}}
+    with override_settings(DATABASES=databases):
+        restored = connections.__dict__.get("settings")
+        configured: BaseDatabaseWrapper | None = None
+        try:
+            connections.settings = connections.configure_settings(dict(databases))
+            # Materialized here rather than on first use so that teardown always
+            # has a connection to close, whether or not the block opened one.
+            configured = connections[alias]
+            yield
+        finally:
+            try:
+                if configured is not None:
+                    configured.close()
+                    del connections[alias]
+            finally:
+                connections.__dict__.pop("settings", None)
+                if restored is not None:
+                    connections.settings = restored
 
 
 class NetworkAccessAttempted(BaseException):

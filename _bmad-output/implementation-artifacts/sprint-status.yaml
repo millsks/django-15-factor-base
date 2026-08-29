@@ -91,7 +91,7 @@ development_status:
   5-2-the-process-model-is-declared-as-pixi-tasks-with-its-constraints-as-data: done
   5-3-two-asymmetric-health-endpoints: done
   5-4-shutdown-drains-in-a-defined-order: done
-  5-5-migrations-are-a-release-stage-step-the-component-never-performs: ready-for-dev
+  5-5-migrations-are-a-release-stage-step-the-component-never-performs: done
   5-6-the-component-is-a-payload-that-runs-as-an-arbitrary-non-root-user: ready-for-dev
   5-7-sessions-are-database-backed-with-the-engine-set-explicitly: ready-for-dev
   epic-5-retrospective: optional
