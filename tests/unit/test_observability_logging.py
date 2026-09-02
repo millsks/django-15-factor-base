@@ -7,10 +7,12 @@ from opentelemetry.sdk.trace import TracerProvider
 
 from config.observability.logging import CONSOLE
 from config.observability.logging import JSON
+from config.observability.logging import _renderer
 from config.observability.logging import add_otel_context
 from config.observability.logging import build_logging_config
 from config.observability.logging import resolve_log_format
 from config.observability.logging import shared_processors
+from tests.logging_config import assert_writes_no_files
 
 # Hex widths mandated by the OpenTelemetry spec.
 TRACE_ID_HEX_LEN = 32
@@ -103,3 +105,67 @@ class TestBuildLoggingConfig:
     def test_console_handler_uses_the_structured_formatter(self):
         config = build_logging_config(debug=True)
         assert config["handlers"]["console"]["formatter"] == "structured"
+
+
+class TestTheStreamIsJsonAndNothingIsWrittenToAFile:
+    """AC #1: a JSON event stream on a stream handler; no files, no rotation.
+
+    The invariant is a property of every built configuration, not of the one
+    literal in `base.py`, so the same assertion is applied to the default build
+    and to the production-shaped one. `assert_writes_no_files` is a helper
+    rather than a repeated block for that reason: a handler added to only one of
+    the two call sites is the regression it exists to catch.
+    """
+
+    def test_the_default_build_has_exactly_one_console_stream_handler(self):
+        """One handler, named `console`, and it is the stdlib stream handler.
+
+        `logging.StreamHandler` with no `stream` argument is the whole of "the
+        component does not manage log files": there is nothing to rotate, nothing
+        to reopen on SIGHUP and no path to run out of space on.
+        """
+        config = build_logging_config(debug=False)
+
+        assert list(config["handlers"]) == ["console"]
+        assert config["handlers"]["console"]["class"] == "logging.StreamHandler"
+        assert config["root"]["handlers"] == ["console"]
+
+    def test_the_default_build_writes_no_files(self):
+        assert_writes_no_files(build_logging_config(debug=False))
+
+    def test_the_production_shaped_build_writes_no_files(self):
+        """The shape `config/settings/production.py` actually passes.
+
+        The default build alone would leave the deployed configuration -- the
+        only one where file logging would matter -- uncovered. The extra handler
+        has to merge in *and* stay off the root logger, so `mail_admins` does not
+        fire for every record while the no-file property still holds over it.
+        """
+        config = build_logging_config(
+            debug=False,
+            log_format=JSON,
+            extra_handlers={
+                "mail_admins": {
+                    "level": "ERROR",
+                    "filters": ["require_debug_false"],
+                    "class": "django.utils.log.AdminEmailHandler",
+                },
+            },
+        )
+
+        assert_writes_no_files(config)
+        assert "mail_admins" in config["handlers"]
+        assert config["root"]["handlers"] == ["console"]
+
+    def test_the_json_chain_ends_in_the_json_renderer(self):
+        """ "JSON event stream" as an asserted fact rather than a named format.
+
+        The last processor is what produces the line: a chain that resolved to
+        `json` but ended in `ConsoleRenderer` would satisfy every other
+        assertion in this module while emitting human-readable text.
+        """
+        assert isinstance(_renderer(JSON)[-1], structlog.processors.JSONRenderer)
+
+    def test_json_is_what_a_non_debug_run_resolves_to(self):
+        """The other half: nothing has to be configured to get the JSON stream."""
+        assert resolve_log_format(debug=False) == JSON
