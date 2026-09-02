@@ -18,6 +18,8 @@ from config.authorization import claims
 from config.local_dev import keys
 from config.locality import LOCAL as LOCAL_RUNTIME
 from config.locality import RUNTIME_ENV_VAR
+from tests.logging_config import assert_writes_no_files
+from tests.pixi_manifest import REPO_ROOT
 from tests.settings_import import evicted_settings_modules
 
 # AD-23's declared windows, in seconds, and the values the environment-driven
@@ -903,3 +905,88 @@ def test_the_test_settings_declare_the_same_substitutions_rather_than_inheriting
     assert test_settings.CACHES["default"]["BACKEND"] == LOCMEM_CACHE_BACKEND
     assert test_settings.CELERY_TASK_ALWAYS_EAGER is True
     assert test_settings.CELERY_TASK_EAGER_PROPAGATES is True
+
+
+# ---------------------------------------------------------------------------
+# Story 6.1 -- the logging invariant and the Celery correlation switch.
+# ---------------------------------------------------------------------------
+
+#: The one settings module whose `LOGGING` this suite reads as text. The Celery
+#: block's boundaries are a property of *position*, which the imported module
+#: cannot show: every name in it is an attribute of one flat namespace whether
+#: it was written above the banner or below it.
+BASE_SETTINGS_SOURCE = REPO_ROOT / "src" / "config" / "settings" / "base.py"
+
+CELERY_BANNER = "# Celery"
+NEXT_BANNER = "# django-allauth"
+CELERY_SWITCH = "DJANGO_STRUCTLOG_CELERY_ENABLED"
+
+
+def _assignment_lines(lines: list[str]) -> list[tuple[int, str]]:
+    """Return the top-level assignment lines of a settings module's source.
+
+    Indented lines are excluded because they belong to a block rather than to
+    the module's own sequence of settings, and comments and blanks because the
+    property under test is which *settings* separate two markers.
+
+    Args:
+        lines: The module source, already split into lines.
+
+    Returns:
+        `(index, line)` pairs for every top-level assignment.
+
+    """
+    return [
+        (index, line)
+        for index, line in enumerate(lines)
+        if line and not line[0].isspace() and not line.startswith("#") and "=" in line
+    ]
+
+
+@pytest.mark.usefixtures("production_env")
+def test_the_production_logging_config_writes_no_files(monkeypatch: pytest.MonkeyPatch):
+    """AC #1, over the dictionary production actually ships.
+
+    `tests/unit/test_observability_logging.py` asserts the same property over a
+    literal argument list shaped like production's. That cannot catch production
+    adding a file handler of its own later; this can, because it reads the
+    module's own `LOGGING` after the module has finished building it -- including
+    the `filters` key production bolts on afterwards.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pw@db:5432/app")
+
+    production = importlib.import_module(PRODUCTION)
+
+    assert_writes_no_files(production.LOGGING)
+    assert production.LOGGING["root"]["handlers"] == ["console"]
+
+
+def test_the_celery_correlation_switch_sits_inside_the_celery_block():
+    """AD-24: the switch has to be enclosable in one `feature:celery` region.
+
+    Asserted textually, and that is the point rather than an expedient: the
+    property is *position within a block*, and an imported settings module has
+    no positions -- `DJANGO_STRUCTLOG_CELERY_ENABLED` reads identically whether
+    it was written three lines above the `# Celery` banner or three below it.
+    Only the source says which, and only the source is what Epic 7 encloses in a
+    marker pair.
+
+    Three claims, because the first alone would be satisfied by the switch
+    landing anywhere later in the file: it follows the banner, nothing but
+    `CELERY_`-prefixed settings separates the two, and it precedes the next
+    section. An edit that moved it back above `REDIS_URL` fails the first; one
+    that moved it past the allauth banner fails the third.
+    """
+    lines = BASE_SETTINGS_SOURCE.read_text(encoding="utf-8").splitlines()
+
+    banner = lines.index(CELERY_BANNER)
+    switch = next(index for index, line in enumerate(lines) if line.startswith(CELERY_SWITCH))
+    next_banner = lines.index(NEXT_BANNER)
+
+    assert banner < switch, f"{CELERY_SWITCH} is written above the {CELERY_BANNER} banner"
+    assert switch < next_banner, f"{CELERY_SWITCH} is written past the {NEXT_BANNER} banner"
+
+    intervening = [line for index, line in _assignment_lines(lines) if banner < index < switch]
+    assert all(line.startswith("CELERY_") for line in intervening), (
+        f"non-Celery settings separate the banner from {CELERY_SWITCH}: {intervening}"
+    )

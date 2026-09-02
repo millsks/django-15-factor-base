@@ -427,15 +427,14 @@ LOGGING = build_logging_config(
 
 configure_structlog()
 
-# django-structlog binds request_id and user_id for the life of a request and
-# carries request_id into the Celery tasks a request enqueues.
-DJANGO_STRUCTLOG_CELERY_ENABLED = True
-
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 REDIS_SSL = REDIS_URL.startswith("rediss://")
 
 # Celery
 # ------------------------------------------------------------------------------
+# django-structlog binds request_id and user_id for the life of a request and
+# carries request_id into the Celery tasks a request enqueues.
+DJANGO_STRUCTLOG_CELERY_ENABLED = True
 if USE_TZ:
     # https://docs.celeryq.dev/en/stable/userguide/configuration.html#std:setting-timezone
     CELERY_TIMEZONE = TIME_ZONE

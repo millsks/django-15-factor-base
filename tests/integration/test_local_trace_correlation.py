@@ -36,8 +36,6 @@ import pytest
 from django.urls import reverse
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind
 
 from config.observability.telemetry import NONE
@@ -48,6 +46,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from django.test import Client
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 pytestmark = [pytest.mark.integration, pytest.mark.django_db]
 
@@ -116,35 +115,6 @@ def _events(caplog: pytest.LogCaptureFixture, name: str) -> list[dict[str, Any]]
 
     """
     return [record.msg for record in caplog.records if isinstance(record.msg, dict) and record.msg.get("event") == name]
-
-
-@pytest.fixture
-def recorded_spans() -> Iterator[InMemorySpanExporter]:
-    """Record spans from the process-wide tracer provider, then detach.
-
-    Yields:
-        The in-memory exporter collecting spans for the duration of the test.
-
-    """
-    provider = trace.get_tracer_provider()
-    assert isinstance(provider, TracerProvider), (
-        "no SDK tracer provider is installed, so FR-21's non-substitution cannot be observed"
-        + (" -- OTEL_SDK_DISABLED is set" if _sdk_is_disabled() else "")
-    )
-
-    multi_processor = provider._active_span_processor  # noqa: SLF001 - no public detach exists
-    original = getattr(multi_processor, "_span_processors", None)
-    assert original is not None, "OpenTelemetry SDK internals moved; update this fixture's detach"
-
-    exporter = InMemorySpanExporter()
-    processor = SimpleSpanProcessor(exporter)
-    provider.add_span_processor(processor)
-    try:
-        yield exporter
-    finally:
-        multi_processor._span_processors = original  # noqa: SLF001 - restores the state found
-        processor.shutdown()
-        exporter.clear()
 
 
 @pytest.fixture

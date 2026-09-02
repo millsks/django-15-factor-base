@@ -96,7 +96,7 @@ development_status:
   5-7-sessions-are-database-backed-with-the-engine-set-explicitly: done
   epic-5-retrospective: optional
   epic-6: in-progress
-  6-1-correlated-structured-logging-holds-in-every-combination: ready-for-dev
+  6-1-correlated-structured-logging-holds-in-every-combination: done
   6-2-asgi-requests-produce-spans: ready-for-dev
   6-3-trace-export-is-environmental-and-drops-rather-than-retries: ready-for-dev
   6-4-the-otlp-export-path-is-exercised-end-to-end: ready-for-dev

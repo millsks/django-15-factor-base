@@ -34,16 +34,12 @@ import pytest
 from asgiref.sync import async_to_sync
 from django.core.handlers.asgi import ASGIHandler
 from django.urls import reverse
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind
 
 import config.asgi
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 pytestmark = [pytest.mark.integration, pytest.mark.django_db]
 
@@ -185,47 +181,6 @@ def _status_of(messages: list[dict[str, Any]]) -> int:
     assert len(starts) == 1, f"expected one {RESPONSE_START}, got {len(starts)}"
     status: int = starts[0]["status"]
     return status
-
-
-@pytest.fixture
-def recorded_spans() -> Iterator[InMemorySpanExporter]:
-    """Record spans from the process-wide tracer provider, then detach.
-
-    The provider is installed once, when the `config` package is first imported
-    (`config/__init__.py` -> `config.celery_app` -> `configure_observability()`,
-    which pytest-django triggers by loading `config.settings.test`), and cannot
-    be replaced -- `set_tracer_provider` refuses to override. So the exporter is
-    attached to the live provider and the processor list is put back exactly as
-    it was found, leaving no processor behind for later tests.
-
-    A disabled SDK fails here rather than skipping. FR-47 requires the ASGI
-    instrumentor active in every combination, so a run with no provider is a run
-    that does not meet the requirement -- and `tests/unit/test_suite_policy.py`
-    forbids an integration test from dodging the gate it is supposed to fail on.
-
-    Yields:
-        The in-memory exporter collecting spans for the duration of the test.
-
-    """
-    provider = trace.get_tracer_provider()
-    assert isinstance(provider, TracerProvider), (
-        "no SDK tracer provider is installed, so FR-47's instrumentor cannot be observed"
-        + (" -- OTEL_SDK_DISABLED is set" if _sdk_is_disabled() else "")
-    )
-
-    multi_processor = provider._active_span_processor  # noqa: SLF001 - no public detach exists
-    original = getattr(multi_processor, "_span_processors", None)
-    assert original is not None, "OpenTelemetry SDK internals moved; update this fixture's detach"
-
-    exporter = InMemorySpanExporter()
-    processor = SimpleSpanProcessor(exporter)
-    provider.add_span_processor(processor)
-    try:
-        yield exporter
-    finally:
-        multi_processor._span_processors = original  # noqa: SLF001 - restores the state found
-        processor.shutdown()
-        exporter.clear()
 
 
 class TestTheApplicationIsDjangosHandler:
