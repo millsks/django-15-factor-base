@@ -5,7 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2026-08-19
+## [0.1.1] - 2026-09-02
+
+### ⚙️ Miscellaneous Tasks
+
+- **sprint**: Mark story 4.5 done
+
+### ⭐ Features
+
+- **startup**: Assert the authentication surface against an approved allowlist
+- **component**: Declare the component in component.toml
+- **process**: Declare the process model as pixi tasks with its constraints as data
+- **health**: Serve two asymmetric health endpoints
+- **health**: Drain in a defined order on SIGTERM
+- **release**: Make migrations a release-stage step the component never performs
+- **payload**: Run as an arbitrary non-root user, writing nothing outside /tmp
+- **sessions**: Set the session engine explicitly and prune expired state
+- **observability**: Hold correlated structured logging in every combination
+
+### 🐛 Bug Fixes
+
+- **test**: Keep the worker tests off the platforms gunicorn does not build on
+- **test**: Guard the payload image on a Linux-container daemon, not a docker binary
+
+### 🧪 Testing
+
+- **startup**: Prove every forbidden state refuses, and refuses as a refusal
+
+## [0.1.0] - 2026-08-21
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -30,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Record story 2.4's final revision in the spec
 - **story-3.1**: Re-arm after resolving the AD-13 intent gap
 - **sprint**: Mark story 3.7 done
+- **release**: V0.1.0
 
 ### ⭐ Features
 
