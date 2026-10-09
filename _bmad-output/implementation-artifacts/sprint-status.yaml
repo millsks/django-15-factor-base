@@ -99,7 +99,7 @@ development_status:
   6-1-correlated-structured-logging-holds-in-every-combination: done
   6-2-asgi-requests-produce-spans: done
   6-3-trace-export-is-environmental-and-drops-rather-than-retries: done
-  6-4-the-otlp-export-path-is-exercised-end-to-end: ready-for-dev
+  6-4-the-otlp-export-path-is-exercised-end-to-end: done
   6-5-swallowed-cache-failures-become-log-events: ready-for-dev
   6-6-telemetry-overhead-is-measured-once-and-recorded: ready-for-dev
   epic-6-retrospective: optional

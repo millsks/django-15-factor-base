@@ -503,7 +503,7 @@ Three live defects in the reference application were also found and are **not** 
 
 ## Open Items
 
-- **FR-45 — the OTLP export path end-to-end test** against a collector stub, inside every combination's gate. No AD; needs an owner and a stub design.
+- **FR-45 — the OTLP export path end-to-end test** against a collector stub, inside every combination's gate. No AD. Owner: platform engineering (decided 2026-10-09). Stub design: a standard-library `http.server` loopback stub receiving the real `opentelemetry-exporter-otlp-proto-http` POST at `/v1/traces` -- no container, no new dependency. Delivered by Story 6.4.
 - **NFR-6 — telemetry overhead measured once and recorded.** No AD; needs an owner and a milestone.
 - **The enterprise developer portal's order surface.** FR-31's fail-on-missing-fixture rule needs a field list. Until one exists the fixture set covers the AD-25 parameters and the three feature booleans. Owner: portal team.
 - **Coverage measurement excludes the code phase 1 adds.** `pyproject.toml:161` sets `[tool.coverage.run] include = ["src/**"]`, so `tools/materializer/` and `tools/harness/` are unmeasured by default. Adding measurable code outside the measured set without deciding is the silent narrowing CG-1 forbids and AD-20 names as already precedented here. Needs a decision, not a default.

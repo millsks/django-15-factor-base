@@ -188,6 +188,53 @@ and can fire more than once.
 structlog itself is configured from `config/settings/base.py`, because
 `LOGGING` has to be built while settings are being read.
 
+## OTLP export verification
+
+**Owner:** Platform engineering. **Decided:** 2026-10-09 (Story 6.4, FR-45).
+
+Because nothing local configures an endpoint, the branch in
+`configure_telemetry` that attaches `BatchSpanProcessor(OTLPSpanExporter())` is
+the one path no ordinary run reaches. `tests/integration/test_otlp_export.py`
+builds the same processor and exporter pair that branch builds -- independently
+of `configure_telemetry` -- and drives it against a collector stub in
+`tests/integration/otlp_collector.py`.
+
+The stub is a standard-library `http.server.ThreadingHTTPServer` bound to
+`127.0.0.1` on an ephemeral port and served on a daemon thread. It accepts
+`POST /v1/traces`, gunzips the body when `Content-Encoding: gzip`, records the
+path, headers and body, and answers `200` with an empty
+`ExportTraceServiceResponse`; any other path or method is refused. It is loopback only,
+needs no container and adds no dependency: the pinned exporter is
+`opentelemetry-exporter-otlp-proto-http`, which already speaks protobuf over
+HTTP, and the gate runs with no external service.
+
+What the test proves, using the real exporter built from its own environment
+variables behind a real `BatchSpanProcessor`:
+
+- **Serialization** — the captured body decodes as an `ExportTraceServiceRequest`
+  carrying the emitted span's name and attribute, with and without gzip.
+- **Transport** — exactly one `POST` to `/v1/traces` per flush of a single span,
+  with `Content-Type: application/x-protobuf`.
+- **Batching** — five spans over a `max_export_batch_size` of two arrive across
+  several requests, none lost and none repeated.
+
+What it deliberately does not prove:
+
+- compatibility with a real collector, or with any particular backend;
+- the gRPC exporter, which is not a dependency;
+- retry and backoff against a failing or unreachable collector;
+- TLS or authentication headers;
+- that `configure_telemetry` *selects* this path, or constructs the exporter
+  it attaches — Story 6.3's tests in `tests/unit/test_telemetry.py` cover
+  selection and the processor's types, and this test never calls
+  `configure_telemetry` or installs a global tracer provider.
+
+The test is unconditional and `core`: the OpenTelemetry API, SDK and HTTP
+exporter are all in `pixi.toml`'s unconditional `[dependencies]`, and nothing
+skips it. Running it inside every combination's gate completes in Epic 8, which
+builds the six-combination harness; being unconditional is what lets that gate
+run it without special-casing.
+
 ## Adding metrics or OTLP logs later
 
 Both are additive and need no restructuring:
