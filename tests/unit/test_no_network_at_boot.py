@@ -8,15 +8,12 @@ seeding suite, in `tests/integration/test_local_dev_seeding.py`, because it
 needs a real database.
 
 **What this module does not claim.** Environment installation downloads packages
-by definition; the claim begins once the environment exists. And it is not
-absolute even then: `OTEL_TRACES_EXPORTER=otlp` set by hand with no endpoint
-configured attaches a batch processor to an exporter that defaults to
-`http://localhost:4318`. The attachment is what `configure_observability()`
-does; the outbound connection is made by the exporter's own background thread
-shortly after boot. That is a deliberate opt-in, documented at
-`docs/development.md` under "Running with no external services", and the one
-supported way to make boot reach the network -- which is why the boot probe
-excludes it from the child's environment rather than inheriting it.
+by definition; the claim begins once the environment exists. Nor does it cover
+a configured OTLP endpoint: that is the deployed configuration, and export then
+reaches the collector by design. `OTEL_TRACES_EXPORTER=otlp` set by hand with no
+endpoint is *not* an exception -- it resolves to `none` and logs a warning
+(`tests/unit/test_telemetry.py`), so no batch processor is attached to the SDK's
+`http://localhost:4318` default.
 
 **Why the boot assertion is a subprocess.** `tests/unit/conftest.py` says unit
 tests touch no database, no network and no filesystem, and the boot probe is not
@@ -322,11 +319,12 @@ def _boot_probe_env() -> dict[str, str]:
     rather than whatever the developer's shell happens to export. Two of them
     would otherwise decide the verdict: `OTEL_SDK_DISABLED` installs no provider
     and would fail the tracer-provider assertion with a diagnosis about
-    `configure_observability()` that is simply wrong, and `OTEL_TRACES_EXPORTER`
-    set to `otlp` takes the opt-in this module documents as the one supported way
-    to make boot reach the network -- the documented exception, not a regression
-    for the child to discover. Everything else is inherited, `COMPONENT_RUNTIME`
-    included, so what boots is what a developer's `pixi run manage` boots.
+    `configure_observability()` that is simply wrong, and an endpoint variable
+    would attach a real exporter. `OTEL_TRACES_EXPORTER` no longer decides it --
+    `otlp` without an endpoint resolves to `none` -- but it is still scrubbed so
+    the child's output carries no downgrade warning the shell put there.
+    Everything else is inherited, `COMPONENT_RUNTIME` included, so what boots is
+    what a developer's `pixi run manage` boots.
 
     Returns:
         A copy of the current environment with those adjustments.

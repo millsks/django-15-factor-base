@@ -428,9 +428,10 @@ they end. Three consequences follow, and each of them is tested:
 - **Spans are discarded at the processor.** No endpoint means no span processor
   is attached, and that absence is the discard. Nothing in the default
   configuration points a batch processor at a collector that is not there, so no
-  retry cycle floods stderr through a test run. (Setting
-  `OTEL_TRACES_EXPORTER=otlp` by hand with no endpoint is the deliberate opt-in
-  that does attach one.)
+  retry cycle floods stderr through a test run. That includes setting
+  `OTEL_TRACES_EXPORTER=otlp` by hand with no endpoint: it resolves to `none`
+  and logs `telemetry.otlp_exporter_without_endpoint` instead of attaching a
+  batch processor.
 - **`OTEL_TRACES_EXPORTER=console` attaches a console exporter**, which prints
   spans to stdout, and changes nothing else: the same instrumentors, the same
   resource, the same log lines.
@@ -499,15 +500,13 @@ index.
 downloads packages by definition — `pixi install` is out of scope for it, and so
 is anything else that resolves or fetches a dependency.
 
-**One deliberate opt-in breaks it, and it is the one documented above:** setting
-`OTEL_TRACES_EXPORTER=otlp` by hand with no endpoint configured attaches a batch
-processor to an exporter that defaults to `http://localhost:4318`. The
-attachment is what happens at `configure_observability()` time; the outbound
-connection is made by the exporter's own background thread shortly after boot.
-That is a choice, not the default — see
-[Running with no external services](#running-with-no-external-services) above,
-where the same exception is stated as the reason nothing points a batch
-processor at a collector that is not there.
+**Setting `OTEL_TRACES_EXPORTER=otlp` by hand does not break it.** With no
+endpoint configured, the explicit `otlp` resolves to `none` and logs
+`telemetry.otlp_exporter_without_endpoint`, so no batch processor is attached
+to an exporter defaulting to `http://localhost:4318` — see
+[Running with no external services](#running-with-no-external-services) above.
+Configuring an endpoint is what makes export reach the network, and it does
+so by design: that is a collector someone chose to point at.
 
 `tests/unit/test_no_network_at_boot.py` is what holds this. It boots the
 component in a fresh interpreter with `socket.socket.connect`,
