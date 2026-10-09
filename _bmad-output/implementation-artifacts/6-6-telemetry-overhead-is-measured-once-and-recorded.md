@@ -62,6 +62,15 @@ so that the claim that it is acceptable rests on a number.
 
 ## Dev Notes
 
+### Human-supplied decisions (2026-10-09)
+
+Supplied by the human running the work before implementation, satisfying Task 1's precondition. These are not inferences.
+
+- **Owner:** Platform engineering.
+- **Milestone:** Before the v0.2.0 release.
+- Record both, with the date, in the `## Instrumentation overhead` section of `docs/observability.md`.
+- **Spine update:** already done in its own commit on this branch (`docs(architecture): name the owner and milestone for the NFR-6 open item`). Do not edit `ARCHITECTURE-SPINE.md` again.
+
 ### Architecture Constraints
 
 - **NFR-6** — "Telemetry overhead is measured, not assumed — measured once against the reference application, recorded with the observability documentation, re-measured only when the instrumentation set changes." No AD covers it. The spine records it as an Open Item needing an owner and a milestone, and this story is where that is answered or escalated.
