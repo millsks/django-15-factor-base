@@ -160,6 +160,7 @@ The Structural Seed puts observability at `src/config/observability/` and this s
   - `METHOD_ATTRIBUTES` replaced with a bogus key, to read the real span's attribute set out of the failure rather than trust a reading of the installed source.
   - `opentelemetry-instrumentation-asgi` moved from `[dependencies]` into `[feature.dev.dependencies]` in `pixi.toml`. **Both** new dependency tests failed, naming the offending table; `pixi.toml` was restored with `git checkout --` and re-verified clean.
 - No PostgreSQL run. This project's rule is that schema changes and tests persisting externally-supplied values need a real PG17 run before the sqlite gate is trusted; this story adds neither. The one route it drives is an anonymous `GET` of `account_login`, which writes nothing.
+- **Corrected after the PR's CI gate failed on PostgreSQL 17.** The skip reasoning above was wrong: the route writes nothing, but driving `config.asgi.application` inside a `django_db` test fires `request_started` -> `close_old_connections`, which closes the non-autocommit test connection, so `account_login`'s first query 500s. sqlite hid it because Django never closes an in-memory database. `drive_asgi` now detaches that handler for the drive, as `django.test.Client` does. Reproduced on PG17 (3 failed), fixed (1551 passed, 97.04%). Any test that drives the ASGI callable into a view that queries needs a PG run.
 
 ### Completion Notes List
 
@@ -244,6 +245,7 @@ passed on a 404. **5 deferred**, **11 rejected**. No intent gaps, no spec repair
   - `METHOD_ATTRIBUTES` replaced with a bogus key → read the real span's attribute set out of the failure, confirming **`http.method`** (old semconv, `_StabilityMode.DEFAULT`) with `http.request.method` absent.
 - `TestTheAsgiRequestsLogLineNamesTheSameTrace` run in isolation — failed before the import hoist, passes after.
 - No PostgreSQL run: this project requires one for schema changes and for tests persisting externally-supplied values. This story adds neither; the single route it drives is an anonymous `GET`.
+- **Corrected after the PR's CI gate failed on PostgreSQL 17.** The skip reasoning above was wrong: the route writes nothing, but driving `config.asgi.application` inside a `django_db` test fires `request_started` -> `close_old_connections`, which closes the non-autocommit test connection, so `account_login`'s first query 500s. sqlite hid it because Django never closes an in-memory database. `drive_asgi` now detaches that handler for the drive, as `django.test.Client` does. Reproduced on PG17 (3 failed), fixed (1551 passed, 97.04%). Any test that drives the ASGI callable into a view that queries needs a PG run.
 
 ### Residual risks
 

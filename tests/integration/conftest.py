@@ -10,6 +10,9 @@ from typing import Any
 
 import pytest
 from asgiref.sync import async_to_sync
+from django.core.signals import request_finished
+from django.core.signals import request_started
+from django.db import close_old_connections
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -183,6 +186,12 @@ def drive_asgi() -> Callable[[str], list[dict[str, Any]]]:
     imported from a test module and the second copy of this driver is what the
     deferred-work ledger already records as belonging here.
 
+    `close_old_connections` is detached from the request signals for the drive,
+    as `django.test.Client` does. Inside a `django_db` test the connection is in
+    a non-autocommit transaction, so that handler closes it mid-request and the
+    first query 500s on PostgreSQL. sqlite never shows this: Django will not
+    close an in-memory database.
+
     Returns:
         A callable taking a request path and returning every ASGI message the
         application sent, in order.
@@ -190,7 +199,13 @@ def drive_asgi() -> Callable[[str], list[dict[str, Any]]]:
     """
 
     def drive(path: str) -> list[dict[str, Any]]:
-        messages: list[dict[str, Any]] = async_to_sync(_drive_scope)(_http_scope(path))
+        request_started.disconnect(close_old_connections)
+        request_finished.disconnect(close_old_connections)
+        try:
+            messages: list[dict[str, Any]] = async_to_sync(_drive_scope)(_http_scope(path))
+        finally:
+            request_started.connect(close_old_connections)
+            request_finished.connect(close_old_connections)
         return messages
 
     return drive
