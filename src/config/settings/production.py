@@ -44,6 +44,15 @@ CACHES = {
         },
     },
 }
+# IGNORE_EXCEPTIONS stays True: a cache outage must degrade the component, not
+# stop it. But django-redis then swallows the failure without a trace unless
+# told to log it, and nothing here is swallowed silently. `django_service.cache`
+# is a child of the configured `django_service` logger, so the ERROR record is
+# levelled with the component's own output and gains request_id/trace_id/span_id
+# from the stdlib formatter's foreign_pre_chain.
+# https://github.com/jazzband/django-redis#log-ignored-exceptions
+DJANGO_REDIS_LOG_IGNORED_EXCEPTIONS = True
+DJANGO_REDIS_LOGGER = "django_service.cache"
 
 # SECURITY
 # ------------------------------------------------------------------------------

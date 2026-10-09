@@ -235,6 +235,39 @@ skips it. Running it inside every combination's gate completes in Epic 8, which
 builds the six-combination harness; being unconditional is what lets that gate
 run it without special-casing.
 
+## Cache degradation is logged
+
+Where the Redis feature is selected (four of the six combinations), the deployed
+cache is `django_redis` with `IGNORE_EXCEPTIONS` on, so a Redis outage degrades
+the component rather than stopping it: a failed read returns the default and a
+failed write is dropped. Ignoring the failure is not the same as hiding it.
+`config/settings/production.py` also sets:
+
+```python
+DJANGO_REDIS_LOG_IGNORED_EXCEPTIONS = True
+DJANGO_REDIS_LOGGER = "django_service.cache"
+```
+
+so every ignored failure is logged at `ERROR` on `django_service.cache`, with the
+traceback. That logger is a child of the configured `django_service` logger, and
+the record passes the same `foreign_pre_chain` as every other stdlib record, so
+it carries the `request_id`, `trace_id` and `span_id` of the request it happened
+in. Nothing is swallowed silently. This is the project standard applied to a
+third-party default: never `except X: pass`, log or re-raise. django-redis's
+default is exactly that silent `except`, which is why the default is not used.
+
+Two limits. Degradation is prompt only when the failure is: production sets no
+socket timeout on the Redis client, so a host that drops packets rather than
+refusing the connection blocks each cache call for the operating system's TCP
+timeout. And nothing in `src/` performs a cache operation today, so this is in
+place for the first code that does, rather than for a caller that exists.
+
+Local and test runs use `LocMemCache`, which cannot lose a connection and has
+nothing to swallow, so the two settings are not set there.
+`tests/integration/test_cache_degradation.py` drives a request against an
+unreachable Redis and asserts both halves: the call returns `None`, and exactly
+one correlated `ERROR` line is emitted.
+
 ## Adding metrics or OTLP logs later
 
 Both are additive and need no restructuring:
