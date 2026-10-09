@@ -268,6 +268,128 @@ nothing to swallow, so the two settings are not set there.
 unreachable Redis and asserts both halves: the call returns `None`, and exactly
 one correlated `ERROR` line is emitted.
 
+## Instrumentation overhead
+
+Instrumentation is always on. It is never conditionally disabled to gain
+performance — not per environment, not per route, not behind a flag — so its
+cost is something to know, not something to switch off. NFR-6 asks for that
+cost to be measured rather than assumed, measured once, and recorded here.
+
+**Owner:** Platform engineering. **Milestone:** before the v0.2.0 release. Both
+named 2026-10-09.
+
+### The measurement
+
+Measured 2026-10-09 with `pixi run bench-telemetry` at its defaults, against
+`GET /accounts/login/` (`reverse("account_login")`) through Django's test client:
+
+| Arm | Median | p95 |
+| --- | --- | --- |
+| Baseline (uninstrumented) | 1.946 ms | 2.563 ms |
+| Instrumented, export disabled | 2.053 ms | 3.428 ms |
+| **Delta** | **+0.107 ms (+5.5%)** | **+0.864 ms (+33.7%)** |
+
+- **Sample size:** 10,000 measured requests per arm — 10 rounds, one child
+  process per arm per round, 1,000 measured requests per child after a
+  discarded warm-up of 200.
+- **Machine:** Apple M4 laptop, 10 cores, 24 GB, macOS 26.2 (arm64).
+- **Software:** Python 3.14.6, Django 5.2.15, OpenTelemetry SDK 1.44.0,
+  `opentelemetry-instrumentation-django` 0.65b0.
+- **Settings and database:** `config.settings.test`, sqlite (a throwaway file
+  the harness creates and migrates per child).
+
+The median is the figure to read: about a tenth of a millisecond per request,
+the cost of creating, populating and ending one `SERVER` span plus the
+middleware that does it. The p95 delta is larger and much noisier — an earlier
+run on the same machine the same day gave +44% — because the tail collects
+allocation and garbage-collection pauses that span objects add to. Treat it as
+an order of magnitude, not a constant.
+
+### The instrumentation set measured
+
+The re-measure rule below is defined against exactly this list:
+
+- `DjangoInstrumentor`, `PsycopgInstrumentor` — `core`, present in every
+  combination.
+- `CeleryInstrumentor`, `RedisInstrumentor` — feature-owned. The reference
+  application selects both features, so it carries the superset a component can
+  carry.
+- `opentelemetry-instrumentation-asgi` — present (see the warning under
+  [What is instrumented](#what-is-instrumented)).
+- Pinned in `pixi.toml`'s `[dependencies]`: `opentelemetry-api`,
+  `opentelemetry-sdk` and `opentelemetry-exporter-otlp-proto-http` at
+  `>=1.44,<2`; `opentelemetry-instrumentation-django`, `-asgi`, `-celery`,
+  `-psycopg` and `-redis` at `>=0.65b0`.
+
+### When it is re-measured
+
+It is re-measured when the instrumentation set changes, and not otherwise; the
+test pin's failure is the trigger.
+`TestInstrumentationSet` in `tests/unit/test_telemetry.py` asserts the
+instrumentors `config.observability.telemetry` imports, derived from the
+features `component.toml` selects. Adding, removing or replacing one fails it
+with a message naming this section and `pixi run bench-telemetry`. A dependency
+bump, a new route, or a different machine is not a trigger.
+
+### Method
+
+`tools/telemetry_overhead.py` spawns one child process per arm per round,
+alternating which arm runs first so ordering and thermal drift fall on both
+arms equally, and pools each arm's samples. Each request is timed with
+`time.perf_counter_ns`; the median and nearest-rank p95 are reported per arm,
+with the delta as an absolute figure and a percentage. The result is one
+`telemetry_overhead.result` structlog event, and `--json-out <path>` also
+writes it as JSON.
+
+- **Instrumented arm.** What every process runs, with export disabled: the three
+  exporter variables (`OTEL_EXPORTER_OTLP_ENDPOINT`,
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_TRACES_EXPORTER`) are stripped from
+  the child's environment, so `resolve_traces_exporter()` answers `none` and no
+  span processor is attached. The child asserts both. Spans are still created
+  and ended; only the network is missing, which is the cost NFR-6 isolates.
+- **Baseline arm — not `OTEL_SDK_DISABLED`.** The kill switch is stage-1
+  refusal condition 3; a benchmark built on it would break the moment that
+  refusal applies. The harness refuses to run at all when the variable is set,
+  with any value.
+- **Baseline arm — uninstrument, not skip.** `configure_observability()` cannot
+  be skipped without changing production code: `config/__init__.py` imports
+  `config.celery_app`, which calls it, so importing settings installs
+  instrumentation. The baseline child instead calls `.uninstrument()` on every
+  instrumentor after `django.setup()` and before the first request, and checks
+  that each reports itself uninstrumented and that the OpenTelemetry middleware
+  has left `settings.MIDDLEWARE`.
+- **Database.** Each child sets `DATABASE_URL` to its own temporary sqlite file
+  and removes `DJANGO_READ_DOT_ENV_FILE`, so neither a developer's database nor
+  a `.env` is touched.
+
+Limits of the method:
+
+- The tracer provider stays installed in both arms (`trace.set_tracer_provider`
+  is set-once), and the log processors that read the current span run in both,
+  so neither is in the delta.
+- The database is sqlite, so the Psycopg instrumentor never sees a query, and
+  the route makes no cache call and queues no task, so the Redis and Celery
+  instrumentors are installed but not exercised. The delta is dominated by the
+  Django request span; a route that runs PostgreSQL queries, cache calls or
+  tasks adds a span for each.
+- The test client drives the WSGI handler in-process: no server, no network, no
+  ASGI path. Production serves through uvicorn (ASGI).
+- One machine, one day, one route. The figure says what the instrumentation
+  costs relative to a ~2 ms request; it is not a production latency budget.
+
+To reproduce: `pixi run bench-telemetry`, optionally with `--rounds`,
+`--requests`, `--warmup`, `--settings` or `--json-out`. It runs in about a
+minute, is not part of `pixi run ci`, and never will be — a benchmark inside the
+gate would make the gate non-deterministic.
+
+### Disposition
+
+This page is component-facing: it describes what a materialized component runs,
+so under NFR-8 it travels with the component. The harness,
+`tools/telemetry_overhead.py`, is `machinery` and does not. Declaring the
+`docs/` disposition split is Epic 8's work (FR-37); this is a note for it, not
+a declaration.
+
 ## Adding metrics or OTLP logs later
 
 Both are additive and need no restructuring:

@@ -608,6 +608,10 @@ docs = { cmd = "mkdocs build --strict", default-environment = "dev", description
 docs-serve = { cmd = "mkdocs serve", default-environment = "dev", description = "Serve the documentation with live reload" }
 changelog = { cmd = "git cliff -o CHANGELOG.md", default-environment = "dev", description = "Regenerate CHANGELOG.md with git-cliff" }
 precommit = { cmd = "pre-commit run --all-files", default-environment = "dev", description = "Run every pre-commit hook over the repository" }
+# NFR-6's measurement: run once, and again only when the instrumentation set
+# changes (tests/unit/test_telemetry.py's pin is the trigger). Deliberately not
+# in `ci` -- a benchmark inside the gate would make the gate non-deterministic.
+bench-telemetry = { cmd = "python tools/telemetry_overhead.py", default-environment = "dev", description = "Measure instrumentation overhead per request (NFR-6)" }
 
 # ---- The gate ----
 # `gate` is a feature with no dependencies of its own. It exists so that `ci` is
