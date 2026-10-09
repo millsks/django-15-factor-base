@@ -66,6 +66,14 @@ so that the one path carrying telemetry off a component is not the one path noth
 
 ## Dev Notes
 
+### Human-supplied decisions (2026-10-09)
+
+Supplied by the human running the work before implementation, satisfying Task 1's precondition. These are not inferences.
+
+- **Owner:** Platform engineering. Record exactly this in the `## OTLP export verification` section of `docs/observability.md`.
+- **Stub shape:** standard-library `http.server` loopback stub receiving the real `opentelemetry-exporter-otlp-proto-http` POST at `/v1/traces`, as Task 1's recorded reasoning proposes. No container, no new dependency.
+- **Spine update:** already done in its own commit on this branch (`docs(architecture): name the owner and stub design for the FR-45 open item`). Do not edit `ARCHITECTURE-SPINE.md` again.
+
 ### Architecture Constraints
 
 - **Spine → Open Items** — "FR-45 — the OTLP export path end-to-end test against a collector stub, inside every combination's gate. **No AD; needs an owner and a stub design.**" There is no architectural decision to conform to. The stub design in Task 3 is a *proposal this story must get ratified by the named owner*, not a decision already made. If the owner chooses differently, the ACs still stand and the tasks change.
