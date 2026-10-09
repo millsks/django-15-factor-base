@@ -9,6 +9,8 @@ test session.
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -20,6 +22,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.export import ConsoleSpanExporter
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
+from config.component import load_component_declaration
 from config.observability import telemetry
 from config.observability.telemetry import CONSOLE
 from config.observability.telemetry import NONE
@@ -443,3 +446,64 @@ class TestConfigureTelemetry:
 
         assert constructed_exporters == []
         assert has_span_processor(installed_provider[0]) is False
+
+
+#: The instrumentors every combination carries (`core`). Celery's and Redis's are
+#: feature-owned: their imports leave `telemetry.py` with the feature, so they are
+#: expected only where `component.toml` selects it.
+CORE_INSTRUMENTORS = {"DjangoInstrumentor", "PsycopgInstrumentor"}
+FEATURE_INSTRUMENTORS = {"celery": "CeleryInstrumentor", "redis": "RedisInstrumentor"}
+
+#: The one module allowed to install instrumentation. Pinning names in its
+#: namespace proves nothing if a second module can instrument the stack too.
+SRC_ROOT = Path(telemetry.__file__).resolve().parents[2]
+TELEMETRY_MODULE = Path(telemetry.__file__).resolve()
+
+STALE_MEASUREMENT = (
+    "The instrumentation set changed, so NFR-6's measurement is stale: re-run "
+    "`pixi run bench-telemetry` and update the `## Instrumentation overhead` section "
+    "of docs/observability.md, then update this pin."
+)
+
+
+def _imports_instrumentation(source: str) -> bool:
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("opentelemetry.instrumentation"):
+            return True
+        if isinstance(node, ast.Import) and any(
+            alias.name.startswith("opentelemetry.instrumentation") for alias in node.names
+        ):
+            return True
+    return False
+
+
+class TestInstrumentationSet:
+    def test_instrumentation_set_is_the_one_nfr_6_was_measured_against(self):
+        """AC #2 of Story 6.6: a changed instrumentation set makes the measurement stale.
+
+        This failure is the *only* trigger for re-measuring NFR-6's overhead; an
+        unchanged set is never re-measured. The expected names are derived from
+        the selected features rather than hardcoded, so a materialized component
+        that pruned Celery or Redis -- and with it the instrumentor's import --
+        still pins exactly what it carries.
+        """
+        selected = load_component_declaration().selected_features
+        expected = CORE_INSTRUMENTORS | {name for feature, name in FEATURE_INSTRUMENTORS.items() if feature in selected}
+        actual = {name for name in dir(telemetry) if name.endswith("Instrumentor")}
+
+        assert sorted(actual) == sorted(expected), STALE_MEASUREMENT
+
+    def test_no_other_module_installs_instrumentation(self):
+        """The pin above reads one module; this keeps that module the only installer.
+
+        An instrumentor wired up anywhere else in `src/` -- the ASGI middleware in
+        `config.asgi`, a storage instrumentor in its own app -- would grow the
+        measured set without changing `telemetry`'s namespace.
+        """
+        installers = sorted(
+            str(path.relative_to(SRC_ROOT))
+            for path in SRC_ROOT.rglob("*.py")
+            if _imports_instrumentation(path.read_text(encoding="utf-8"))
+        )
+
+        assert installers == [str(TELEMETRY_MODULE.relative_to(SRC_ROOT))], STALE_MEASUREMENT
