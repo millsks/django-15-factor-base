@@ -41,7 +41,7 @@ All standard OpenTelemetry variables apply. The ones that matter most:
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Where spans are sent. Unset means spans are created but not exported. |
-| `OTEL_TRACES_EXPORTER` | `otlp` when an endpoint is set, else `none` | `otlp`, `console` or `none`. |
+| `OTEL_TRACES_EXPORTER` | `otlp` when an endpoint is set, else `none` | `otlp`, `console` or `none`. `otlp` requires an endpoint: set without one, it resolves to `none` and logs a warning. |
 | `OTEL_SERVICE_NAME` | `django-15-factor-base` | `service.name` on the resource. |
 | `OTEL_SDK_DISABLED` | `false` | Turns tracing off entirely, per the OTel spec. |
 | `COMPONENT_RUNTIME` | unset — the `dev` pixi environment sets `local`, so every `pixi run` path is local | Reported as `deployment.environment`, which takes exactly two values: `local` when this variable is `local` (after stripping and lowercasing), and `deployed` otherwise. This attribute previously mirrored `DJANGO_ENV` and could carry a tier name such as `staging`; a dashboard or alert keyed on those values needs updating. |
@@ -59,6 +59,7 @@ processor is attached **only** when an endpoint is configured:
 | Endpoint set | on | OTLP | yes |
 | Endpoint unset | on | dropped | yes |
 | `OTEL_TRACES_EXPORTER=console` | on | stdout | yes |
+| `OTEL_TRACES_EXPORTER=otlp`, endpoint unset | on | dropped, with a warning | yes |
 | `OTEL_SDK_DISABLED=true` | off | none | no |
 
 Instrumentation is installed either way, which is why `trace_id` appears in the
@@ -77,11 +78,17 @@ and their `SpanContext` is live for the whole span, which is what keeps
 condition that turns instrumentation off is `OTEL_SDK_DISABLED`, and nothing in
 this repository sets or defaults it.
 
-Setting `OTEL_TRACES_EXPORTER=otlp` explicitly is the one way to attach a batch
-processor without configuring an endpoint: the explicit choice is honoured, and
-the exporter then falls back to the SDK's own default endpoint. That is a
-deliberate opt-in, not a default anything reaches by accident — the *unset* case
-resolves to `none`.
+Setting `OTEL_TRACES_EXPORTER=otlp` explicitly does not get around this. With
+neither `OTEL_EXPORTER_OTLP_ENDPOINT` nor `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
+set, the explicit choice resolves to `none` rather than letting the exporter
+fall back to the SDK's default `http://localhost:4318`, and one warning is
+logged, `telemetry.otlp_exporter_without_endpoint`, naming all three variables
+so the operator who set it learns why nothing is exporting. It is a warning and
+not a refusal: the component degrades through the misconfiguration rather than
+failing to start. `console` and `none` are honoured as set, since neither
+reaches the network. Whether a configured endpoint is actually *reachable* is
+not checked — startup makes no network call — so "an endpoint is configured" is
+the whole rule.
 
 ## Seeing it work
 

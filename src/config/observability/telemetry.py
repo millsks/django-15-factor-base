@@ -8,14 +8,17 @@ Tracing is always wired in; only *export* is conditional. Registering a
 `BatchSpanProcessor` whose collector is unreachable makes the exporter retry on
 every cycle and flood stderr, which would happen on every test run and every
 `runserver`. So the OTLP processor is attached only when an endpoint is
-configured. Instrumentation stays active either way, so `trace_id` still
-reaches the logs with no collector present.
+configured. That holds for an explicit `OTEL_TRACES_EXPORTER=otlp` too: with
+no endpoint it resolves to `none` and logs one warning rather than letting the
+SDK default to `localhost:4318`. Instrumentation stays active either way, so
+`trace_id` still reaches the logs with no collector present.
 """
 
 from __future__ import annotations
 
 import os
 
+import structlog
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.celery import CeleryInstrumentor
@@ -50,6 +53,8 @@ _DISABLED_VALUES = frozenset({"true", "1", "yes"})
 
 _configured = False
 
+logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
 
 def otel_sdk_is_disabled() -> bool:
     """Report whether this component has opted out of the OpenTelemetry SDK.
@@ -79,12 +84,17 @@ def otel_sdk_is_disabled() -> bool:
 def _has_otlp_endpoint() -> bool:
     """Report whether an OTLP endpoint is configured.
 
+    A whitespace-only value is not an endpoint: it would select OTLP and hand
+    the exporter a URL that points at nothing, the case this rule exists for.
+
     Returns:
-        True when either the general or traces-specific endpoint is set.
+        True when either the general or traces-specific endpoint is set to a
+        non-blank value.
 
     """
-    return bool(
-        os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
+    return any(
+        os.environ.get(name, "").strip()
+        for name in ("OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
     )
 
 
@@ -117,18 +127,33 @@ def build_resource(service_version: str | None = None) -> Resource:
 def resolve_traces_exporter() -> str:
     """Decide how spans should leave the process.
 
-    Honours `OTEL_TRACES_EXPORTER`. The default is OTLP, but only when an
-    endpoint is actually configured -- otherwise the exporter would retry
-    against nothing on every export cycle.
+    OTLP is chosen only when an endpoint is actually configured -- otherwise the
+    exporter would fall back to the SDK's `localhost:4318` default and retry
+    against nothing on every export cycle. That rule binds an explicit
+    `OTEL_TRACES_EXPORTER=otlp` as well: with neither endpoint variable set it
+    resolves to `none` and logs `telemetry.otlp_exporter_without_endpoint`, a
+    warning rather than a refusal, because this is a misconfiguration the
+    component degrades through, not a forbidden one. `console` and `none` are
+    honoured unconditionally, since neither reaches the network. Any other
+    value falls back to the endpoint rule.
 
     Returns:
         One of `otlp`, `console` or `none`.
 
     """
     configured = os.environ.get("OTEL_TRACES_EXPORTER", "").strip().lower()
-    if configured in {CONSOLE, NONE, OTLP}:
+    if configured in {CONSOLE, NONE}:
         return configured
-    return OTLP if _has_otlp_endpoint() else NONE
+    if _has_otlp_endpoint():
+        return OTLP
+    if configured == OTLP:
+        logger.warning(
+            "telemetry.otlp_exporter_without_endpoint",
+            exporter_variable="OTEL_TRACES_EXPORTER",
+            endpoint_variables=["OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"],
+            resolved_exporter=NONE,
+        )
+    return NONE
 
 
 def has_span_processor(provider: TracerProvider) -> bool:

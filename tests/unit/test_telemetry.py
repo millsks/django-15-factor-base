@@ -9,7 +9,12 @@ test session.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+from typing import Any
+
 import pytest
+import structlog
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.export import ConsoleSpanExporter
@@ -24,6 +29,9 @@ from config.observability.telemetry import configure_telemetry
 from config.observability.telemetry import has_span_processor
 from config.observability.telemetry import reset_telemetry_for_testing
 from config.observability.telemetry import resolve_traces_exporter
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 SCRUBBED_VARS = (
     "OTEL_SDK_DISABLED",
@@ -41,6 +49,20 @@ SCRUBBED_VARS = (
 )
 
 INSTRUMENTED_NAMES = ["Celery", "Django", "Psycopg", "Redis"]
+
+ENDPOINT_VARS = ("OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+
+#: The general variable is a base URL the SDK appends `/v1/traces` to; the
+#: traces-specific one is used as given.
+ENDPOINT_VALUES = {
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4318",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4318/v1/traces",
+}
+
+DOWNGRADE_EVENT = "telemetry.otlp_exporter_without_endpoint"
+
+#: Emitted by `captured_events` to prove the capture can see anything at all.
+_CAPTURE_CONTROL = "telemetry.capture-control"
 
 
 @pytest.fixture(autouse=True)
@@ -89,9 +111,60 @@ def no_side_effects(monkeypatch: pytest.MonkeyPatch, installed_provider: list[Tr
     return installed
 
 
+@pytest.fixture
+def captured_events(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[dict[str, Any]]]:
+    """Capture what the telemetry module logs, independent of what ran before.
+
+    The module binds its logger at module scope and structlog is configured with
+    `cache_logger_on_first_use`, so a logger frozen against an earlier processor
+    list would leave `capture_logs` blind. A fresh proxy is installed first, and
+    a control event proves the capture is live before the case relies on it --
+    the pattern `tests/unit/test_health_views.py` documents in full.
+    """
+    monkeypatch.setattr(telemetry, "logger", structlog.get_logger(telemetry.__name__))
+    with structlog.testing.capture_logs() as captured:
+        telemetry.logger.warning(_CAPTURE_CONTROL)
+        assert [event["event"] for event in captured] == [_CAPTURE_CONTROL], (
+            "structlog.testing.capture_logs() cannot see config.observability.telemetry's logger"
+        )
+        captured.clear()
+        yield captured
+
+
+@pytest.fixture
+def constructed_exporters(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace both exporter classes with stubs that record their construction."""
+    constructed: list[str] = []
+    for name in ("OTLPSpanExporter", "ConsoleSpanExporter"):
+        monkeypatch.setattr(telemetry, name, lambda name=name: constructed.append(name))
+    return constructed
+
+
+def _processors(provider: TracerProvider) -> tuple[Any, ...]:
+    """Return the span processors attached to `provider`."""
+    return provider._active_span_processor._span_processors  # noqa: SLF001 - no public accessor
+
+
 class TestResolveTracesExporter:
-    def test_none_when_no_endpoint_is_configured(self):
-        """The default path: no collector, so nothing is exported."""
+    def test_none_when_no_endpoint_is_configured(self, captured_events: list[dict[str, Any]]):
+        """The default path: no collector, so nothing is exported -- silently.
+
+        The downgrade warning is for an operator who asked for `otlp`; the
+        ambient local state never asked, so it must not warn on every boot.
+        """
+        assert resolve_traces_exporter() == NONE
+        assert captured_events == []
+
+    @pytest.mark.parametrize("blank", ["", " ", "\t"])
+    @pytest.mark.parametrize("endpoint_var", ENDPOINT_VARS)
+    def test_a_blank_endpoint_is_not_an_endpoint(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        endpoint_var: str,
+        blank: str,
+    ):
+        """A blank value would otherwise select OTLP against a URL that is not there."""
+        monkeypatch.setenv(endpoint_var, blank)
         assert resolve_traces_exporter() == NONE
 
     def test_otlp_when_endpoint_is_configured(self, monkeypatch: pytest.MonkeyPatch):
@@ -108,18 +181,69 @@ class TestResolveTracesExporter:
         )
         assert resolve_traces_exporter() == OTLP
 
-    @pytest.mark.parametrize("value", [CONSOLE, NONE, OTLP])
-    def test_explicit_choice_is_honoured(
+    @pytest.mark.parametrize("value", [CONSOLE, NONE])
+    def test_explicit_console_or_none_is_honoured_without_an_endpoint(
         self,
         monkeypatch: pytest.MonkeyPatch,
         value: str,
+        captured_events: list[dict[str, Any]],
     ):
+        """Neither reaches the network, so neither is gated on an endpoint."""
         monkeypatch.setenv("OTEL_TRACES_EXPORTER", value.upper())
         assert resolve_traces_exporter() == value
+        assert captured_events == []
 
-    def test_unknown_value_falls_back(self, monkeypatch: pytest.MonkeyPatch):
+    @pytest.mark.parametrize("endpoint_var", ENDPOINT_VARS)
+    def test_explicit_otlp_is_honoured_with_either_endpoint(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        endpoint_var: str,
+        captured_events: list[dict[str, Any]],
+    ):
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "OTLP")
+        monkeypatch.setenv(endpoint_var, "http://collector:4318")
+        assert resolve_traces_exporter() == OTLP
+        assert captured_events == []
+
+    def test_explicit_otlp_without_an_endpoint_downgrades_and_warns(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        captured_events: list[dict[str, Any]],
+    ):
+        """AC #3: an explicit `otlp` cannot point the exporter at nothing.
+
+        Without this rule the SDK would default to `localhost:4318` and retry
+        against it every export cycle. "Unreachable" is not determinable at
+        startup -- NFR-1 forbids a network call there -- so the startup-observable
+        proxy for an unreachable endpoint is *no endpoint configured*, and that is
+        what is asserted. The downgrade warns rather than raises: it is a
+        misconfiguration the component degrades through, not a refusal.
+        """
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", OTLP)
+        assert resolve_traces_exporter() == NONE
+
+        assert len(captured_events) == 1
+        event = captured_events[0]
+        assert event["event"] == DOWNGRADE_EVENT
+        assert event["log_level"] == "warning"
+        assert event["exporter_variable"] == "OTEL_TRACES_EXPORTER"
+        assert event["endpoint_variables"] == list(ENDPOINT_VARS)
+        assert event["resolved_exporter"] == NONE
+
+    def test_unknown_value_falls_back(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        captured_events: list[dict[str, Any]],
+    ):
+        """An unrecognised value never asked for `otlp`, so it is not downgraded."""
         monkeypatch.setenv("OTEL_TRACES_EXPORTER", "carrier-pigeon")
         assert resolve_traces_exporter() == NONE
+        assert captured_events == []
+
+    def test_unknown_value_falls_back_to_otlp_with_an_endpoint(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", "carrier-pigeon")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
+        assert resolve_traces_exporter() == OTLP
 
 
 class TestBuildResource:
@@ -155,6 +279,22 @@ class TestConfigureTelemetry:
     ):
         monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
         assert configure_telemetry() is False
+
+    def test_kill_switch_builds_no_provider(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        no_side_effects: list[str],
+        installed_provider: list[TracerProvider],
+    ):
+        """The skip happens before any provider, processor or instrumentor exists."""
+        built: list[object] = []
+        monkeypatch.setattr(telemetry, "TracerProvider", lambda **kwargs: built.append(kwargs))
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
+
+        assert configure_telemetry() is False
+        assert built == []
+        assert installed_provider == []
+        assert no_side_effects == []
 
     def test_is_idempotent(self, no_side_effects: list[str]):
         """Every process entrypoint calls it; repeat calls must be no-ops."""
@@ -243,3 +383,63 @@ class TestConfigureTelemetry:
 
         assert sorted(no_side_effects) == INSTRUMENTED_NAMES
         assert provider.resource == unset_resource
+
+    @pytest.mark.parametrize("endpoint_var", ENDPOINT_VARS)
+    def test_endpoint_configured_attaches_one_batch_processor_wrapping_otlp(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        no_side_effects: list[str],
+        installed_provider: list[TracerProvider],
+        endpoint_var: str,
+    ):
+        """AC #1 at the `configure_telemetry` level, not only at resolution.
+
+        Real objects are built so the types are the SDK's own; the provider is
+        shut down afterwards so the batch worker thread does not outlive the
+        test. With no span recorded, shutdown exports nothing.
+        """
+        monkeypatch.setenv(endpoint_var, ENDPOINT_VALUES[endpoint_var])
+        assert configure_telemetry() is True
+
+        assert len(installed_provider) == 1
+        provider = installed_provider[0]
+        try:
+            processors = _processors(provider)
+            assert len(processors) == 1
+            assert isinstance(processors[0], BatchSpanProcessor)
+            assert isinstance(processors[0].span_exporter, OTLPSpanExporter)
+        finally:
+            provider.shutdown()
+
+    def test_explicit_otlp_without_an_endpoint_attaches_no_processor(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        no_side_effects: list[str],
+        installed_provider: list[TracerProvider],
+        constructed_exporters: list[str],
+        captured_events: list[dict[str, Any]],
+    ):
+        """AC #3: nothing is attached that could retry against the SDK default."""
+        monkeypatch.setenv("OTEL_TRACES_EXPORTER", OTLP)
+        assert configure_telemetry() is True
+
+        assert _processors(installed_provider[0]) == ()
+        assert constructed_exporters == []
+        assert [event["event"] for event in captured_events] == [DOWNGRADE_EVENT]
+
+    def test_spans_end_without_export_when_nothing_is_configured(
+        self,
+        no_side_effects: list[str],
+        installed_provider: list[TracerProvider],
+        constructed_exporters: list[str],
+    ):
+        """AC #2's second half: a span starts and ends, and no exporter exists."""
+        assert configure_telemetry() is True
+
+        tracer = installed_provider[0].get_tracer(__name__)
+        with tracer.start_as_current_span("unexported") as span:
+            assert span.get_span_context().is_valid
+        assert span.end_time is not None
+
+        assert constructed_exporters == []
+        assert has_span_processor(installed_provider[0]) is False
