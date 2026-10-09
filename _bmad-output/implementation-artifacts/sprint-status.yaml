@@ -101,7 +101,7 @@ development_status:
   6-3-trace-export-is-environmental-and-drops-rather-than-retries: done
   6-4-the-otlp-export-path-is-exercised-end-to-end: done
   6-5-swallowed-cache-failures-become-log-events: done
-  6-6-telemetry-overhead-is-measured-once-and-recorded: ready-for-dev
+  6-6-telemetry-overhead-is-measured-once-and-recorded: done
   epic-6-retrospective: optional
   epic-7: in-progress
   7-1-the-carrier-exists-and-every-path-carries-exactly-one-disposition: ready-for-dev
