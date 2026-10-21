@@ -5,11 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.1] - 2026-09-02
+## [0.1.2] - 2026-10-09
+
+### ⚙️ Miscellaneous Tasks
+
+- Record loop bookkeeping for story 6-3-trace-export-is-environmental-and-drops-rather-than-retries
+- Record loop bookkeeping for story 6-4-the-otlp-export-path-is-exercised-end-to-end
+- Record loop bookkeeping for story 6-5-swallowed-cache-failures-become-log-events
+- Record loop bookkeeping for story 6-6-telemetry-overhead-is-measured-once-and-recorded
+
+### ⭐ Features
+
+- **observability**: Drop rather than retry when otlp has no endpoint
+- **observability**: Exercise the otlp export path end to end against a collector stub
+- **observability**: Log swallowed redis cache failures with request and trace correlation
+- **observability**: Measure telemetry overhead once and record it (NFR-6)
+
+### 🐛 Bug Fixes
+
+- **test**: Detach close_old_connections while driving the ASGI callable
+
+### 📚 Documentation
+
+- **architecture**: Name the owner and stub design for the FR-45 open item
+- **story**: Record the owner and stub decision for story 6.4
+- **architecture**: Name the owner and milestone for the NFR-6 open item
+- **story**: Record the owner and milestone for story 6.6
+
+### 🧪 Testing
+
+- **observability**: Prove ASGI requests produce spans that agree with their log line
+
+## [0.1.1] - 2026-09-07
 
 ### ⚙️ Miscellaneous Tasks
 
 - **sprint**: Mark story 4.5 done
+- **release**: V0.1.1
 
 ### ⭐ Features
 
